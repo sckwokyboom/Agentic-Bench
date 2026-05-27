@@ -51,38 +51,39 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
     rundir.mkdir(parents=True, exist_ok=True)
 
     workdir, sha = fx.create_workdir(exp.fixture_path)
-    user_message = compose(exp.task_prompt, cond.augmentation)
-
-    events_file = (rundir / "events.jsonl").open("w")
-
-    def on_event(event: dict) -> None:
-        events_file.write(json.dumps(event) + "\n")
-        events_file.flush()
-
     try:
-        result = client.run_task(
-            workdir=str(workdir),
-            system_prompt=exp.system_prompt,
-            model=exp.model,
-            user_message=user_message,
-            timeout_s=exp.timeout_s,
-            on_event=on_event,
-        )
+        user_message = compose(exp.task_prompt, cond.augmentation)
+
+        events_file = (rundir / "events.jsonl").open("w")
+
+        def on_event(event: dict) -> None:
+            events_file.write(json.dumps(event) + "\n")
+            events_file.flush()
+
+        try:
+            result = client.run_task(
+                workdir=str(workdir),
+                system_prompt=exp.system_prompt,
+                model=exp.model,
+                user_message=user_message,
+                timeout_s=exp.timeout_s,
+                on_event=on_event,
+            )
+        finally:
+            events_file.close()
+
+        (rundir / "trace.json").write_text(json.dumps(result.trace.to_dict(), indent=2))
+        patch = fx.diff_workdir(workdir)
+        (rundir / "changes.patch").write_text(patch)
+
+        metrics = extract(result.trace, patch, mcfg)
+        (rundir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        (rundir / "manifest.json").write_text(json.dumps({
+            "condition": cond.name,
+            "rep": rep,
+            "model": exp.model,
+            "fixture_sha": sha,
+            "user_message": user_message,
+        }, indent=2))
     finally:
-        events_file.close()
-
-    (rundir / "trace.json").write_text(json.dumps(result.trace.to_dict(), indent=2))
-    patch = fx.diff_workdir(workdir)
-    (rundir / "changes.patch").write_text(patch)
-
-    metrics = extract(result.trace, patch, mcfg)
-    (rundir / "metrics.json").write_text(json.dumps(metrics, indent=2))
-    (rundir / "manifest.json").write_text(json.dumps({
-        "condition": cond.name,
-        "rep": rep,
-        "model": exp.model,
-        "fixture_sha": sha,
-        "user_message": user_message,
-    }, indent=2))
-
-    fx.cleanup(workdir)
+        fx.cleanup(workdir)

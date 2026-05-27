@@ -31,7 +31,8 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
 
     by_name: dict[str, int] = {}
     for s in tool_calls:
-        by_name[s.tool_name] = by_name.get(s.tool_name, 0) + 1
+        if s.tool_name is not None:
+            by_name[s.tool_name] = by_name.get(s.tool_name, 0) + 1
 
     test_res = [re.compile(p) for p in cfg.test_command_patterns]
     n_test = 0
