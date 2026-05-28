@@ -1,11 +1,18 @@
 # abench/opencode_client.py
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import threading
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Protocol
 
 from .config import OpenCodeCfg
 from .trace_model import Trace
+from .trace_normalize import normalize
 
 
 @dataclass
@@ -68,15 +75,6 @@ class RealOpenCodeClient:
         timeout_s: int,
         on_event: Callable[[dict], None],
     ) -> RunResult:
-        import json
-        import os
-        import subprocess
-        import threading
-        import time
-        from pathlib import Path
-
-        from .trace_normalize import normalize
-
         # ── Approach A: write workdir-local config ────────────────────────
         workdir_path = Path(workdir)
         config_data = {
@@ -134,8 +132,20 @@ class RealOpenCodeClient:
                 raw_events.append(event)
                 on_event(event)
 
+        def _drain_stderr() -> None:
+            """Drain stderr concurrently so the 64 KB OS pipe buffer can't fill
+            and block the subprocess (``--print-logs INFO`` is verbose)."""
+            if proc.stderr is None:
+                return
+            try:
+                proc.stderr.read()
+            except Exception:
+                pass
+
         reader = threading.Thread(target=_read_stdout, daemon=True)
         reader.start()
+        stderr_drainer = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_drainer.start()
 
         # Wait up to timeout_s for the process to finish.
         try:
@@ -143,20 +153,13 @@ class RealOpenCodeClient:
         except subprocess.TimeoutExpired:
             proc.kill()
             interrupted_reason = "timeout"
-            # Drain remaining stdout/stderr after kill.
             try:
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 pass
 
         reader.join(timeout=10)
-
-        # Drain stderr (we don't parse it, just consume it to avoid pipe blockage).
-        try:
-            if proc.stderr:
-                proc.stderr.read()
-        except Exception:
-            pass
+        stderr_drainer.join(timeout=10)
 
         ended_at = time.time()
         returncode = proc.returncode
@@ -169,11 +172,13 @@ class RealOpenCodeClient:
                     error_payload = ev.get("error") or ev.get("part", {})
                     status = None
                     if isinstance(error_payload, dict):
-                        status = (
-                            error_payload.get("statusCode")
-                            or error_payload.get("status")
-                            or error_payload.get("code")
-                        )
+                        # First key that is *present*, not first that is truthy:
+                        # a literal 0 should win over a missing field, even
+                        # though HTTP codes are never 0 in practice.
+                        for key in ("statusCode", "status", "code"):
+                            if error_payload.get(key) is not None:
+                                status = error_payload.get(key)
+                                break
                     if status == 429 or str(status) == "429":
                         interrupted_reason = "rate_limit"
                         break
@@ -197,13 +202,20 @@ class RealOpenCodeClient:
                     cwd=workdir,
                 )
                 raw_output = export_result.stdout
-                # Strip the leading "Exporting session: ...\n" prefix line.
+                # Locate the first line that begins the JSON document; this
+                # tolerates any number of informational preamble lines that
+                # `opencode export` might emit (today: one "Exporting session:
+                # <id>" line).
                 lines = raw_output.splitlines(keepends=True)
-                if lines and lines[0].startswith("Exporting session:"):
-                    lines = lines[1:]
-                json_text = "".join(lines).strip()
-                if json_text:
-                    raw_session = json.loads(json_text)
+                json_start = next(
+                    (i for i, line in enumerate(lines)
+                     if line.lstrip().startswith("{")),
+                    None,
+                )
+                if json_start is not None:
+                    json_text = "".join(lines[json_start:]).strip()
+                    if json_text:
+                        raw_session = json.loads(json_text)
             except Exception:
                 # Export failure must not poison the trace.
                 raw_session = None
