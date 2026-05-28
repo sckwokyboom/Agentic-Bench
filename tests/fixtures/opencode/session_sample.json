@@ -1,0 +1,237 @@
+Exporting session: ses_191d65dc6ffeYYR0LxItwE5qmH
+{
+  "info": {
+    "id": "ses_191d65dc6ffeYYR0LxItwE5qmH",
+    "slug": "gentle-canyon",
+    "projectID": "global",
+    "directory": "/private/tmp/oc-probe",
+    "path": "private/tmp/oc-probe",
+    "title": "Bash ls command execution",
+    "agent": "build",
+    "model": {
+      "id": "devstral-small-2507",
+      "providerID": "mistral",
+      "variant": "default"
+    },
+    "version": "1.15.11",
+    "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+    },
+    "cost": 0.0015831,
+    "tokens": {
+      "input": 15765,
+      "output": 22,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "permission": [
+      {
+        "permission": "question",
+        "pattern": "*",
+        "action": "deny"
+      },
+      {
+        "permission": "plan_enter",
+        "pattern": "*",
+        "action": "deny"
+      },
+      {
+        "permission": "plan_exit",
+        "pattern": "*",
+        "action": "deny"
+      }
+    ],
+    "time": {
+      "created": 1779964682809,
+      "updated": 1779964688255
+    }
+  },
+  "messages": [
+    {
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1779964682846
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "mistral",
+          "modelID": "devstral-small-2507"
+        },
+        "summary": {
+          "diffs": []
+        },
+        "id": "msg_e6e29a25e001VkQdgJKIcjFN6C",
+        "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH"
+      },
+      "parts": [
+        {
+          "type": "text",
+          "text": "\"Run 'ls' using the bash tool then reply done.\"",
+          "id": "prt_e6e29a263001fV0uxyx4W6zSbk",
+          "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH",
+          "messageID": "msg_e6e29a25e001VkQdgJKIcjFN6C"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_e6e29a25e001VkQdgJKIcjFN6C",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/private/tmp/oc-probe",
+          "root": "/"
+        },
+        "cost": 0.0007904,
+        "tokens": {
+          "total": 7864,
+          "input": 7844,
+          "output": 20,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "modelID": "devstral-small-2507",
+        "providerID": "mistral",
+        "time": {
+          "created": 1779964682932,
+          "completed": 1779964688250
+        },
+        "finish": "tool-calls",
+        "id": "msg_e6e29a2b4001K346riCKdVX04O",
+        "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH"
+      },
+      "parts": [
+        {
+          "type": "step-start",
+          "id": "prt_e6e29b74b001HbI6pZNcbnokbP",
+          "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH",
+          "messageID": "msg_e6e29a2b4001K346riCKdVX04O"
+        },
+        {
+          "type": "tool",
+          "tool": "bash",
+          "callID": "blBHpggrk",
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "ls",
+              "description": "Lists files in current directory"
+            },
+            "output": "exports\nnote.txt\nother.txt\nrun.stderr\nrun.stdout\nrun2.stderr\nrun2.stdout\nrun3.stderr\nrun3.stdout\nrun4.exit\nrun4.stderr\nrun4.stdout\nrun5.stderr\nrun5.stdout\n",
+            "metadata": {
+              "output": "exports\nnote.txt\nother.txt\nrun.stderr\nrun.stdout\nrun2.stderr\nrun2.stdout\nrun3.stderr\nrun3.stdout\nrun4.exit\nrun4.stderr\nrun4.stdout\nrun5.stderr\nrun5.stdout\n",
+              "exit": 0,
+              "description": "Lists files in current directory",
+              "truncated": false
+            },
+            "title": "Lists files in current directory",
+            "time": {
+              "start": 1779964688242,
+              "end": 1779964688246
+            }
+          },
+          "id": "prt_e6e29b74e001YOvsfD9tgBn01E",
+          "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH",
+          "messageID": "msg_e6e29a2b4001K346riCKdVX04O"
+        },
+        {
+          "reason": "tool-calls",
+          "type": "step-finish",
+          "tokens": {
+            "total": 7864,
+            "input": 7844,
+            "output": 20,
+            "reasoning": 0,
+            "cache": {
+              "write": 0,
+              "read": 0
+            }
+          },
+          "cost": 0.0007904,
+          "id": "prt_e6e29b777001hvpBKUj3H7iE2v",
+          "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH",
+          "messageID": "msg_e6e29a2b4001K346riCKdVX04O"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_e6e29a25e001VkQdgJKIcjFN6C",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/private/tmp/oc-probe",
+          "root": "/"
+        },
+        "cost": 0.0007927,
+        "tokens": {
+          "total": 7923,
+          "input": 7921,
+          "output": 2,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "modelID": "devstral-small-2507",
+        "providerID": "mistral",
+        "time": {
+          "created": 1779964688252,
+          "completed": 1779964688827
+        },
+        "finish": "stop",
+        "id": "msg_e6e29b77c0010mKTu73uBTN7Pv",
+        "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH"
+      },
+      "parts": [
+        {
+          "type": "step-start",
+          "id": "prt_e6e29b9ab0012sYBubYhQFi6Du",
+          "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH",
+          "messageID": "msg_e6e29b77c0010mKTu73uBTN7Pv"
+        },
+        {
+          "type": "text",
+          "text": "done",
+          "time": {
+            "start": 1779964688817,
+            "end": 1779964688822
+          },
+          "id": "prt_e6e29b9b1001FtFIjpmn0rpXKD",
+          "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH",
+          "messageID": "msg_e6e29b77c0010mKTu73uBTN7Pv"
+        },
+        {
+          "reason": "stop",
+          "type": "step-finish",
+          "tokens": {
+            "total": 7923,
+            "input": 7921,
+            "output": 2,
+            "reasoning": 0,
+            "cache": {
+              "write": 0,
+              "read": 0
+            }
+          },
+          "cost": 0.0007927,
+          "id": "prt_e6e29b9b8001mwBVLB2UIJmbyg",
+          "sessionID": "ses_191d65dc6ffeYYR0LxItwE5qmH",
+          "messageID": "msg_e6e29b77c0010mKTu73uBTN7Pv"
+        }
+      ]
+    }
+  ]
+}
