@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -13,6 +14,59 @@ from typing import Callable, Protocol
 from .config import OpenCodeCfg
 from .trace_model import Trace
 from .trace_normalize import normalize
+
+_PRINT_LOCK = threading.Lock()
+
+
+def _log(msg: str) -> None:
+    """Write a single line to stderr under a lock so concurrent threads
+    (stdout reader, stderr drainer, runner) don't interleave mid-line."""
+    with _PRINT_LOCK:
+        sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
+
+
+def _truncate(text: str, n: int) -> str:
+    text = text.replace("\n", " ").strip()
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+def _summarize_event(event: dict) -> str | None:
+    """Return a one-line human summary of an OpenCode JSONL event, or None
+    if the event is not worth printing live."""
+    part = event.get("part") or {}
+    ptype = part.get("type")
+
+    if ptype == "text":
+        text = part.get("text") or ""
+        snippet = _truncate(text, 140)
+        return f"  [llm ] {snippet}" if snippet else None
+
+    if ptype == "tool":
+        name = part.get("tool") or "?"
+        state = part.get("state") or {}
+        status = state.get("status")
+        args = state.get("input") or {}
+        hint = (
+            args.get("command")
+            or args.get("filePath")
+            or args.get("path")
+            or args.get("pattern")
+            or ""
+        )
+        hint = _truncate(str(hint), 100)
+        tag = {"completed": "ok ", "error": "err"}.get(status, "...")
+        return f"  [tool] {tag} {name} {hint}".rstrip()
+
+    if ptype == "reasoning":
+        text = part.get("text") or ""
+        snippet = _truncate(text, 100)
+        return f"  [think] {snippet}" if snippet else "  [think]"
+
+    if event.get("type") == "error" or ptype == "error":
+        return f"  [ERR] {_truncate(json.dumps(event), 200)}"
+
+    return None
 
 
 @dataclass
@@ -107,6 +161,8 @@ class RealOpenCodeClient:
             user_message,
         ]
 
+        _log(f"[abench] $ {' '.join(cmd[:6])} … (cwd={workdir})")
+
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -119,7 +175,8 @@ class RealOpenCodeClient:
         interrupted_reason: str | None = None
 
         def _read_stdout() -> None:
-            """Read stdout line by line; parse JSONL; call on_event live."""
+            """Read stdout line by line; parse JSONL; call on_event live and
+            print a one-line summary so the operator can see progress."""
             assert proc.stdout is not None
             for line in proc.stdout:
                 text = line.decode("utf-8", errors="replace").rstrip()
@@ -130,15 +187,23 @@ class RealOpenCodeClient:
                 except json.JSONDecodeError:
                     continue  # forwards-compat: skip unparseable lines
                 raw_events.append(event)
+                summary = _summarize_event(event)
+                if summary is not None:
+                    _log(summary)
                 on_event(event)
 
         def _drain_stderr() -> None:
-            """Drain stderr concurrently so the 64 KB OS pipe buffer can't fill
-            and block the subprocess (``--print-logs INFO`` is verbose)."""
+            """Forward opencode's stderr (``--print-logs INFO`` is verbose,
+            but it's the surest signal that the subprocess is alive). Reading
+            line-by-line both keeps the OS pipe from filling and lets the user
+            see progress in real time."""
             if proc.stderr is None:
                 return
             try:
-                proc.stderr.read()
+                for raw in proc.stderr:
+                    text = raw.decode("utf-8", errors="replace").rstrip()
+                    if text:
+                        _log(f"  [opencode] {text}")
             except Exception:
                 pass
 

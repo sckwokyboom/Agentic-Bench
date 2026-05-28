@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Callable
@@ -15,6 +16,11 @@ from .opencode_client import OpenCodeClient
 from .prompt import compose
 
 ClientFactory = Callable[[Experiment], OpenCodeClient]
+
+
+def _log(msg: str) -> None:
+    sys.stderr.write(msg + "\n")
+    sys.stderr.flush()
 
 
 def _dump_resolved(exp: Experiment) -> str:
@@ -37,11 +43,32 @@ def run_experiment(exp: Experiment, client_factory: ClientFactory) -> Path:
     mcfg = MetricsConfig(**exp.metrics.model_dump())
     client = client_factory(exp)
 
+    total = len(exp.conditions) * exp.repetitions
+    t_exp = time.time()
+    _log(
+        f"[abench] experiment={exp.name} model={exp.model} "
+        f"total_runs={total} timeout_s={exp.timeout_s} output_dir={root}"
+    )
+
+    idx = 0
     for cond in exp.conditions:
         for rep in range(exp.repetitions):
+            idx += 1
+            _log(
+                f"[abench] ───── run {idx}/{total}: "
+                f"condition={cond.name} rep={rep} ─────"
+            )
+            t_run = time.time()
             _run_one(exp, cond, rep, root, client, mcfg)
+            _log(
+                f"[abench] run {idx}/{total} done in {time.time() - t_run:.1f}s"
+            )
             if exp.min_seconds_between_runs:
+                _log(f"[abench] cooldown {exp.min_seconds_between_runs}s")
                 time.sleep(exp.min_seconds_between_runs)
+    _log(
+        f"[abench] experiment finished in {time.time() - t_exp:.1f}s → {root}"
+    )
     return root
 
 
@@ -78,6 +105,13 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
 
         metrics = extract(result.trace, patch, mcfg)
         (rundir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+
+        tr = result.trace
+        _log(
+            f"[abench] result: finished={tr.finished} "
+            f"reason={tr.interrupted_reason} steps={len(tr.steps)} "
+            f"tokens_in={tr.tokens_in} tokens_out={tr.tokens_out}"
+        )
         (rundir / "manifest.json").write_text(json.dumps({
             "condition": cond.name,
             "rep": rep,
