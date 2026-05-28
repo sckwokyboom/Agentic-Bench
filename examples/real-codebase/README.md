@@ -12,6 +12,16 @@
 дальше будем считать его рабочим примером; для другого таргета просто
 скопируешь скелет под новым именем.
 
+## 0. Установка abench (раз на машину)
+
+Если abench ещё не настроен — пройди quickstart из [корневого README](../../README.md):
+клонируешь репо, создаёшь `.venv`, ставишь `pip install -e ".[dev]"`,
+`npm i -g opencode-ai`. Проверь, что `abench --help` запускается из
+корня репо при активной venv.
+
+Все команды ниже — из **корня репозитория**, с активной `.venv`
+(`source .venv/bin/activate`).
+
 ## 1. Выбери целевой метод
 
 Хороший таргет:
@@ -108,9 +118,9 @@ model: openrouter/deepseek/deepseek-chat-v3.1
 
 ## 5. Запуск
 
+Из корня репозитория, при активной venv:
+
 ```bash
-cd /Users/sckwoky/Projects/Agentic-Bench
-source .venv/bin/activate
 abench run experiments/picocli-putValue/experiment.yaml
 ```
 
