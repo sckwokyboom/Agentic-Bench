@@ -68,8 +68,10 @@ abench/                            # Python-пакет
   report.py                        # pandas-агрегация → summary.csv + summary.md
   cli.py                           # abench run / abench report
 tests/                             # 21 теста, включая два e2e на реальный opencode
-examples/picocli-wordcount/        # готовый пример end-to-end (синтетический мини-проект)
+examples/picocli-wordcount/        # готовый end-to-end пример (синтетический мини-проект)
 examples/real-codebase/            # рецепт «принеси свой codebase» (на примере picocli)
+experiments/                       # рабочие эксперименты (определения трекаются, тяжёлые копии — в .gitignore)
+  picocli-putValue/                #   ↳ скелет под picocli/putValue — клонируешь picocli в ./original и ./stripped
 docs/superpowers/
   specs/                           # дизайн-спека
   plans/                           # план реализации
@@ -111,3 +113,4 @@ docs/superpowers/
 - Заметки по реальному API OpenCode: [`docs/superpowers/notes/opencode-api.md`](docs/superpowers/notes/opencode-api.md)
 - Разбор синтетического примера и метрик: [`examples/picocli-wordcount/README.md`](examples/picocli-wordcount/README.md)
 - Рецепт для полноценного проекта (`picocli` + стрипнутый `putValue`): [`examples/real-codebase/README.md`](examples/real-codebase/README.md)
+- Соглашение о директории `experiments/` и скелет под picocli: [`experiments/README.md`](experiments/README.md)

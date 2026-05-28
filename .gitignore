@@ -4,3 +4,8 @@ __pycache__/
 runs/
 .pytest_cache/
 .idea
+
+# Heavy experiment artefacts (your project copies; never committed).
+# Tracked-by-git parts of an experiment are: experiment.yaml, prompts/, slices/.
+experiments/*/original/
+experiments/*/stripped/

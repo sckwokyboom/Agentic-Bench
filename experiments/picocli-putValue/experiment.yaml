@@ -1,0 +1,29 @@
+name: picocli-putValue
+fixture_path: ./stripped
+reference_path: ./original
+task_prompt: ./prompts/task.md
+system_prompt: ./prompts/system.md
+
+# Bundled default: free, no extra credentials.
+# After `opencode providers login` you can switch to:
+#   model: deepseek/deepseek-chat
+# Or route DeepSeek through the already-configured OpenRouter:
+#   model: openrouter/deepseek/deepseek-chat-v3.1
+model: opencode/deepseek-v4-flash-free
+
+repetitions: 3
+output_dir: ./runs
+timeout_s: 600
+
+opencode:
+  agent: abench
+
+conditions:
+  - {name: baseline,  augmentation: null}
+  - {name: augmented, augmentation: ./slices/putValue-graph-slice.md}
+
+metrics:
+  test_command_patterns:
+    - "(mvn|mvnw)( |$)"
+    - "(gradle|gradlew)( |$)"
+    - "junit"
