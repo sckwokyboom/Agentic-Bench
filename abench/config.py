@@ -21,7 +21,6 @@ class Condition(BaseModel):
 
 
 class OpenCodeCfg(BaseModel):
-    port: int = 0
     agent: str = "bench"
     binary: str = "opencode"
 
