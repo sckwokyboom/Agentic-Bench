@@ -12,3 +12,8 @@ experiments/*/stripped/
 
 # Brainstorming companion artefacts (mockups, UI state — per-session)
 .superpowers/
+
+# Web frontend build artefacts
+web/node_modules
+web/dist
+abench_ui/static/
