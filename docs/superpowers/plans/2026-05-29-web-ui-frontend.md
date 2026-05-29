@@ -4317,8 +4317,11 @@ export default function FinalDiffCard({ name, condition, rep }: Props) {
   const files: PatchFile[] = parsePatch(patch.data);
   const totalAdded = files.reduce((s, f) => s + f.added, 0);
   const totalRemoved = files.reduce((s, f) => s + f.removed, 0);
-  const showFiles = expanded ? files : files.slice(0, 3);
+  // Spec §7.4: only diffs with ≥5 files or ≥200 lines collapse to the first 3.
+  // showFiles MUST guard on !isLong, otherwise a short 4-file diff slices to 3
+  // with no "show all" toggle and silently drops file #4.
   const isLong = files.length >= 5 || (totalAdded + totalRemoved) >= 200;
+  const showFiles = expanded || !isLong ? files : files.slice(0, 3);
 
   return (
     <Card variant="outlined">
