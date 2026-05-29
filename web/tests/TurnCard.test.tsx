@@ -35,4 +35,6 @@ test("renders reasoning + tool call + per-turn stats", async () => {
   await userEvent.click(btn);
   // The raw JSONL line is unique (the turn reason chip also contains "tool-call").
   expect(screen.getByText(/"type":"tool-call"/)).toBeInTheDocument();
+  // Role marker for reasoning is present in the airier layout.
+  expect(screen.getByText(/💭/)).toBeInTheDocument();
 });
