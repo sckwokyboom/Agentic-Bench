@@ -17,6 +17,25 @@ export interface RunSummary {
   verify_status: VerifyStatus | null;
   success: boolean | null;
   started_at: string;
+  duration_s: number | null;
+  n_steps: number | null;
+  n_tool_calls: number | null;
+  n_test_runs: number | null;
+  cost: number | null;
+}
+
+export interface ConditionSummary {
+  name: string;
+  runs: number;
+  success_rate: number | null;
+  metrics: Record<string, { mean: number | null; median: number | null }>;
+}
+
+export interface RunsSummary {
+  conditions: ConditionSummary[];
+  deltas: Record<string, number>;
+  total_runs: number;
+  valid_runs: number;
 }
 
 export type VerifyStatus = "passed" | "failed" | "skipped" | "error" | "timeout";

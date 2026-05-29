@@ -8,6 +8,7 @@ export const qk = {
   experiments: ["experiments"] as const,
   experiment: (name: string) => ["experiment", name] as const,
   runs: (name: string) => ["runs", name] as const,
+  runsSummary: (name: string) => ["runsSummary", name] as const,
   trace: (name: string, condition: string, rep: number) =>
     ["trace", name, condition, rep] as const,
   metrics: (name: string, condition: string, rep: number) =>
@@ -65,6 +66,13 @@ export const useRuns = (name: string | undefined) =>
     queryKey: qk.runs(name ?? ""),
     enabled: Boolean(name),
     queryFn: () => apiGet<t.RunSummary[]>(`/api/runs/${name}`),
+  });
+
+export const useRunsSummary = (name: string | undefined) =>
+  useQuery({
+    queryKey: qk.runsSummary(name ?? ""),
+    enabled: Boolean(name),
+    queryFn: () => apiGet<t.RunsSummary>(`/api/runs/${name}/summary`),
   });
 
 export const useTrace = (name: string, condition: string, rep: number) =>
