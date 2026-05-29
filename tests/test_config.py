@@ -59,3 +59,50 @@ def test_reference_inside_output_dir_raises(tmp_path):
     (tmp_path / "runs" / "reference").mkdir(parents=True)
     with pytest.raises(ValueError, match="anti-leak"):
         load_experiment(yaml_path)
+
+
+def test_load_experiment_defaults_for_new_fields(tmp_path):
+    yaml_path = _scaffold(tmp_path)
+    exp = load_experiment(yaml_path)
+    # verify defaults
+    assert exp.verify.enabled is True
+    assert exp.verify.timeout_s == 300
+    assert exp.verify.command is None
+    # isolation defaults: both lightweight mechanisms ON
+    assert exp.isolation.nonce_prefix is True
+    assert exp.isolation.shuffle_order is True
+    assert exp.isolation.user_field_template is None
+    # target defaults: optional, both None
+    assert exp.target_file is None
+    assert exp.target_methods is None
+
+
+def test_load_experiment_accepts_verify_and_isolation_blocks(tmp_path):
+    yaml_path = _scaffold(tmp_path)
+    yaml_path.write_text(yaml_path.read_text() + """
+verify:
+  command: ./gradlew test
+  timeout_s: 600
+  enabled: true
+isolation:
+  nonce_prefix: false
+  shuffle_order: true
+""")
+    exp = load_experiment(yaml_path)
+    assert exp.verify.command == "./gradlew test"
+    assert exp.verify.timeout_s == 600
+    assert exp.isolation.nonce_prefix is False
+    assert exp.isolation.shuffle_order is True
+
+
+def test_target_file_must_exist_relative_to_fixture(tmp_path):
+    _scaffold(tmp_path)
+    yaml_path = tmp_path / "exp.yaml"
+    yaml_path.write_text(yaml_path.read_text() + "\ntarget_file: a.py\n")
+    # a.py exists in the fixture from _scaffold — ok
+    exp = load_experiment(yaml_path)
+    assert exp.target_file == "a.py"
+
+    yaml_path.write_text(yaml_path.read_text().replace("a.py", "missing.py"))
+    with pytest.raises(ValueError, match="target_file"):
+        load_experiment(yaml_path)

@@ -36,6 +36,20 @@ class MetricsCfg(BaseModel):
         default_factory=lambda: ["command", "cmd", "script"])
 
 
+class VerifyCfg(BaseModel):
+    command: str | None = None          # override; otherwise auto-detect at run time
+    enabled: bool = True
+    timeout_s: int = 300
+
+
+class IsolationCfg(BaseModel):
+    nonce_prefix: bool = True            # uuid4 comment line at top of system_prompt
+    shuffle_order: bool = True           # randomize condition×rep order
+    # v2 heavyweight (not consumed in v1; placeholder for forward-compat):
+    user_field_template: str | None = None
+    api_key_env_list: str | None = None
+
+
 class Experiment(BaseModel):
     name: str
     fixture_path: Path
@@ -50,6 +64,10 @@ class Experiment(BaseModel):
     timeout_s: int = 600
     min_seconds_between_runs: float = 0.0
     metrics: MetricsCfg = Field(default_factory=MetricsCfg)
+    verify: VerifyCfg = Field(default_factory=VerifyCfg)
+    isolation: IsolationCfg = Field(default_factory=IsolationCfg)
+    target_file: str | None = None
+    target_methods: list[str] | None = None
 
 
 def _resolve_text(value: str | None, base: Path) -> str | None:
@@ -91,3 +109,9 @@ def _validate(exp: Experiment) -> None:
         raise ValueError("reference_path must be outside output_dir (anti-leak)")
     if not exp.conditions:
         raise ValueError("at least one condition required")
+    if exp.target_file is not None:
+        full = exp.fixture_path / exp.target_file
+        if not full.is_file():
+            raise ValueError(
+                f"target_file not found relative to fixture_path: {exp.target_file}"
+            )
