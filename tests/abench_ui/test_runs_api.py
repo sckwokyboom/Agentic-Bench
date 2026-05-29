@@ -65,3 +65,36 @@ def test_read_events_endpoint(client):
     r = c.get("/api/runs/exp-a/baseline/0/events")
     assert r.status_code == 200
     assert "ping" in r.text  # the helper writes {"type":"ping"} to events.jsonl
+
+
+def _seed_run(exp_dir: Path, name: str, condition: str, rep: int, metrics: dict) -> None:
+    d = exp_dir / name / "runs" / name / condition / f"rep_{rep}"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "metrics.json").write_text(json.dumps(metrics))
+    (d / "manifest.json").write_text(json.dumps({"condition": condition, "rep": rep}))
+
+
+def test_runs_summary_endpoint(tmp_path: Path):
+    exp_dir = tmp_path / "experiments"
+    base = {"interrupted_reason": None, "success": True, "n_steps": 10, "duration_s": 100.0}
+    _seed_run(exp_dir, "exp", "baseline", 0, base)
+    _seed_run(exp_dir, "exp", "augmented", 0, {**base, "n_steps": 5})
+    app = create_app(experiments_dir=exp_dir)
+    client = TestClient(app)
+
+    resp = client.get("/api/runs/exp/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_runs"] == 2
+    names = {c["name"] for c in body["conditions"]}
+    assert names == {"baseline", "augmented"}
+    assert body["deltas"]["n_steps"] == -50.0
+
+
+def test_runs_summary_404_when_no_runs(tmp_path: Path):
+    exp_dir = tmp_path / "experiments"
+    (exp_dir / "exp").mkdir(parents=True)
+    app = create_app(experiments_dir=exp_dir)
+    client = TestClient(app)
+    resp = client.get("/api/runs/exp/summary")
+    assert resp.status_code == 404

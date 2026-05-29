@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
+from abench import report
 from abench.config import Experiment
 from abench.opencode_client import RealOpenCodeClient
 
@@ -162,6 +163,13 @@ def create_app(
     def _list_runs(name: str):
         runs_dir = _exp_dir_for(name) / "runs" / name
         return runs_mod.list_runs(runs_dir)
+
+    @api.get("/runs/{name}/summary")
+    def _runs_summary(name: str):
+        runs_dir = _exp_dir_for(name) / "runs" / name
+        if not runs_dir.is_dir():
+            raise HTTPException(404, f"no runs for '{name}'")
+        return report.summary_json(runs_dir)
 
     @api.get("/runs/{name}/{condition}/{rep}/metrics")
     def _read_metrics(name: str, condition: str, rep: int):
