@@ -20,6 +20,8 @@ test("renders condition columns, metric means and the delta", () => {
   expect(screen.getByText(/baseline/)).toBeInTheDocument();
   expect(screen.getByText(/augmented/)).toBeInTheDocument();
   expect(screen.getByText("steps")).toBeInTheDocument();
+  expect(screen.getByText("success rate")).toBeInTheDocument();
+  expect(screen.getAllByText("100%")).toHaveLength(2); // one per condition
   expect(screen.getByText("15.00")).toBeInTheDocument();
   expect(screen.getByText("6.00")).toBeInTheDocument();
   expect(screen.getByText("-60.0%")).toBeInTheDocument();

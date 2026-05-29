@@ -21,6 +21,15 @@ export default function SummaryTable({ summary }: Props) {
   }
   const conditions = summary.conditions;
   const hasDelta = Object.keys(summary.deltas).length > 0;
+
+  // success_rate is a top-level per-condition field (not in metrics/deltas), and
+  // higher is better — so its delta is a percentage-POINT diff, green when up.
+  const base = conditions.find((c) => c.name === "baseline");
+  const aug = conditions.find((c) => c.name === "augmented");
+  const srDeltaPP =
+    base?.success_rate != null && aug?.success_rate != null
+      ? (aug.success_rate - base.success_rate) * 100
+      : null;
   return (
     <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "auto" }}>
       <Table size="small">
@@ -34,6 +43,22 @@ export default function SummaryTable({ summary }: Props) {
           </TableRow>
         </TableHead>
         <TableBody>
+          <TableRow hover>
+            <TableCell>success rate</TableCell>
+            {conditions.map((c) => (
+              <TableCell key={c.name} align="right" sx={selectable}>
+                {c.success_rate == null ? "—" : `${(c.success_rate * 100).toFixed(0)}%`}
+              </TableCell>
+            ))}
+            {hasDelta && (
+              <TableCell
+                align="right"
+                sx={{ color: srDeltaPP == null || srDeltaPP === 0 ? "text.secondary" : srDeltaPP > 0 ? "success.main" : "error.main" }}
+              >
+                {srDeltaPP == null ? "—" : `${srDeltaPP > 0 ? "+" : ""}${srDeltaPP.toFixed(0)}pp`}
+              </TableCell>
+            )}
+          </TableRow>
           {SUMMARY_METRICS.map((m) => {
             const delta = summary.deltas[m.key];
             const good = delta != null && (m.lowerIsBetter ? delta < 0 : delta > 0);

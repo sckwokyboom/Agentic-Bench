@@ -3,6 +3,7 @@ import {
   Stack, Typography, CircularProgress, Alert, Button, Box, Link,
 } from "@mui/material";
 import { useRuns, useRunsSummary } from "../api/queries";
+import { ApiError } from "../api/client";
 import SummaryTable from "../components/SummaryTable";
 import RunsTable from "../components/RunsTable";
 
@@ -24,7 +25,11 @@ export default function ExperimentResults() {
       <Box>
         <Typography variant="subtitle2" gutterBottom>Aggregate (baseline vs augmented)</Typography>
         {summary.isLoading && <CircularProgress size={20} />}
-        {summary.error && <Alert severity="error">Failed to load summary.</Alert>}
+        {summary.error && (
+          (summary.error as ApiError)?.status === 404
+            ? <Typography variant="body2" color="text.secondary">No runs yet — nothing to aggregate.</Typography>
+            : <Alert severity="error">Failed to load summary.</Alert>
+        )}
         {summary.data && <SummaryTable summary={summary.data} />}
       </Box>
 
