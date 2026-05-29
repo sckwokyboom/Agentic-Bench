@@ -1948,8 +1948,10 @@ export default function ExperimentEdit() {
     navigate(`/runs/sessions/${session_id}`);
   }
 
-  if (!schema || !formData) return <CircularProgress />;
+  // Error guard MUST come first: on a fetch error TanStack Query leaves
+  // exp.data undefined, so a data-first guard would render a perpetual spinner.
   if (exp.error) return <Alert severity="error">Failed to load experiment.</Alert>;
+  if (!schema || !formData) return <CircularProgress />;
 
   return (
     <Stack direction="row" spacing={2} sx={{ height: "100%" }}>
