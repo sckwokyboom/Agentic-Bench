@@ -90,3 +90,84 @@ def test_shuffle_changes_run_order_deterministically(tmp_path):
     ])
     # NOTE: with a fixed day-seed the permutation is deterministic; we don't
     # assert a specific order here because day rolls; just that all 4 ran.
+
+
+import subprocess
+
+
+def test_shuffle_is_deterministic_across_process_invocations():
+    """Two separate Python processes on the same calendar day must produce
+    the same shuffle for the same experiment name. PYTHONHASHSEED randomises
+    Python's builtin `hash()`, so the runner must use a salt-stable hash."""
+    script = (
+        "import datetime, random, sys, hashlib\n"
+        "name = sys.argv[1]\n"
+        "raw = (name + datetime.date.today().isoformat()).encode()\n"
+        "seed = int(hashlib.sha256(raw).hexdigest()[:16], 16)\n"
+        "plan = list(range(8))\n"
+        "random.Random(seed).shuffle(plan)\n"
+        "print(plan)\n"
+    )
+    out1 = subprocess.run(
+        ["python3", "-c", script, "iso-det-test"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    out2 = subprocess.run(
+        ["python3", "-c", script, "iso-det-test"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert out1 == out2, f"shuffle drifted across processes: {out1!r} vs {out2!r}"
+
+
+def test_run_verify_exception_does_not_lose_manifest(tmp_path, monkeypatch):
+    """If run_verify raises, the rep must still write manifest.json and the
+    trace must record verify_status='error'."""
+    from abench import runner as runner_module
+    from abench.config import Condition, Experiment, IsolationCfg, MetricsCfg, OpenCodeCfg, VerifyCfg
+
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    (fixture / "a.py").write_text("x = 1\n")
+    (fixture / "pom.xml").write_text("<project/>")  # so detect_command returns "mvn test"
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    exp = Experiment(
+        name="ver-exc",
+        fixture_path=fixture, reference_path=reference,
+        task_prompt="t", system_prompt="s", model="m",
+        output_dir=tmp_path / "runs", repetitions=1,
+        conditions=[Condition(name="baseline", augmentation=None)],
+        opencode=OpenCodeCfg(), metrics=MetricsCfg(),
+        isolation=IsolationCfg(nonce_prefix=False, shuffle_order=False),
+        verify=VerifyCfg(enabled=True),
+    )
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated verify parser crash")
+
+    monkeypatch.setattr(runner_module, "run_verify", boom)
+    # Also bypass baseline pre-flight so the test doesn't touch it
+    monkeypatch.setattr(runner_module, "_maybe_run_baseline_verify",
+                        lambda *a, **kw: None)
+
+    from tests.fakes import FakeOpenCodeClient
+    runner_module.run_experiment(exp, lambda e: FakeOpenCodeClient())
+
+    rundir = tmp_path / "runs" / exp.name / "baseline" / "rep_0"
+    assert (rundir / "manifest.json").is_file(), "manifest.json must exist even when verify raises"
+    import json as _json
+    metrics = _json.loads((rundir / "metrics.json").read_text())
+    assert metrics["verify_status"] == "error"
+
+
+def test_per_file_diffstat_handles_paths_with_spaces():
+    """diff --git a/path with spaces/x b/path with spaces/x must keep the full path."""
+    from abench.runner import _per_file_diffstat
+    patch = (
+        "diff --git a/has spaces/foo.py b/has spaces/foo.py\n"
+        "--- a/has spaces/foo.py\n"
+        "+++ b/has spaces/foo.py\n"
+        "+added line\n"
+    )
+    out = _per_file_diffstat(patch)
+    assert out == [("has spaces/foo.py", 1, 0)]
