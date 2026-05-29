@@ -66,3 +66,29 @@ def test_ws_publishes_session_lifecycle(tmp_path):
     assert "run.started" in types_seen
     assert "raw_event" in types_seen
     assert "run.finished" in types_seen
+
+
+def test_envelopes_carry_condition_and_rep(tmp_path):
+    _scaffold_minimal_exp(tmp_path)
+    from tests.fakes import FakeOpenCodeClient
+    app = create_app(
+        experiments_dir=tmp_path,
+        client_factory_override=lambda e: FakeOpenCodeClient(),
+    )
+    client = TestClient(app)
+    r = client.post("/api/runs", json={"experiment_name": "exp-ws"})
+    sid = r.json()["session_id"]
+
+    with client.websocket_connect(f"/ws/sessions/{sid}") as ws:
+        run_starteds = []
+        while True:
+            msg = ws.receive_json(mode="text")
+            if msg["type"] == "run.started":
+                run_starteds.append(msg)
+            if msg["type"] == "session.finished":
+                break
+    assert run_starteds
+    for m in run_starteds:
+        assert "condition" in m
+        assert "rep" in m
+        assert m["condition"] == "baseline"

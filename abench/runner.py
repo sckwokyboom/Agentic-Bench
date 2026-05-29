@@ -25,6 +25,16 @@ from .verify import detect_command as _detect_verify, run_verify
 ClientFactory = Callable[[Experiment], OpenCodeClient]
 
 
+def compute_plan(exp: Experiment) -> list[tuple["Condition", int]]:
+    """Build the (condition, rep) execution plan, applying isolation.shuffle_order."""
+    plan = [(cond, rep) for cond in exp.conditions for rep in range(exp.repetitions)]
+    if exp.isolation.shuffle_order:
+        raw = (exp.name + datetime.date.today().isoformat()).encode()
+        seed = int(hashlib.sha256(raw).hexdigest()[:16], 16)
+        random.Random(seed).shuffle(plan)
+    return plan
+
+
 def _log(msg: str) -> None:
     sys.stderr.write(msg + "\n")
     sys.stderr.flush()
@@ -50,13 +60,7 @@ def run_experiment(exp: Experiment, client_factory: ClientFactory) -> Path:
     mcfg = MetricsConfig(**exp.metrics.model_dump())
     client = client_factory(exp)
 
-    plan: list[tuple[Condition, int]] = [
-        (cond, rep) for cond in exp.conditions for rep in range(exp.repetitions)
-    ]
-    if exp.isolation.shuffle_order:
-        raw = (exp.name + datetime.date.today().isoformat()).encode()
-        seed = int(hashlib.sha256(raw).hexdigest()[:16], 16)
-        random.Random(seed).shuffle(plan)
+    plan = compute_plan(exp)
 
     # Baseline pre-flight verify
     if exp.verify.enabled:
@@ -177,6 +181,13 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             # Refresh metrics (verify_* propagate via metrics.extract)
             metrics = extract(result.trace, patch, mcfg)
             (rundir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+
+        # Snapshot target_file (if configured) so /method_comparison can read it later.
+        if exp.target_file:
+            target_src = workdir / exp.target_file
+            if target_src.is_file():
+                target_dst = rundir / "target_after_agent.txt"
+                target_dst.write_text(target_src.read_text(), encoding="utf-8")
 
         tr = result.trace
         _log(

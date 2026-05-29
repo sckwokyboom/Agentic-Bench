@@ -19,7 +19,7 @@ from typing import Callable
 
 from abench.config import Experiment
 from abench.opencode_client import RunResult
-from abench.runner import run_experiment
+from abench.runner import compute_plan, run_experiment
 from .ws_client import WSPublishingClient
 
 
@@ -45,12 +45,16 @@ class _PerRunPublishingClient:
         publish: Callable[[dict], None],
         session_id: str,
         total_runs: int,
+        plan: list,
+        position_callback: Callable[[int, str, int], None],
     ):
         self._inner = inner
         self._publish = publish
         self._session_id = session_id
         self._total_runs = total_runs
-        self._run_idx = 0
+        self._plan = plan
+        self._position_callback = position_callback
+        self._idx: int = 0
 
     def run_task(
         self,
@@ -62,14 +66,20 @@ class _PerRunPublishingClient:
         timeout_s: int,
         on_event: Callable[[dict], None],
     ) -> RunResult:
-        self._run_idx += 1
-        run_idx = self._run_idx
+        cond, rep = self._plan[self._idx]
+        self._idx += 1
+        run_idx = self._idx  # 1-based
+
+        # Notify RunSession about the current position
+        self._position_callback(run_idx, cond.name, rep)
 
         self._publish({
             "type": "run.started",
             "session_id": self._session_id,
             "run_idx": run_idx,
             "total_runs": self._total_runs,
+            "condition": cond.name,
+            "rep": rep,
         })
 
         def on_event_relay(event: dict) -> None:
@@ -77,6 +87,8 @@ class _PerRunPublishingClient:
                 "type": "raw_event",
                 "session_id": self._session_id,
                 "run_idx": run_idx,
+                "condition": cond.name,
+                "rep": rep,
                 "event": event,
             })
             on_event(event)
@@ -96,6 +108,8 @@ class _PerRunPublishingClient:
             "session_id": self._session_id,
             "run_idx": run_idx,
             "total_runs": self._total_runs,
+            "condition": cond.name,
+            "rep": rep,
             "finished": tr.finished,
             "interrupted_reason": tr.interrupted_reason,
             "verify_status": tr.verify_status,
@@ -121,6 +135,20 @@ class RunSession:
         self.ended_at: float | None = None
         self._thread: threading.Thread | None = None
         self._cancel_flag = threading.Event()
+        # Plan-tracking attributes
+        self.plan: list = []
+        self.current_idx: int = 0
+        self.total_runs: int = 0
+        self._current_condition: str | None = None
+        self._current_rep: int | None = None
+
+    @property
+    def current_condition(self) -> str | None:
+        return self._current_condition
+
+    @property
+    def current_rep(self) -> int | None:
+        return self._current_rep
 
     def start(self) -> None:
         if self._thread is not None:
@@ -133,14 +161,26 @@ class RunSession:
         hard-kill the running opencode subprocess."""
         self._cancel_flag.set()
 
+    def _position_callback(self, idx: int, condition: str, rep: int) -> None:
+        """Called by _PerRunPublishingClient on each run_task entry."""
+        self.current_idx = idx
+        self._current_condition = condition
+        self._current_rep = rep
+
     def _run(self) -> None:
         self.state = SessionState.RUNNING
         self.started_at = time.time()
-        total = len(self.experiment.conditions) * self.experiment.repetitions
+
+        # Compute the execution plan so RunSession and _PerRunPublishingClient
+        # share the same shuffled ordering.
+        self.plan = compute_plan(self.experiment)
+        self.total_runs = len(self.plan)
+
         self._publish({
             "type": "session.started",
             "session_id": self.id,
-            "total_runs": total,
+            "total_runs": self.total_runs,
+            "conditions": [c.name for c in self.experiment.conditions],
         })
 
         def wrapped_factory(exp: Experiment):
@@ -149,7 +189,9 @@ class RunSession:
                 inner=inner,
                 publish=self._publish,
                 session_id=self.id,
-                total_runs=total,
+                total_runs=self.total_runs,
+                plan=self.plan,
+                position_callback=self._position_callback,
             )
 
         try:

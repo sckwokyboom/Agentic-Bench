@@ -59,7 +59,7 @@ class Experiment(BaseModel):
     model: str
     output_dir: Path
     conditions: list[Condition]
-    repetitions: int = 3
+    repetitions: int = Field(default=3, ge=1)
     opencode: OpenCodeCfg = Field(default_factory=OpenCodeCfg)
     timeout_s: int = 600
     min_seconds_between_runs: float = 0.0

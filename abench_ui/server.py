@@ -8,6 +8,8 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+from contextlib import asynccontextmanager
+
 from fastapi import (
     APIRouter,
     FastAPI,
@@ -60,17 +62,36 @@ def create_app(
 
     If `client_factory_override` is provided, RunSession uses it instead of
     constructing a RealOpenCodeClient — the test seam."""
-    app = FastAPI(title="abench-ui", version="0.1.0")
     state: dict = {
         "experiments_dir": Path(experiments_dir),
         "sessions": {},       # sid -> RunSession
         "buffers": {},        # sid -> SessionEventBuffer
         "ws_queues": {},      # sid -> list[asyncio.Queue]
         "client_factory_override": client_factory_override,
+        "event_loop": None,   # captured on startup
     }
+
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        state["event_loop"] = asyncio.get_event_loop()
+        yield
+
+    app = FastAPI(title="abench-ui", version="0.1.0", lifespan=_lifespan)
     app.state.abench = state
 
     api = APIRouter(prefix="/api")
+
+    # ── Path-traversal guard ─────────────────────────────────────────────────
+
+    def _exp_dir_for(name: str) -> Path:
+        """Resolve experiments_dir/<name> and refuse path-traversal."""
+        root = state["experiments_dir"].resolve()
+        target = (root / name).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            raise HTTPException(400, "invalid experiment name")
+        return target
 
     # ── Schema ──────────────────────────────────────────────────────────────
 
@@ -105,6 +126,7 @@ def create_app(
 
     @api.get("/experiments/{name}")
     def _read_exp(name: str):
+        _exp_dir_for(name)  # traversal guard
         try:
             return exp_mod.read_experiment(state["experiments_dir"], name)
         except exp_mod.ExperimentNotFound:
@@ -112,24 +134,20 @@ def create_app(
 
     @api.put("/experiments/{name}")
     async def _write_exp(name: str, request: Request):
+        _exp_dir_for(name)  # traversal guard
         payload = await request.json()
         # Validate via pydantic round-trip before writing.
-        # Also enforce business rules (e.g. repetitions >= 1) not captured
-        # by base pydantic type constraints.
+        # Pydantic enforces repetitions >= 1 via Field(ge=1).
         try:
             Experiment(**payload)
         except (ValidationError, Exception) as exc:
             raise HTTPException(422, str(exc))
-        # Extra business-rule validation
-        reps = payload.get("repetitions")
-        if reps is not None and isinstance(reps, int) and reps < 1:
-            raise HTTPException(422, "repetitions must be >= 1")
         exp_mod.write_experiment(state["experiments_dir"], name, payload)
         return {"ok": True}
 
     @api.delete("/experiments/{name}")
     def _delete_exp(name: str):
-        target = state["experiments_dir"] / name
+        target = _exp_dir_for(name)
         if not target.is_dir():
             raise HTTPException(404, f"experiment '{name}' not found")
         shutil.rmtree(target)
@@ -139,12 +157,12 @@ def create_app(
 
     @api.get("/runs/{name}")
     def _list_runs(name: str):
-        runs_dir = state["experiments_dir"] / name / "runs" / name
+        runs_dir = _exp_dir_for(name) / "runs" / name
         return runs_mod.list_runs(runs_dir)
 
     @api.get("/runs/{name}/{condition}/{rep}/metrics")
     def _read_metrics(name: str, condition: str, rep: int):
-        runs_dir = state["experiments_dir"] / name / "runs" / name
+        runs_dir = _exp_dir_for(name) / "runs" / name
         try:
             return json.loads(
                 runs_mod.read_artefact(runs_dir, condition, rep, "metrics.json")
@@ -154,7 +172,7 @@ def create_app(
 
     @api.get("/runs/{name}/{condition}/{rep}/trace")
     def _read_trace(name: str, condition: str, rep: int):
-        runs_dir = state["experiments_dir"] / name / "runs" / name
+        runs_dir = _exp_dir_for(name) / "runs" / name
         try:
             return json.loads(
                 runs_mod.read_artefact(runs_dir, condition, rep, "trace.json")
@@ -164,7 +182,7 @@ def create_app(
 
     @api.get("/runs/{name}/{condition}/{rep}/patch")
     def _read_patch(name: str, condition: str, rep: int):
-        runs_dir = state["experiments_dir"] / name / "runs" / name
+        runs_dir = _exp_dir_for(name) / "runs" / name
         try:
             return Response(
                 runs_mod.read_artefact(runs_dir, condition, rep, "changes.patch"),
@@ -173,10 +191,22 @@ def create_app(
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
 
+    @api.get("/runs/{name}/{condition}/{rep}/events")
+    def _read_events(name: str, condition: str, rep: int):
+        runs_dir = _exp_dir_for(name) / "runs" / name
+        try:
+            return Response(
+                runs_mod.read_artefact(runs_dir, condition, rep, "events.jsonl"),
+                media_type="text/plain",
+            )
+        except runs_mod.RunNotFound as exc:
+            raise HTTPException(404, str(exc))
+
     @api.get("/runs/{name}/{condition}/{rep}/method_comparison")
     def _method_comparison(name: str, condition: str, rep: int, request: Request):
-        """Compare a named method in the reference vs stripped version of the
-        experiment's target_file.  Requires experiment.target_file to be set."""
+        """Compare a named method in the reference vs the agent's post-run output
+        of the experiment's target_file.  Requires experiment.target_file to be set."""
+        exp_dir = _exp_dir_for(name)
         try:
             exp_payload = exp_mod.read_experiment(state["experiments_dir"], name)
         except exp_mod.ExperimentNotFound:
@@ -184,21 +214,24 @@ def create_app(
         target_file = exp_payload.get("target_file")
         if not target_file:
             raise HTTPException(400, "experiment has no target_file configured")
-        exp_dir = state["experiments_dir"] / name
         reference = exp_dir / "original"
-        workdir_proxy = exp_dir / "stripped"  # post-run workdir is gone; use stripped
         methods = exp_payload.get("target_methods") or []
         method = request.query_params.get("method") or (methods[0] if methods else "")
+        # Use the agent's post-run snapshot of target_file if available;
+        # fall back to pre-stripped state which will show divergent for unrun experiments.
+        snapshot = exp_dir / "runs" / name / condition / f"rep_{rep}" / "target_after_agent.txt"
+        override = snapshot if snapshot.is_file() else None
         return runs_mod.method_comparison(
             reference_dir=reference,
-            workdir=workdir_proxy,
+            workdir=exp_dir / "stripped",
             target_file=target_file,
             method_name=method,
+            regen_file_override=override,
         )
 
     @api.patch("/runs/{name}/{condition}/{rep}")
     def _patch_run(name: str, condition: str, rep: int, body: _SuccessPatchBody):
-        runs_dir = state["experiments_dir"] / name / "runs" / name
+        runs_dir = _exp_dir_for(name) / "runs" / name
         try:
             return runs_mod.patch_success(
                 runs_dir, condition, rep, success=body.success
@@ -240,13 +273,17 @@ def create_app(
         state["buffers"][sid] = buf
         state["ws_queues"][sid] = []
 
+        loop = state["event_loop"]
+
         def publish(envelope: dict) -> None:
-            buf.append(envelope)
-            for q in list(state["ws_queues"].get(sid, [])):
-                try:
-                    q.put_nowait(envelope)
-                except asyncio.QueueFull:
-                    pass
+            # Bake event_id into the envelope before buffering so that
+            # replay_from() sends the same enriched envelope as live streaming.
+            event_id = buf.next_id()
+            envelope_with_id = dict(envelope, event_id=event_id)
+            buf.append_with_id(event_id, envelope_with_id)
+            if loop is not None:
+                for q in list(state["ws_queues"].get(sid, [])):
+                    loop.call_soon_threadsafe(q.put_nowait, envelope_with_id)
 
         client_factory = state["client_factory_override"] or (
             lambda e: RealOpenCodeClient(e.opencode, e.timeout_s)
@@ -270,6 +307,9 @@ def create_app(
             "state": session.state.value,
             "started_at": session.started_at,
             "ended_at": session.ended_at,
+            "total_runs": session.total_runs,
+            "current_condition": session.current_condition,
+            "current_rep": session.current_rep,
         }
 
     @api.delete("/sessions/{sid}")

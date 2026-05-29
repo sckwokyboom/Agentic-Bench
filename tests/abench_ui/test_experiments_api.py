@@ -127,3 +127,15 @@ def test_upload_yaml_invalid_422(client):
     r = c.post("/api/experiments/upload", content="not: [valid yaml",
                headers={"content-type": "application/yaml"})
     assert r.status_code == 422
+
+
+def test_path_traversal_on_delete_rejected(client):
+    c, _ = client
+    r = c.delete("/api/experiments/..%2Fetc")
+    assert r.status_code in (400, 404)
+
+
+def test_path_traversal_on_read_rejected(client):
+    c, _ = client
+    r = c.get("/api/experiments/..%2F..%2Fetc")
+    assert r.status_code in (400, 404)

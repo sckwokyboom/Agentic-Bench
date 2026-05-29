@@ -67,13 +67,20 @@ def patch_success(root_runs_dir: Path, condition: str, rep: int, *, success: boo
 def method_comparison(
     *, reference_dir: Path, workdir: Path,
     target_file: str, method_name: str,
+    regen_file_override: "Path | None" = None,
 ) -> dict:
     """Extract a named method/function from reference and workdir versions of
     target_file, returning the lines for each + an equivalence flag.
 
+    If regen_file_override is given, it is used in place of workdir/target_file
+    as the regenerated content (e.g. a target_after_agent.txt snapshot).
+
     Supports Python via ast and Java via brace-balancing on a regex'd signature."""
     ref_text = (Path(reference_dir) / target_file).read_text()
-    regen_text = (Path(workdir) / target_file).read_text()
+    if regen_file_override is not None:
+        regen_text = Path(regen_file_override).read_text()
+    else:
+        regen_text = (Path(workdir) / target_file).read_text()
     if target_file.endswith(".py"):
         original = _extract_py_function(ref_text, method_name)
         regen = _extract_py_function(regen_text, method_name)

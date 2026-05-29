@@ -19,6 +19,7 @@ def _make_runs(root: Path):
     }))
     (rd / "trace.json").write_text(json.dumps({"steps": [], "turns": []}))
     (rd / "changes.patch").write_text("diff --git a/x b/x\n--- a/x\n+++ b/x\n+1\n")
+    (rd / "events.jsonl").write_text('{"type":"ping"}\n')
     # also scaffold the experiment.yaml so /api/experiments/{name} works
     (root / name / "experiment.yaml").write_text("name: exp-a\nfixture_path: ./stripped\n")
 
@@ -56,3 +57,11 @@ def test_patch_success(client):
     r = c.patch("/api/runs/exp-a/baseline/0", json={"success": True})
     assert r.status_code == 200
     assert r.json()["success"] is True
+
+
+def test_read_events_endpoint(client):
+    c, root = client
+    _make_runs(root)
+    r = c.get("/api/runs/exp-a/baseline/0/events")
+    assert r.status_code == 200
+    assert "ping" in r.text  # the helper writes {"type":"ping"} to events.jsonl
