@@ -7,6 +7,8 @@ from abench.runner import run_experiment
 from tests.fakes import FakeOpenCodeClient
 
 
+
+
 def _experiment(tmp_path: Path) -> Experiment:
     fixture = tmp_path / "fixture"
     fixture.mkdir()
@@ -52,3 +54,25 @@ def test_run_experiment_writes_all_artifacts(tmp_path):
     base = json.loads((root / "baseline" / "rep_0" / "manifest.json").read_text())
     assert "SLICE" in aug["user_message"]
     assert "SLICE" not in base["user_message"]
+
+
+def test_run_experiment_writes_isolation_nonce_to_trace(tmp_path):
+    """When isolation.nonce_prefix is on (default), each trace records its UUID."""
+    exp = _experiment(tmp_path)  # existing helper; default isolation = both on
+    run_experiment(exp, lambda e: FakeOpenCodeClient())
+    root = tmp_path / "runs" / exp.name
+    for cond in ("baseline", "augmented"):
+        for rep in range(exp.repetitions):
+            trace = json.loads((root / cond / f"rep_{rep}" / "trace.json").read_text())
+            assert trace.get("isolation_nonce")  # non-empty UUID
+
+
+def test_run_experiment_populates_final_diff_summary(tmp_path):
+    exp = _experiment(tmp_path)
+    run_experiment(exp, lambda e: FakeOpenCodeClient())
+    root = tmp_path / "runs" / exp.name
+    trace = json.loads((root / "baseline" / "rep_0" / "trace.json").read_text())
+    fds = trace.get("final_diff_summary")
+    assert fds is not None
+    assert fds["total_added"] >= 1  # FakeOpenCodeClient writes GENERATED.txt
+    assert any(f["path"] for f in fds["files"])
