@@ -84,9 +84,14 @@ export interface MethodComparison {
 }
 
 export interface ValidateModelResp {
-  status: "available" | "not_in_catalog" | "no_key";
+  // Backend literals from abench_ui/validate.py:
+  //   ok             → key configured, model found in catalog
+  //   no_credentials → provider has no API key in auth.json
+  //   model_not_found→ provider configured but model id not in catalog
+  //   malformed      → model id missing provider/ prefix
+  status: "ok" | "no_credentials" | "model_not_found" | "malformed";
   provider: string | null;
-  suggestions?: string[];
+  suggestions: string[];
 }
 
 export interface ProviderEntry { id: string; configured: boolean; }
@@ -98,9 +103,4 @@ export interface SessionState {
   total_runs: number;
   current_condition: string | null;
   current_rep: number | null;
-}
-
-export interface ApiError {
-  status: number;
-  detail: string | unknown;
 }

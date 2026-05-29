@@ -1,7 +1,10 @@
 export class ApiError extends Error {
-  name = "ApiError";
   constructor(public status: number, public detail: unknown) {
     super(typeof detail === "string" ? detail : JSON.stringify(detail));
+    this.name = "ApiError";
+    // Required for `instanceof ApiError` to work reliably when `extends Error`
+    // is targeted to ES2015+ output.
+    Object.setPrototypeOf(this, ApiError.prototype);
   }
 }
 
