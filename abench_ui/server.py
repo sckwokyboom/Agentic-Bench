@@ -19,6 +19,8 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from abench.config import Experiment
@@ -57,6 +59,7 @@ def create_app(
     *,
     experiments_dir: Path,
     client_factory_override: Callable | None = None,
+    static_dir: Path | None = None,
 ) -> FastAPI:
     """Build the FastAPI app rooted at `experiments_dir`.
 
@@ -371,5 +374,43 @@ def create_app(
                 state["ws_queues"][sid].remove(q)
             except (KeyError, ValueError):
                 pass
+
+    # ── Static SPA bundle ────────────────────────────────────────────────────
+    # Registered AFTER app.include_router(api) and the @app.websocket handler,
+    # so API and WS routes win over the catch-all below.
+    _static_dir = Path(static_dir) if static_dir is not None else Path(__file__).resolve().parent / "static"
+    _index = _static_dir / "index.html"
+    if _index.is_file():
+        _assets = _static_dir / "assets"
+        if _assets.is_dir():
+            app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+
+        @app.get("/", include_in_schema=False)
+        def _spa_root():
+            return FileResponse(_index)
+
+        # Match ALL methods on the catch-all so that an unmatched /api or /ws
+        # request (e.g. DELETE /api/experiments/..%2Fetc, which no API route
+        # pattern matches) lands here and 404s, rather than the router emitting
+        # a misleading 405 because only this GET-only route matched the path.
+        # GET on a real SPA route still serves index.html for client-side
+        # routing; non-GET on a non-api/ws path is a genuine 404.
+        @app.api_route(
+            "/{full_path:path}",
+            methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+            include_in_schema=False,
+        )
+        def _spa_fallback(full_path: str, request: Request):
+            # Defence in depth: a stray /api/... or /ws/... with no matching
+            # registered route must still 404, not leak index.html.
+            if full_path.startswith("api/") or full_path.startswith("ws/"):
+                raise HTTPException(404, f"not found: {full_path}")
+            # Only GET serves the SPA; other verbs on unknown paths are 404.
+            if request.method != "GET":
+                raise HTTPException(404, f"not found: {full_path}")
+            candidate = _static_dir / full_path
+            if candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(_index)
 
     return app
