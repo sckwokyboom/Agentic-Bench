@@ -28,6 +28,32 @@ class Step:
 
 
 @dataclass
+class TurnInfo:
+    message_id: str
+    reason: str | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    tokens_reasoning: int | None = None
+    cost: float | None = None
+    started_at: float | None = None
+    ended_at: float | None = None
+
+
+@dataclass
+class FileChange:
+    path: str
+    added: int = 0
+    removed: int = 0
+
+
+@dataclass
+class FinalDiffSummary:
+    files: list[FileChange] = field(default_factory=list)
+    total_added: int = 0
+    total_removed: int = 0
+
+
+@dataclass
 class Trace:
     steps: list[Step] = field(default_factory=list)
     started_at: float | None = None
@@ -38,6 +64,24 @@ class Trace:
     finished: bool = False
     interrupted_reason: str | None = None
 
+    turns: list[TurnInfo] = field(default_factory=list)
+
+    verify_status: str | None = None
+    verify_command: str | None = None
+    verify_duration_s: float | None = None
+    verify_passed_count: int | None = None
+    verify_failed_count: int | None = None
+    verify_failed_names: list[str] = field(default_factory=list)
+    verify_baseline_unknown: bool = False
+
+    final_diff_summary: FinalDiffSummary | None = None
+
+    isolation_nonce: str | None = None
+
+    # v2 timing breakdown — placeholder fields, populated in Phase 2
+    llm_latency_s: float | None = None
+    tool_exec_s: float | None = None
+
     def to_dict(self) -> dict:
         d = asdict(self)
         for step in d["steps"]:
@@ -47,8 +91,20 @@ class Trace:
 
 
 def trace_from_dict(d: dict) -> Trace:
-    steps = [
-        Step(kind=StepKind(s["kind"]), **{k: v for k, v in s.items() if k != "kind"})
-        for s in d.get("steps", [])
-    ]
-    return Trace(steps=steps, **{k: v for k, v in d.items() if k != "steps"})
+    steps = [Step(kind=StepKind(s["kind"]),
+                  **{k: v for k, v in s.items() if k != "kind"})
+             for s in d.get("steps", [])]
+    turns_raw = d.get("turns", [])
+    turns = [TurnInfo(**t) for t in turns_raw]
+    fds_raw = d.get("final_diff_summary")
+    if fds_raw is not None:
+        fds = FinalDiffSummary(
+            files=[FileChange(**fc) for fc in fds_raw.get("files", [])],
+            total_added=fds_raw.get("total_added", 0),
+            total_removed=fds_raw.get("total_removed", 0),
+        )
+    else:
+        fds = None
+    remaining = {k: v for k, v in d.items()
+                 if k not in {"steps", "turns", "final_diff_summary"}}
+    return Trace(steps=steps, turns=turns, final_diff_summary=fds, **remaining)
