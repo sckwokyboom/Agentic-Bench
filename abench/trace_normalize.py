@@ -5,7 +5,7 @@ Verified against fixtures in tests/fixtures/opencode/.
 """
 from __future__ import annotations
 
-from abench.trace_model import Step, StepKind, Trace
+from abench.trace_model import Step, StepKind, Trace, TurnInfo
 
 
 def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
@@ -20,6 +20,7 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
         Parsed JSON from ``opencode export <id>``, or *None* when unavailable.
     """
     steps: list[Step] = []
+    turns: list[TurnInfo] = []
     seen_message_ids: list[str] = []
 
     for event in raw_events:
@@ -93,7 +94,20 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
                 )
             )
 
-        # step-start, step-finish, and anything else: skip silently.
+        elif part_type == "step-finish":
+            tokens = part.get("tokens", {}) or {}
+            time = part.get("time", {}) or {}
+            turns.append(TurnInfo(
+                message_id=message_id or "",
+                reason=part.get("reason"),
+                tokens_in=tokens.get("input"),
+                tokens_out=tokens.get("output"),
+                tokens_reasoning=tokens.get("reasoning"),
+                cost=part.get("cost"),
+                started_at=(time.get("start") / 1000.0) if time.get("start") else None,
+                ended_at=(time.get("end") / 1000.0) if time.get("end") else None,
+            ))
+        # step-start and unknown types: skip silently.
 
     # ── Trace-level fields from session export ─────────────────────────────
     tokens_in: int | None = None
@@ -109,6 +123,7 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
 
     return Trace(
         steps=steps,
+        turns=turns,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         cost=cost,

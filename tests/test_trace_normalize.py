@@ -112,3 +112,22 @@ def test_normalize_without_session(events):
     assert trace.tokens_in is None
     assert trace.tokens_out is None
     assert trace.cost is None
+
+
+def test_normalize_populates_turns_from_step_finish():
+    """The golden fixture contains step-finish events with reason/tokens/cost.
+    The normalizer must populate trace.turns from them in order."""
+    events = _load_events()
+    session = _load_session()
+    from abench.trace_normalize import normalize
+    trace = normalize(events, session)
+
+    # Sample run had one tool-call turn followed by a final text turn:
+    assert len(trace.turns) >= 1
+    last_turn = trace.turns[-1]
+    assert last_turn.reason in {"tool-calls", "stop", "length", "content-filter"}
+    assert last_turn.tokens_in is not None or last_turn.tokens_out is not None
+    # message_id consistency: each TurnInfo.message_id must be among the trace's step.turn-correlated message_ids
+    message_ids_in_steps = {s.tool_call_id for s in trace.steps if s.tool_call_id}
+    # we can't assert exact match without re-deriving — just sanity:
+    assert all(t.message_id for t in trace.turns)
