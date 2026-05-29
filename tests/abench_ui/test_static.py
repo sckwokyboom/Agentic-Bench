@@ -46,3 +46,24 @@ def test_api_path_does_not_fall_back(app_with_static):
     resp = client.get("/api/experiments/does-not-exist")
     assert resp.status_code == 404
     assert "detail" in resp.json()
+
+
+def test_path_traversal_outside_static_is_refused(tmp_path):
+    """A URL-encoded ../ escape must NOT serve a file outside static_dir.
+
+    The traversal target resolves to a real file the server could otherwise
+    read; the containment guard must fall back to index.html instead."""
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<html><body>SPA</body></html>")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP SECRET")
+    exp_dir = tmp_path / "experiments"
+    exp_dir.mkdir()
+    app = create_app(experiments_dir=exp_dir, static_dir=static_dir)
+    client = TestClient(app)
+    # ../secret.txt relative to static/ resolves to the sibling secret file.
+    resp = client.get("/..%2Fsecret.txt")
+    assert resp.status_code == 200
+    assert "TOP SECRET" not in resp.text   # served index.html, not the secret
+    assert "SPA" in resp.text

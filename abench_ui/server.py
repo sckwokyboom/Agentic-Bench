@@ -408,8 +408,12 @@ def create_app(
             # Only GET serves the SPA; other verbs on unknown paths are 404.
             if request.method != "GET":
                 raise HTTPException(404, f"not found: {full_path}")
-            candidate = _static_dir / full_path
-            if candidate.is_file():
+            # Serve a real static asset only if it resolves INSIDE static_dir —
+            # refuse path-traversal (e.g. ..%2f..%2fetc%2fpasswd) and fall back
+            # to index.html for everything else (client-side routing).
+            root = _static_dir.resolve()
+            candidate = (root / full_path).resolve()
+            if candidate.is_file() and candidate.is_relative_to(root):
                 return FileResponse(candidate)
             return FileResponse(_index)
 
