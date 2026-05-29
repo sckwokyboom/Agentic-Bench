@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Stack, Box, Typography, Button, Table, TableHead, TableBody, TableRow,
-  TableCell, IconButton, CircularProgress, Alert,
+  TableCell, IconButton, CircularProgress, Alert, Link,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import AssessmentIcon from "@mui/icons-material/Assessment";
+import { Link as RouterLink } from "react-router-dom";
 import StatusPill, { type ExperimentStatus } from "../components/StatusPill";
 import UploadYamlButton from "../components/UploadYamlButton";
 import NewExperimentDialog from "../components/NewExperimentDialog";
@@ -76,11 +78,21 @@ export default function ExperimentList() {
             <TableBody>
               {list.data.map((e) => (
                 <TableRow key={e.name} hover>
-                  <TableCell>{e.name}</TableCell>
+                  <TableCell>
+                    <Link component={RouterLink} to={`/runs/${e.name}`}>{e.name}</Link>
+                  </TableCell>
                   <TableCell><StatusPill status={statusOf(e)} /></TableCell>
                   <TableCell>{e.has_runs ? "yes" : "—"}</TableCell>
                   <TableCell>{e.last_run_at ?? "—"}</TableCell>
                   <TableCell align="right">
+                    <IconButton
+                      size="small"
+                      title="Results"
+                      onClick={() => navigate(`/runs/${e.name}`)}
+                      aria-label="results"
+                    >
+                      <AssessmentIcon fontSize="small" />
+                    </IconButton>
                     <IconButton
                       size="small"
                       title="Run"

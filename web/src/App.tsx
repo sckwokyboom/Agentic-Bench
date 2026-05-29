@@ -15,6 +15,7 @@ export default function App() {
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 0 }}>Agentic-Bench</Typography>
           <NavLink to="/experiments" style={linkStyle}>Experiments</NavLink>
+          <NavLink to="/runs" style={linkStyle}>Runs</NavLink>
           <Box sx={{ flexGrow: 1 }} />
           <Tooltip title={mode === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
             <IconButton color="inherit" onClick={toggle} aria-label="toggle color mode">
