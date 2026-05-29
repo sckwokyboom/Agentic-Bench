@@ -11,7 +11,7 @@ export default function App() {
   const { mode, toggle } = useColorMode();
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <AppBar position="static">
+      <AppBar position="static" color="default" enableColorOnDark>
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 0 }}>Agentic-Bench</Typography>
           <NavLink to="/experiments" style={linkStyle}>Experiments</NavLink>

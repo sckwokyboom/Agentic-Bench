@@ -6,13 +6,17 @@ import CssBaseline from "@mui/material/CssBaseline";
 
 export type ColorMode = "light" | "dark";
 
-// Brand colors are intentionally left to MUI's per-mode defaults so semantic
-// colors (success/error/warning/info) get mode-appropriate contrast. We only
-// tune the surface backgrounds.
+export const selectable = { userSelect: "text", cursor: "text" } as const;
+
 export function makeTheme(mode: ColorMode): Theme {
+  const primary =
+    mode === "dark"
+      ? { main: "#cbd5e1", contrastText: "#0d1117" }
+      : { main: "#1f2937", contrastText: "#ffffff" };
   return createTheme({
     palette: {
       mode,
+      primary,
       ...(mode === "dark"
         ? { background: { default: "#0d1117", paper: "#161b22" } }
         : { background: { default: "#fafafa", paper: "#ffffff" } }),
@@ -22,6 +26,15 @@ export function makeTheme(mode: ColorMode): Theme {
       fontSize: 14,
     },
     shape: { borderRadius: 6 },
+    components: {
+      MuiCssBaseline: {
+        styleOverrides: {
+          // Static UI text must not look editable: chrome is non-selectable with a
+          // default cursor; genuine content opts back in via `selectable`.
+          body: { cursor: "default", userSelect: "none" },
+        },
+      },
+    },
   });
 }
 
