@@ -73,7 +73,7 @@ def create_app(
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI):
-        state["event_loop"] = asyncio.get_event_loop()
+        state["event_loop"] = asyncio.get_running_loop()
         yield
 
     app = FastAPI(title="abench-ui", version="0.1.0", lifespan=_lifespan)

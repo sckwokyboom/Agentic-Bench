@@ -20,7 +20,6 @@ from typing import Callable
 from abench.config import Experiment
 from abench.opencode_client import RunResult
 from abench.runner import compute_plan, run_experiment
-from .ws_client import WSPublishingClient
 
 
 class SessionState(str, Enum):
@@ -112,7 +111,14 @@ class _PerRunPublishingClient:
             "rep": rep,
             "finished": tr.finished,
             "interrupted_reason": tr.interrupted_reason,
-            "verify_status": tr.verify_status,
+            "verify": {
+                "status": tr.verify_status,
+                "passed_count": tr.verify_passed_count,
+                "failed_count": tr.verify_failed_count,
+                "failed_names": list(tr.verify_failed_names) if tr.verify_failed_names else [],
+                "command": tr.verify_command,
+                "duration_s": tr.verify_duration_s,
+            },
         })
 
         return result
@@ -195,7 +201,7 @@ class RunSession:
             )
 
         try:
-            run_experiment(self.experiment, wrapped_factory)
+            run_experiment(self.experiment, wrapped_factory, _plan=self.plan)
             if self._cancel_flag.is_set():
                 self.state = SessionState.CANCELLED
             else:

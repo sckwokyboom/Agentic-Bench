@@ -5,6 +5,7 @@ import pytest
 
 from abench_ui.runs import (
     RunNotFound,
+    _rundir,
     list_runs,
     method_comparison,
     patch_success,
@@ -59,6 +60,12 @@ def test_patch_success(tmp_path):
     assert json.loads(
         (root / "x" / "baseline" / "rep_0" / "metrics.json").read_text()
     )["success"] is True
+
+
+def test_rundir_rejects_path_traversal(tmp_path):
+    (tmp_path / "exp" / "runs" / "x" / "baseline" / "rep_0").mkdir(parents=True)
+    with pytest.raises(RunNotFound):
+        _rundir(tmp_path / "exp" / "runs" / "x", "../../../etc", 0)
 
 
 def test_method_comparison_python(tmp_path):

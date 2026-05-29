@@ -12,7 +12,13 @@ class RunNotFound(Exception):
 
 
 def _rundir(root_runs_dir: Path, condition: str, rep: int) -> Path:
-    return Path(root_runs_dir) / condition / f"rep_{rep}"
+    root = Path(root_runs_dir).resolve()
+    target = (root / condition / f"rep_{rep}").resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise RunNotFound(f"invalid condition path: {condition}")
+    return target
 
 
 def list_runs(root_runs_dir: Path) -> list[dict]:

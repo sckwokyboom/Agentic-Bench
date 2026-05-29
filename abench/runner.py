@@ -52,7 +52,11 @@ def _dump_resolved(exp: Experiment) -> str:
     return yaml.safe_dump(conv(exp.model_dump()), allow_unicode=True, sort_keys=False)
 
 
-def run_experiment(exp: Experiment, client_factory: ClientFactory) -> Path:
+def run_experiment(
+    exp: Experiment,
+    client_factory: ClientFactory,
+    _plan: list[tuple["Condition", int]] | None = None,
+) -> Path:
     root = exp.output_dir / exp.name
     root.mkdir(parents=True, exist_ok=True)
     (root / "experiment.resolved.yaml").write_text(_dump_resolved(exp))
@@ -60,7 +64,7 @@ def run_experiment(exp: Experiment, client_factory: ClientFactory) -> Path:
     mcfg = MetricsConfig(**exp.metrics.model_dump())
     client = client_factory(exp)
 
-    plan = compute_plan(exp)
+    plan = _plan if _plan is not None else compute_plan(exp)
 
     # Baseline pre-flight verify
     if exp.verify.enabled:
