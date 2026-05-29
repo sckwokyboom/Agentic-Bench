@@ -32,7 +32,7 @@ export default function ExperimentList() {
 
   async function handleRun(name: string) {
     const { session_id } = await start.mutateAsync(name);
-    navigate(`/runs/sessions/${session_id}`);
+    navigate(`/runs/sessions/${session_id}`, { state: { experimentName: name } });
   }
 
   async function handleUploaded(parsed: Record<string, unknown>) {
