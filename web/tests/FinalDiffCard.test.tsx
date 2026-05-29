@@ -26,3 +26,28 @@ test("renders parsed diff", async () => {
   );
   expect(screen.getByText("foo.py")).toBeInTheDocument();
 });
+
+const fourFilePatch = ["a", "b", "c", "d"]
+  .map((n) => `diff --git a/${n}.py b/${n}.py
+--- a/${n}.py
++++ b/${n}.py
+@@ -1,1 +1,1 @@
+-old
++new
+`)
+  .join("");
+
+test("shows all 4 files in a short 4-file diff (no silent truncation)", async () => {
+  mswServer.use(http.get("/api/runs/exp/cond/1/patch", () =>
+    new HttpResponse(fourFilePatch, { headers: { "content-type": "text/plain" } })));
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <FinalDiffCard name="exp" condition="cond" rep={1} />
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByText(/4 files/)).toBeInTheDocument());
+  // The 4th file must be visible — it was previously dropped by slice(0,3)
+  // with no "show all" toggle to reveal it.
+  expect(screen.getByText("d.py")).toBeInTheDocument();
+});
