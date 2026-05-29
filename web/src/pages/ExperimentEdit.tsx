@@ -12,6 +12,9 @@ import PreviousRunsPanel from "../components/PreviousRunsPanel";
 import { useExperiment, useExperiments, useSaveExperiment, useStartRun } from "../api/queries";
 import { loadSchema, type JsonSchema } from "../api/schemaCache";
 import { uiSchema } from "../schema/uiSchema";
+import { ModelValidationWidget } from "../schema/widgets";
+
+const customWidgets = { ModelValidationWidget };
 
 export default function ExperimentEdit() {
   const { name } = useParams<{ name: string }>();
@@ -64,6 +67,7 @@ export default function ExperimentEdit() {
           schema={schema as never}
           uiSchema={uiSchema}
           formData={formData}
+          widgets={customWidgets}
           onErrorsChange={setErrors}
           onFormChange={(f) => setFormData(f)}
           onSave={handleSave}
