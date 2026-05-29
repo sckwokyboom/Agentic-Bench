@@ -1889,17 +1889,29 @@ export default function PreviousRunsPanel({ name }: Props) {
 
 - [ ] **Step 12: Extend `ExperimentForm` to surface validation errors**
 
-In `web/src/components/ExperimentForm.tsx`, modify the `Props` interface to also accept `onErrorsChange?: (errors: RJSFValidationError[]) => void;` and call it inside the `useMemo` body. Add `import type { RJSFValidationError } from "@rjsf/utils";`.
+In `web/src/components/ExperimentForm.tsx`, modify the `Props` interface to also accept `onErrorsChange?: (errors: RJSFValidationError[]) => void;`. Add `import { useEffect, useMemo, useState } from "react";` (add `useEffect`) and `import type { RJSFValidationError } from "@rjsf/utils";`.
 
-Replace the `useMemo` and `onChange` handler:
+**Do NOT call `onErrorsChange` inside `useMemo`** — that is a parent setState during the child's render phase (React throws "Cannot update a component while rendering a different component"), and because `validateFormData` returns a fresh array each render a naive `useEffect([errors])` would loop forever. Keep `useMemo` pure and push to the parent via a `useEffect` keyed on a stable content-signature:
 
 ```tsx
-const errors = useMemo(() => {
-  const errs = validator.validateFormData(data, schema).errors;
-  onErrorsChange?.(errs);
-  return errs;
-}, [data, schema]);
+const errors = useMemo(
+  () => validator.validateFormData(data, schema).errors,
+  [data, schema],
+);
+const hasErrors = errors.length > 0;
+
+// Push errors to the parent without setState-during-render. Key the effect on a
+// content signature so a fresh-but-equal error array doesn't re-fire/loop.
+const errorSignature = errors
+  .map((e) => `${e.property ?? e.schemaPath}:${e.message}`)
+  .join("|");
+useEffect(() => {
+  onErrorsChange?.(errors);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [errorSignature]);
 ```
+
+Loop-safety note: ExperimentForm's local `data` (from `useState(formData)`) is NOT re-seeded from the `formData` prop after mount, so a parent-driven re-render leaves `data` identity stable → `useMemo` returns its cached array → `errorSignature` unchanged → the effect does not re-fire. State flows one-directionally (form → parent).
 
 - [ ] **Step 13: Update `ExperimentEdit.tsx` to wire the panels**
 
@@ -1945,7 +1957,9 @@ export default function ExperimentEdit() {
   async function handleRun() {
     if (!name) return;
     const { session_id } = await start.mutateAsync(name);
-    navigate(`/runs/sessions/${session_id}`);
+    // Pass experimentName via router state — Task 5e's Run page reads
+    // location.state.experimentName to know which trace to navigate to on finish.
+    navigate(`/runs/sessions/${session_id}`, { state: { experimentName: name } });
   }
 
   // Error guard MUST come first: on a fetch error TanStack Query leaves
@@ -1961,7 +1975,7 @@ export default function ExperimentEdit() {
           <Button
             variant="contained"
             color="success"
-            disabled={errors.length > 0 || !summary?.has_fixture}
+            disabled={errors.length > 0 || !summary?.has_fixture || start.isPending}
             onClick={handleRun}
             startIcon={<span>▶</span>}
           >
@@ -1969,7 +1983,7 @@ export default function ExperimentEdit() {
           </Button>
         </Stack>
         <ExperimentForm
-          schema={schema as any}
+          schema={schema as never}
           uiSchema={uiSchema}
           formData={formData}
           onErrorsChange={setErrors}
