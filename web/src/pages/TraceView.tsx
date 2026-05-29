@@ -5,6 +5,11 @@ import { groupEventsByTurn } from "../lib/groupEventsByTurn";
 import VerdictBanner from "../components/VerdictBanner";
 import AggregateStatsBar from "../components/AggregateStatsBar";
 import TurnCard from "../components/TurnCard";
+import VerifyCard from "../components/VerifyCard";
+import FinalDiffCard from "../components/FinalDiffCard";
+import MethodComparisonCard from "../components/MethodComparisonCard";
+import MetricsDrawer from "../components/MetricsDrawer";
+import FooterNav from "../components/FooterNav";
 
 export default function TraceView() {
   const { name, condition, rep } = useParams<{ name: string; condition: string; rep: string }>();
@@ -28,7 +33,11 @@ export default function TraceView() {
         const raw = events.data?.filter((e: any) => e?.part?.messageID === t.message_id) ?? [];
         return <TurnCard key={t.message_id} turn={t} group={g} index={i} rawEvents={raw} />;
       })}
-      {/* VerifyCard / FinalDiffCard / MethodComparisonCard / MetricsDrawer / FooterNav added in 6c-6g. */}
+      <VerifyCard trace={trace.data} />
+      <FinalDiffCard name={name!} condition={condition!} rep={repN} />
+      <MethodComparisonCard name={name!} condition={condition!} rep={repN} />
+      <FooterNav name={name!} condition={condition!} rep={repN} />
+      <MetricsDrawer name={name!} condition={condition!} rep={repN} />
     </Stack>
   );
 }
