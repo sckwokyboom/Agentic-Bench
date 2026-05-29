@@ -13,10 +13,10 @@ import { useExperiment, useExperiments, useSaveExperiment, useStartRun } from ".
 import { loadSchema, type JsonSchema } from "../api/schemaCache";
 import { uiSchema } from "../schema/uiSchema";
 import {
-  ModelValidationWidget, TargetMethodsWidget,
+  ModelValidationWidget, TargetMethodsWidget, AugmentationWidget,
 } from "../schema/widgets";
 
-const customWidgets = { ModelValidationWidget, TargetMethodsWidget };
+const customWidgets = { ModelValidationWidget, TargetMethodsWidget, AugmentationWidget };
 
 export default function ExperimentEdit() {
   const { name } = useParams<{ name: string }>();

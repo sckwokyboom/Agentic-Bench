@@ -1,6 +1,7 @@
 import type { WidgetProps } from "@rjsf/utils";
 import ModelValidationChip from "../components/ModelValidationChip";
 import TargetMethodsChips from "../components/TargetMethodsChips";
+import AugmentationField from "../components/AugmentationField";
 
 export function ModelValidationWidget(props: WidgetProps) {
   return (
@@ -15,4 +16,14 @@ export function ModelValidationWidget(props: WidgetProps) {
 export function TargetMethodsWidget(props: WidgetProps) {
   const arr = Array.isArray(props.value) ? (props.value as string[]) : [];
   return <TargetMethodsChips value={arr} onChange={props.onChange} label={props.label} />;
+}
+
+export function AugmentationWidget(props: WidgetProps) {
+  return (
+    <AugmentationField
+      value={(props.value as string) ?? ""}
+      onChange={props.onChange}
+      label={props.label}
+    />
+  );
 }
