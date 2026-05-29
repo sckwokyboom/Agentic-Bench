@@ -15,13 +15,13 @@ function SideBySide({ original, regen }: { original: string[]; regen: string[] }
     }}>
       <Box>
         <Typography variant="caption" color="text.secondary">Original (reference)</Typography>
-        <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", bgcolor: "grey.50", p: 1, borderRadius: 1 }}>
+        <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", bgcolor: (t) => t.palette.mode === "dark" ? "grey.900" : "grey.100", p: 1, borderRadius: 1 }}>
           {original.join("\n")}
         </Box>
       </Box>
       <Box>
         <Typography variant="caption" color="text.secondary">Agent's regeneration</Typography>
-        <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", bgcolor: "grey.50", p: 1, borderRadius: 1 }}>
+        <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", bgcolor: (t) => t.palette.mode === "dark" ? "grey.900" : "grey.100", p: 1, borderRadius: 1 }}>
           {regen.join("\n")}
         </Box>
       </Box>

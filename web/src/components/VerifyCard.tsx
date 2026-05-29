@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent, Stack, Typography, Chip, Button, Collapse, Box } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { Trace } from "../api/types";
 
 interface Props { trace: Trace; }
@@ -11,13 +12,19 @@ export default function VerifyCard({ trace }: Props) {
   const passed = trace.verify_passed_count ?? 0;
   const failed = trace.verify_failed_count ?? 0;
   const total = passed + failed;
-  const tone =
-    status === "passed" ? "success.light"
-    : status === "failed" ? "error.light"
-    : "warning.light";
+  const toneColor: "success" | "error" | "warning" =
+    status === "passed" ? "success" : status === "failed" ? "error" : "warning";
 
   return (
-    <Card variant="outlined" sx={{ bgcolor: tone }}>
+    // Low-alpha tint of the semantic color keeps the card legible in both
+    // themes (a flat *.light fill went light-on-light text in dark mode).
+    <Card
+      variant="outlined"
+      sx={{
+        bgcolor: (t) => alpha(t.palette[toneColor].main, t.palette.mode === "dark" ? 0.18 : 0.1),
+        borderColor: (t) => alpha(t.palette[toneColor].main, 0.4),
+      }}
+    >
       <CardContent>
         <Stack direction="row" alignItems="center" spacing={1}>
           <Chip size="small" label={`🧪 ${status}`} />

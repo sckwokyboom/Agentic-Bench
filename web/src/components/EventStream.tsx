@@ -16,12 +16,16 @@ function matchesFilter(partType: string, f: EventFilters): boolean {
   return true;
 }
 
+// The event pane is a fixed-dark terminal surface in BOTH app themes, so part
+// colors are explicit bright values (GitHub-dark palette) that always read on
+// the #0e1116 background — never MUI's *.dark / text.primary tokens, which
+// resolve to dark-on-dark in light mode and were unreadable.
 function partTone(partType: string): string {
-  if (partType === "reasoning") return "info.dark";
-  if (partType === "tool-call") return "primary.main";
-  if (partType === "tool-result") return "success.dark";
-  if (partType === "error") return "error.main";
-  return "text.primary";
+  if (partType === "reasoning") return "#9aa7b8";       // muted grey-blue
+  if (partType === "tool-call") return "#79b8ff";       // bright blue
+  if (partType === "tool-result") return "#7ee787";     // bright green
+  if (partType === "error") return "#ff7b72";           // bright red
+  return "#e6edf3";                                      // llm text — near-white
 }
 
 export default function EventStream({ envelopes }: Props) {
@@ -52,7 +56,7 @@ export default function EventStream({ envelopes }: Props) {
       }}>
         {groups.map((g, i) => (
           <Box key={g.messageId} sx={{ mb: 2 }}>
-            <Typography variant="caption" sx={{ color: "#7d8a9e" }}>
+            <Typography variant="caption" sx={{ color: "#8b98a9" }}>
               ━━ turn {i + 1} ━━ {g.reason && <>· {g.reason}</>}
             </Typography>
             {g.parts.filter((p) => matchesFilter(p.type, filters)).map((p, j) => (
