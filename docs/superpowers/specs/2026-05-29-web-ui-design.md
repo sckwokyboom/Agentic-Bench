@@ -34,7 +34,7 @@ Local-only, single-user: запускается командой `abench-ui` н�
 **v2 (отдельный спек/план):**
 
 - Comparison view: side-by-side N traces, aligned step-by-step diff, кросс-condition агрегаты.
-- DeepSeek-style isolation: per-run `user` field, опциональный API-key rotation, nonce-prefix.
+- **Heavyweight** KV-cache isolation: per-run `user` field plumbing, опциональный API-key rotation. (Lightweight: nonce-prefix + shuffle order уже в v1 — см. раздел 10.)
 - Per-step timing breakdown (`llm_latency_s` per step, `tool_exec_s` per tool) + waterfall chart.
 - Plots & advanced viz (matplotlib/recharts).
 
@@ -175,6 +175,9 @@ class Trace:
     verify_baseline_unknown: bool = False     # True если baseline-тесты не зелёные;
                                               # UI пометит все verify-результаты unreliable
 
+    isolation_nonce: str | None = None        # UUID4, вшитый в system_prompt для defeat
+                                              # prefix-based KV-кэша провайдера (см. раздел 10)
+
     # v2 timing breakdown — placeholder поля, заполняются в Phase 2
     llm_latency_s: float | None = None
     tool_exec_s: float | None = None
@@ -192,11 +195,19 @@ class VerifyCfg(BaseModel):
     enabled: bool = True
     timeout_s: int = 300
 
+class IsolationCfg(BaseModel):
+    nonce_prefix: bool = True          # вшить UUID4-комментарий в начало system_prompt
+    shuffle_order: bool = True         # рандомизировать порядок condition×rep
+    # v2 heavyweight:
+    user_field_template: str | None = None   # e.g. "abench-{run_uuid}"
+    api_key_env_list: str | None = None      # e.g. "DEEPSEEK_API_KEY_LIST" → env с массивом
+
 class Experiment(BaseModel):
     # — существующие поля —
     verify: VerifyCfg = Field(default_factory=VerifyCfg)
     target_file: str | None = None     # путь относительно fixture_path
     target_methods: list[str] | None = None  # имена методов/функций
+    isolation: IsolationCfg = Field(default_factory=IsolationCfg)
 ```
 
 `load_experiment` валидирует `target_file` (если задан) как существующий путь относительно `fixture_path`. `target_methods` валидируются грепом: каждое имя должно встречаться в `target_file` (иначе ValueError с suggestions).
@@ -390,14 +401,68 @@ Main: live ReAct stream — терминальный look, группировк�
 - **Failed → success=False автоматически.** Manual override доступен через PATCH.
 - **Парсеры:** Maven surefire, Gradle, pytest, jest, cargo. Каждый ~20 строк regex; если парсинг падает → `verify_status = "error"`, raw output в `verify_output.log`.
 
-## 10. Final diff + method comparison
+## 10. Изоляция KV-кэша провайдера между прогонами
+
+**Проблема.** DeepSeek, Anthropic и большинство современных LLM-провайдеров применяют **prefix-based context caching**: если несколько запросов начинаются с идентичной последовательности токенов, второй+ запрос платит дешевле и отвечает быстрее. В нашем эксперименте это означает: rep 0 «прогревает» кеш, rep 1+ получает unfair latency/cost преимущество. Сравнения «baseline vs augmented» по `duration_s` / `tokens` искажаются.
+
+`opencode/deepseek-v4-flash-free` и подобные free-эндпоинты тоже подвержены — кеш живёт на стороне провайдера независимо от стороны клиента.
+
+**v1 — два дешёвых дефолта, оба on, конфигурируемые:**
+
+1. **Per-run nonce-prefix в system prompt.** Перед записью workdir-local `opencode.json`, `RealOpenCodeClient` префиксит `system_prompt` парой comment-line'ов:
+   ```
+   # abench-run: <uuid4>
+   # fixture: <fixture_sha>
+   <orig system_prompt>
+   ```
+   Это семантически нейтрально для агента (комментарии в начале — норма) но полностью инвалидирует prefix-cache на уровне провайдера: каждая сессия начинается с уникальной последовательности токенов. UUID4 сохраняется в `Trace.isolation_nonce` для воспроизводимости и пост-аналитики кэш-эффектов. Включается через `exp.isolation.nonce_prefix: bool = True` (default).
+
+2. **Randomized run order.** Раннер по умолчанию `random.shuffle` массива `[(cond, rep), …]`. Это распределяет любой остаточный warm-cache effect случайно между условиями вместо систематического перекоса в пользу того условия, которое идёт первым. Seed детерминированный: `hash(experiment.name + datetime.date.today().isoformat())` — даёт одну и ту же перестановку при повторном прогоне в тот же день, но разную между днями (для воспроизводимости и одновременно decorrelation). Включается через `exp.isolation.shuffle_order: bool = True` (default).
+
+**v2 — heavyweight механизмы (отдельный спек):**
+
+3. **Per-run `user` field в API.** Многие провайдеры поддерживают `user` как сегментирующий параметр. **Внимание:** DeepSeek и Anthropic context-cache опираются на prefix tokens, а не на `user`, поэтому самостоятельно `user` КЭШ НЕ ИЗОЛИРУЕТ для них — это полезно прежде всего как abuse-tracking + для провайдеров (OpenAI, некоторые OpenRouter роуты), которые сегментируют кеш по `user`. Требует либо изменения OpenCode (форк), либо тонкого HTTP-прокси перед opencode → выбор после probe в v2 brainstorm.
+
+4. **API-key rotation.** `OPENROUTER_API_KEY_LIST` / `DEEPSEEK_API_KEY_LIST` — массив ключей, раннер крутит per-run. Гарантирует абсолютную изоляцию (разные счета, разные context-cache neighborhoods у провайдера). Опциональный путь для critical accuracy экспериментов.
+
+5. **Cool-down между прогонами.** Поле `min_seconds_between_runs` уже в конфиге; для DeepSeek/Anthropic дефолт станет 60 в v2 — любой ephemeral context cache в флайт-таблицах истечёт.
+
+**Поток применения в runner (v1):**
+
+```python
+# в start_session(...)
+if exp.isolation.shuffle_order:
+    order = random.Random(seed).sample(plan, k=len(plan))
+else:
+    order = plan
+
+# в _run_one(...), перед записью workdir-local opencode.json
+nonce = uuid4().hex if exp.isolation.nonce_prefix else None
+final_system_prompt = (
+    f"# abench-run: {nonce}\n# fixture: {sha}\n{exp.system_prompt}"
+    if nonce else exp.system_prompt
+)
+trace.isolation_nonce = nonce
+```
+
+**UI (в Run-странице):**
+
+В верхней chip-row (рядом с verify-сводкой) — маленький индикатор: `🔒 isolated (nonce + shuffled)` (зелёный) или `🔓 isolation off` (жёлтый-предупреждающий, если юзер выключил оба флага в YAML). Даёт оператору уверенность, что эксперимент изолирован корректно.
+
+**Тестирование:**
+
+- Юнит: `isolation.apply_nonce_prefix(system_prompt, run_uuid) -> str` — проверка формата + что оригинальный prompt сохранён ниже.
+- Юнит: `isolation.shuffle_plan(plan, seed) -> list` — определённость при одном seed, разность между seed'ами.
+- Integration (опц., requires DeepSeek key): два rep'а с одинаковыми условиями но разными nonce'ами → ожидаем близкие `tokens_in` (нет cache hit'ов), что проверяет реальную работу defeat'а кэша. На v1 в smoke-тестах не обязательно.
+
+## 11. Final diff + method comparison
 
 - `Trace.final_diff_summary` заполняется в runner после `fixture.diff_workdir()`. UI не парсит patch каждый раз — берёт сводку.
 - `GET /api/runs/.../method_comparison` отдаёт `{method_name, original_lines, regen_lines, equivalent}`. Сравнение `equivalent` — нормализация whitespace + точное совпадение тел; иначе `divergent`.
 - Java: AST через простой brace-balancing на сигнатуре метода (без полноценного парсера). Python: `ast.parse(file).body` + поиск `FunctionDef` по имени.
 - Если `target_file` задан, а `target_methods` пуст — комparison делается над всем файлом (просто side-by-side всего файла). Это полезно для compact-фикстур типа `WordCount.java`.
 
-## 11. Error handling — по слоям
+## 12. Error handling — по слоям
 
 | Слой | Сбой | Поведение |
 |---|---|---|
@@ -413,7 +478,7 @@ Main: live ReAct stream — терминальный look, группировк�
 | Server restart с in-flight run | потеряли in-memory RunSession | startup: чистка `.in-progress` маркеров в `runs/`; v1 документирует «не перезапускай abench-ui во время прогона» |
 | Disk full / permission на fixture-copy | exception в `fixture.create_workdir` | `session.error` event; experiment aborts; UI красный banner |
 
-## 12. Поток одного UI-инициированного прогона
+## 13. Поток одного UI-инициированного прогона
 
 1. Юзер открывает `ExperimentEdit` для `<name>`. Фронт делает `GET /api/schema` (один раз на загрузку приложения) и `GET /api/experiments/{name}` → rjsf форма с предзаполненными значениями + текстами prompts/slices.
 2. Юзер правит поля. rjsf валидирует каждое поле по JSON Schema online; «Save» блокируется, пока есть ошибки. По «Save» → `PUT /api/experiments/{name}` записывает атомарно через temp+rename.
@@ -429,7 +494,7 @@ Main: live ReAct stream — терминальный look, группировк�
    - `run.finished` с метриками + `verify_*`.
 8. После всех runs — `session.finished {duration_s}`. UI закрывает WS, навигейтит на TraceView первого прогона (по умолчанию `augmented / rep_0`).
 
-## 13. Тестовая стратегия
+## 14. Тестовая стратегия
 
 **Backend (Python, расширяет существующий 21-test suite):**
 
@@ -464,7 +529,7 @@ Main: live ReAct stream — терминальный look, группировк�
 - JSON Schema — единственный источник правды.
 - TypeScript-типы — генерация через `openapi-typescript` из автогенерированной FastAPI `openapi.json`. Build-step в `web/package.json`.
 
-## 14. Открытые вопросы (под решение при импл)
+## 15. Открытые вопросы (под решение при импл)
 
 - **Built-frontend в Python-пакете?** Для local-only можно не коммитить `static/`, требовать `npm run build` локально. Помечено в спеке; финальное решение при импл.
 - **`model` autocomplete:** datalist с каталогом из всех настроенных провайдеров. Может быть 200+ опций; нужен фильтр / `MUI Autocomplete` с virtualized list.
@@ -472,8 +537,8 @@ Main: live ReAct stream — терминальный look, группировк�
 - **Method comparison fallback** при отсутствии AST-поддержки языка — на v1 берём line-range из first hunk of patch + N контекстных строк. Доводим в v2 через tree-sitter.
 - **Поведение при изменении `experiment.yaml` во время running session** — на v1 блокируем PUT, отвечаем 409 с подсказкой «cancel session first or wait».
 
-## 15. Phase-2 заложенные точки расширения
+## 16. Phase-2 заложенные точки расширения
 
 - `Trace.llm_latency_s`, `Trace.tool_exec_s` — поля уже есть, заполняются нормализатором в v2 (timing breakdown).
-- DeepSeek isolation: `RealOpenCodeClient` уже инжектит per-run workdir-local `opencode.json`; в v2 туда добавится секция `user` (если provider её принимает) или появится тонкая HTTP-прокси-обёртка перед OpenCode'ом — конкретный механизм фиксируется в v2-спеке после probe.
+- DeepSeek isolation (heavyweight): v1 уже несёт nonce-prefix + shuffle (раздел 10). В v2 добавится `user` field плумбинг (если provider честно сегментирует кеш по `user`) или тонкая HTTP-прокси-обёртка перед OpenCode'ом + API-key rotation — конкретный механизм фиксируется в v2-спеке после probe.
 - Comparison view: отдельная страница `/compare?runs=...`; pandas на бэке агрегирует и отдаёт результат — никаких изменений в существующих модулях.
