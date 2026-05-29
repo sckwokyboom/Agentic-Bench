@@ -557,9 +557,14 @@ export interface MethodComparison {
 }
 
 export interface ValidateModelResp {
-  status: "available" | "not_in_catalog" | "no_key";
+  // Backend literals from abench_ui/validate.py:
+  //   ok             → key configured, model found in catalog
+  //   no_credentials → provider has no API key in auth.json
+  //   model_not_found→ provider configured but model id not in catalog
+  //   malformed      → model id missing provider/ prefix
+  status: "ok" | "no_credentials" | "model_not_found" | "malformed";
   provider: string | null;
-  suggestions?: string[];
+  suggestions: string[];
 }
 
 export interface ProviderEntry { id: string; configured: boolean; }
@@ -2034,18 +2039,18 @@ function wrap(ui: React.ReactNode) {
   return <QueryClientProvider client={qc}>{ui}</QueryClientProvider>;
 }
 
-test("shows ✓ available", async () => {
+test("shows ✓ available for backend status 'ok'", async () => {
   mswServer.use(http.post("/api/validate/model", () =>
-    HttpResponse.json({ status: "available", provider: "openrouter" })));
+    HttpResponse.json({ status: "ok", provider: "openrouter", suggestions: [] })));
   render(wrap(<ModelValidationChip value="openrouter/foo" onChange={() => {}} />));
   await waitFor(() =>
     expect(screen.getByText(/available/i)).toBeInTheDocument(),
   );
 });
 
-test("shows ⚠ with suggestions", async () => {
+test("shows ⚠ not in catalog for 'model_not_found' with suggestions", async () => {
   mswServer.use(http.post("/api/validate/model", () =>
-    HttpResponse.json({ status: "not_in_catalog", provider: "openrouter", suggestions: ["openrouter/foo-bar"] })));
+    HttpResponse.json({ status: "model_not_found", provider: "openrouter", suggestions: ["openrouter/foo-bar"] })));
   render(wrap(<ModelValidationChip value="openrouter/foo-baz" onChange={() => {}} />));
   await waitFor(() =>
     expect(screen.getByText(/not in catalog/i)).toBeInTheDocument(),
@@ -2053,14 +2058,23 @@ test("shows ⚠ with suggestions", async () => {
   expect(screen.getByText("openrouter/foo-bar")).toBeInTheDocument();
 });
 
-test("shows ✗ no_key with Add API key button", async () => {
+test("shows ✗ no key + Add API key for 'no_credentials'", async () => {
   mswServer.use(http.post("/api/validate/model", () =>
-    HttpResponse.json({ status: "no_key", provider: "openrouter" })));
+    HttpResponse.json({ status: "no_credentials", provider: "openrouter", suggestions: [] })));
   render(wrap(<ModelValidationChip value="openrouter/foo" onChange={() => {}} />));
   await waitFor(() =>
     expect(screen.getByText(/no key/i)).toBeInTheDocument(),
   );
   expect(screen.getByRole("button", { name: /add api key/i })).toBeInTheDocument();
+});
+
+test("shows ⚠ malformed for backend status 'malformed'", async () => {
+  mswServer.use(http.post("/api/validate/model", () =>
+    HttpResponse.json({ status: "malformed", provider: null, suggestions: [] })));
+  render(wrap(<ModelValidationChip value="bareid" onChange={() => {}} />));
+  await waitFor(() =>
+    expect(screen.getByText(/malformed/i)).toBeInTheDocument(),
+  );
 });
 ```
 
@@ -2167,13 +2181,17 @@ export default function ModelValidationChip({ value, onChange, label = "Model" }
       />
       {result && (
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-          {result.status === "available" && (
+          {result.status === "ok" && (
             <Chip size="small" color="success" label="✓ available" />
           )}
-          {result.status === "not_in_catalog" && (
+          {result.status === "model_not_found" && (
             <Chip size="small" color="warning" label="⚠ not in catalog" />
           )}
-          {result.status === "no_key" && (
+          {result.status === "malformed" && (
+            <Chip size="small" color="warning"
+                  label="⚠ malformed (expected provider/model)" />
+          )}
+          {result.status === "no_credentials" && (
             <>
               <Chip size="small" color="error" label="✗ no key" />
               {result.provider && (
