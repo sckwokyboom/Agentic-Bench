@@ -44,6 +44,11 @@ def list_runs(root_runs_dir: Path) -> list[dict]:
                 "interrupted_reason": m.get("interrupted_reason"),
                 "verify_status": m.get("verify_status"),
                 "success": m.get("success"),
+                "duration_s": m.get("duration_s"),
+                "n_steps": m.get("n_steps"),
+                "n_tool_calls": m.get("n_tool_calls"),
+                "n_test_runs": m.get("n_test_runs"),
+                "cost": m.get("cost"),
                 "started_at": _mtime_iso(m_path),
             })
     return items
