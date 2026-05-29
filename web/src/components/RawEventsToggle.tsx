@@ -14,7 +14,7 @@ export default function RawEventsToggle({ events }: Props) {
         <Box sx={{
           mt: 1, p: 1, bgcolor: "#0e1116", color: "#dbe1ec",
           fontFamily: "monospace", fontSize: 12, borderRadius: 1,
-          maxHeight: 320, overflow: "auto",
+          maxHeight: 320, overflow: "auto", userSelect: "text",
         }}>
           {events.map((e, i) => (
             <Typography key={i} variant="caption" component="div">

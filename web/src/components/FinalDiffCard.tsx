@@ -16,7 +16,7 @@ function HunkLine({ line }: { line: string }) {
   else if (line.startsWith("-") && !line.startsWith("---")) { color = "error.main"; bg = "rgba(211,47,47,0.08)"; }
   else if (line.startsWith("@@")) { color = "text.secondary"; }
   return (
-    <Box sx={{ color, bgcolor: bg, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre" }}>
+    <Box sx={{ color, bgcolor: bg, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre", userSelect: "text" }}>
       {line || " "}
     </Box>
   );

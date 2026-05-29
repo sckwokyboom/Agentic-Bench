@@ -38,7 +38,7 @@ export default function VerifyCard({ trace }: Props) {
           )}
         </Stack>
         <Collapse in={open}>
-          <Box sx={{ mt: 1, fontFamily: "monospace", fontSize: 12 }}>
+          <Box sx={{ mt: 1, fontFamily: "monospace", fontSize: 12, userSelect: "text" }}>
             {trace.verify_failed_names.map((n) => (
               <Typography key={n} variant="body2" color="error">— {n}</Typography>
             ))}

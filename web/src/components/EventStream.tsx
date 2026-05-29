@@ -53,6 +53,7 @@ export default function EventStream({ envelopes }: Props) {
       <Box sx={{
         flex: 1, overflow: "auto", fontFamily: "monospace", fontSize: 13,
         bgcolor: "#0e1116", color: "#dbe1ec", borderRadius: 1, p: 1.5,
+        userSelect: "text",
       }}>
         {groups.map((g, i) => (
           <Box key={g.messageId} sx={{ mb: 2 }}>
