@@ -73,6 +73,19 @@ export const useTrace = (name: string, condition: string, rep: number) =>
     queryFn: () => apiGet<t.Trace>(`/api/runs/${name}/${condition}/${rep}/trace`),
   });
 
+export const useEvents = (name: string, condition: string, rep: number) =>
+  useQuery({
+    queryKey: ["events", name, condition, rep],
+    queryFn: async () => {
+      // Backend returns text/plain JSONL (one JSON per line).
+      const text = await apiGet<string>(`/api/runs/${name}/${condition}/${rep}/events`);
+      return text
+        .split("\n")
+        .filter((l) => l.trim().length > 0)
+        .map((l) => JSON.parse(l));
+    },
+  });
+
 export const useMetrics = (name: string, condition: string, rep: number) =>
   useQuery({
     queryKey: qk.metrics(name, condition, rep),
