@@ -4795,19 +4795,31 @@ At the very end of `create_app` — **after** the websocket handler (currently a
         def _spa_root():
             return FileResponse(_index)
 
-        @app.get("/{full_path:path}", include_in_schema=False)
-        def _spa_fallback(full_path: str):
-            # Defence in depth: if a stray /api/... or /ws/... slips into the
-            # catch-all (no matching API route registered), keep returning 404
-            # instead of leaking index.html into client-side error handlers.
+        # Match ALL methods on the catch-all: an unmatched /api or /ws request
+        # (e.g. DELETE /api/experiments/..%2Fetc) must land here and 404, not
+        # trigger a misleading 405 from a GET-only route matching the path.
+        @app.api_route(
+            "/{full_path:path}",
+            methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+            include_in_schema=False,
+        )
+        def _spa_fallback(full_path: str, request: Request):
+            # Defence in depth: stray /api/... or /ws/... with no matching route → 404.
             if full_path.startswith("api/") or full_path.startswith("ws/"):
                 raise HTTPException(404, f"not found: {full_path}")
-            # Prefer a real static asset when one is at this exact path.
-            candidate = _static_dir / full_path
-            if candidate.is_file():
+            # Only GET serves the SPA; other verbs on unknown paths are 404.
+            if request.method != "GET":
+                raise HTTPException(404, f"not found: {full_path}")
+            # Serve a real static asset only if it resolves INSIDE static_dir —
+            # refuse path traversal (e.g. ..%2f..%2fetc%2fpasswd); else index.html.
+            root = _static_dir.resolve()
+            candidate = (root / full_path).resolve()
+            if candidate.is_file() and candidate.is_relative_to(root):
                 return FileResponse(candidate)
             return FileResponse(_index)
 ```
+
+`create_app` also gains a `static_dir: Path | None = None` keyword param (defaults to the package `static/`) so tests can inject a tmp bundle without touching the real build artefact; `_static_dir = Path(static_dir) if static_dir is not None else Path(__file__).resolve().parent / "static"`.
 
 - [ ] **Step 4: Run test, expect pass**
 
