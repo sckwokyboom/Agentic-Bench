@@ -1,0 +1,106 @@
+// Mirrors the JSON shapes returned by abench_ui FastAPI endpoints.
+// Hand-written from spec §6 + server.py — refresh when contract changes.
+
+export interface ExperimentSummary {
+  name: string;
+  has_fixture: boolean;
+  has_reference: boolean;
+  has_runs: boolean;
+  last_run_at: string | null;
+}
+
+export interface RunSummary {
+  condition: string;
+  rep: number;
+  finished: boolean;
+  interrupted_reason: string | null;
+  verify_status: VerifyStatus | null;
+  success: boolean | null;
+  started_at: string;
+}
+
+export type VerifyStatus = "passed" | "failed" | "skipped" | "error" | "timeout";
+
+export interface VerifySummary {
+  status: VerifyStatus | null;
+  passed_count: number | null;
+  failed_count: number | null;
+  failed_names: string[];
+  command: string | null;
+  duration_s: number | null;
+}
+
+export interface MetricsJson {
+  finished: boolean;
+  interrupted_reason: string | null;
+  success: boolean | null;
+  verify_status: VerifyStatus | null;
+  verify_command: string | null;
+  verify_duration_s: number | null;
+  verify_passed_count: number | null;
+  verify_failed_count: number | null;
+  verify_failed_names?: string[];
+  isolation_nonce?: string | null;
+  [key: string]: unknown;
+}
+
+export interface TurnInfo {
+  message_id: string;
+  reason: string | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  tokens_reasoning: number | null;
+  cost: number | null;
+  started_at: number | null;
+  ended_at: number | null;
+}
+
+export interface FileChange { path: string; added: number; removed: number; }
+export interface FinalDiffSummary {
+  files: FileChange[];
+  total_added: number;
+  total_removed: number;
+}
+
+export interface Trace {
+  turns: TurnInfo[];
+  verify_status: VerifyStatus | null;
+  verify_command: string | null;
+  verify_duration_s: number | null;
+  verify_passed_count: number | null;
+  verify_failed_count: number | null;
+  verify_failed_names: string[];
+  verify_baseline_unknown: boolean;
+  isolation_nonce: string | null;
+  final_diff_summary: FinalDiffSummary | null;
+  [key: string]: unknown;
+}
+
+export interface MethodComparison {
+  method_name: string;
+  original_lines: string[];
+  regen_lines: string[];
+  equivalent: boolean;
+}
+
+export interface ValidateModelResp {
+  status: "available" | "not_in_catalog" | "no_key";
+  provider: string | null;
+  suggestions?: string[];
+}
+
+export interface ProviderEntry { id: string; configured: boolean; }
+
+export interface SessionState {
+  state: "pending" | "running" | "completed" | "cancelled" | "failed";
+  started_at: number | null;
+  ended_at: number | null;
+  total_runs: number;
+  current_condition: string | null;
+  current_rep: number | null;
+}
+
+export interface ApiError {
+  status: number;
+  detail: string | unknown;
+}
