@@ -1,0 +1,176 @@
+"""RunSession — encapsulates one in-flight experiment, runs it in a thread,
+publishes WS-style envelope messages, supports cooperative cancel.
+
+Envelope types emitted (in order):
+  session.started  — once at the start, with total_runs count
+  run.started      — once per condition×rep, before the run_task call
+  raw_event        — once per opencode JSONL event relayed from the model
+  run.finished     — once per condition×rep, after the run_task call returns
+  session.finished — always (via finally), with duration_s
+  session.error    — only on unhandled exception (before session.finished)
+"""
+from __future__ import annotations
+
+import threading
+import time
+import traceback
+from enum import Enum
+from typing import Callable
+
+from abench.config import Experiment
+from abench.opencode_client import RunResult
+from abench.runner import run_experiment
+from .ws_client import WSPublishingClient
+
+
+class SessionState(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class _PerRunPublishingClient:
+    """Wraps an inner OpenCodeClient to emit run.started / raw_event / run.finished
+    envelopes around each run_task call.
+
+    The runner calls client_factory(exp) ONCE and then calls run_task N times
+    (once per condition×rep), so wrapping at run_task level gives per-rep hooks.
+    """
+
+    def __init__(
+        self,
+        inner,
+        publish: Callable[[dict], None],
+        session_id: str,
+        total_runs: int,
+    ):
+        self._inner = inner
+        self._publish = publish
+        self._session_id = session_id
+        self._total_runs = total_runs
+        self._run_idx = 0
+
+    def run_task(
+        self,
+        *,
+        workdir: str,
+        system_prompt: str,
+        model: str,
+        user_message: str,
+        timeout_s: int,
+        on_event: Callable[[dict], None],
+    ) -> RunResult:
+        self._run_idx += 1
+        run_idx = self._run_idx
+
+        self._publish({
+            "type": "run.started",
+            "session_id": self._session_id,
+            "run_idx": run_idx,
+            "total_runs": self._total_runs,
+        })
+
+        def on_event_relay(event: dict) -> None:
+            self._publish({
+                "type": "raw_event",
+                "session_id": self._session_id,
+                "run_idx": run_idx,
+                "event": event,
+            })
+            on_event(event)
+
+        result = self._inner.run_task(
+            workdir=workdir,
+            system_prompt=system_prompt,
+            model=model,
+            user_message=user_message,
+            timeout_s=timeout_s,
+            on_event=on_event_relay,
+        )
+
+        tr = result.trace
+        self._publish({
+            "type": "run.finished",
+            "session_id": self._session_id,
+            "run_idx": run_idx,
+            "total_runs": self._total_runs,
+            "finished": tr.finished,
+            "interrupted_reason": tr.interrupted_reason,
+            "verify_status": tr.verify_status,
+        })
+
+        return result
+
+
+class RunSession:
+    def __init__(
+        self,
+        id: str,
+        experiment: Experiment,
+        client_factory: Callable[[Experiment], object],
+        publish: Callable[[dict], None],
+    ):
+        self.id = id
+        self.experiment = experiment
+        self._client_factory = client_factory
+        self._publish = publish
+        self.state = SessionState.PENDING
+        self.started_at: float | None = None
+        self.ended_at: float | None = None
+        self._thread: threading.Thread | None = None
+        self._cancel_flag = threading.Event()
+
+    def start(self) -> None:
+        if self._thread is not None:
+            raise RuntimeError("RunSession already started")
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def cancel(self) -> None:
+        """Cooperative best-effort cancel. Sets the cancel flag; v1 does not
+        hard-kill the running opencode subprocess."""
+        self._cancel_flag.set()
+
+    def _run(self) -> None:
+        self.state = SessionState.RUNNING
+        self.started_at = time.time()
+        total = len(self.experiment.conditions) * self.experiment.repetitions
+        self._publish({
+            "type": "session.started",
+            "session_id": self.id,
+            "total_runs": total,
+        })
+
+        def wrapped_factory(exp: Experiment):
+            inner = self._client_factory(exp)
+            return _PerRunPublishingClient(
+                inner=inner,
+                publish=self._publish,
+                session_id=self.id,
+                total_runs=total,
+            )
+
+        try:
+            run_experiment(self.experiment, wrapped_factory)
+            if self._cancel_flag.is_set():
+                self.state = SessionState.CANCELLED
+            else:
+                self.state = SessionState.COMPLETED
+        except Exception as exc:
+            self.state = SessionState.FAILED
+            self._publish({
+                "type": "session.error",
+                "session_id": self.id,
+                "message": str(exc),
+                "traceback": traceback.format_exc(),
+            })
+        finally:
+            self.ended_at = time.time()
+            duration = self.ended_at - (self.started_at or self.ended_at)
+            self._publish({
+                "type": "session.finished",
+                "session_id": self.id,
+                "duration_s": duration,
+            })
