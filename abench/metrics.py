@@ -60,6 +60,14 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
     if trace.started_at is not None and trace.ended_at is not None:
         duration = trace.ended_at - trace.started_at
 
+    success: bool | None
+    if trace.verify_status == "passed":
+        success = True
+    elif trace.verify_status == "failed":
+        success = False
+    else:
+        success = None
+
     return {
         "duration_s": duration,
         "n_steps": n_steps,
@@ -77,5 +85,13 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "time_to_first_edit_s": ttfe,
         "finished": trace.finished,
         "interrupted_reason": trace.interrupted_reason,
-        "success": None,
+        "verify_status": trace.verify_status,
+        "verify_command": trace.verify_command,
+        "verify_duration_s": trace.verify_duration_s,
+        "verify_passed_count": trace.verify_passed_count,
+        "verify_failed_count": trace.verify_failed_count,
+        "verify_failed_names": list(trace.verify_failed_names),
+        "verify_baseline_unknown": trace.verify_baseline_unknown,
+        "isolation_nonce": trace.isolation_nonce,
+        "success": success,
     }

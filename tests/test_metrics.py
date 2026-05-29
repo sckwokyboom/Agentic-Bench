@@ -54,3 +54,46 @@ def test_extract_counts_metrics():
     assert m["time_to_first_edit_s"] == 4.0
     assert m["finished"] is True
     assert m["success"] is None
+
+
+def test_extract_copies_verify_fields_and_auto_success_passed():
+    cfg = _cfg()
+    trace = Trace(
+        started_at=0.0, ended_at=10.0,
+        finished=True,
+        verify_status="passed",
+        verify_command="./gradlew test",
+        verify_duration_s=12.0,
+        verify_passed_count=142,
+        verify_failed_count=0,
+        steps=[],
+    )
+    m = extract(trace, "", cfg)
+    assert m["verify_status"] == "passed"
+    assert m["verify_passed_count"] == 142
+    assert m["success"] is True
+
+
+def test_extract_auto_success_failed():
+    cfg = _cfg()
+    trace = Trace(
+        started_at=0.0, ended_at=10.0,
+        finished=True,
+        verify_status="failed",
+        verify_failed_count=3,
+        steps=[],
+    )
+    m = extract(trace, "", cfg)
+    assert m["success"] is False
+
+
+def test_extract_auto_success_none_when_skipped():
+    cfg = _cfg()
+    trace = Trace(
+        started_at=0.0, ended_at=10.0,
+        finished=True,
+        verify_status="skipped",
+        steps=[],
+    )
+    m = extract(trace, "", cfg)
+    assert m["success"] is None
