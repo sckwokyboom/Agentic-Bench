@@ -10,11 +10,12 @@ _MAVEN_FAILED_NAME = re.compile(r"^\s+([\w.$]+\.[\w$]+)\s*$", re.MULTILINE)
 
 
 def parse_maven_surefire(output: str) -> tuple[int, int, list[str]]:
-    """Maven Surefire: `Tests run: X, Failures: Y, Errors: Z`."""
-    m = _MAVEN_LINE.search(output)
-    if not m:
+    """Maven Surefire: takes the LAST `Tests run: X, Failures: Y, Errors: Z`
+    line in the output (the aggregate, printed after all per-class lines)."""
+    matches = _MAVEN_LINE.findall(output)
+    if not matches:
         raise ValueError("no Maven Surefire summary found")
-    run, failures, errors = (int(x) for x in m.groups())
+    run, failures, errors = (int(x) for x in matches[-1])
     failed = failures + errors
     names: list[str] = []
     if failed and "Failed tests:" in output:
@@ -24,7 +25,7 @@ def parse_maven_surefire(output: str) -> tuple[int, int, list[str]]:
 
 
 _GRADLE_LINE = re.compile(r"(\d+)\s+tests?\s+completed,\s+(\d+)\s+failed")
-_GRADLE_FAILED_NAME = re.compile(r"^(.+?)\s+FAILED\s*$", re.MULTILINE)
+_GRADLE_FAILED_NAME = re.compile(r"^(\w[^\n]*?\s+>\s+\S[^\n]*?)\s+FAILED\s*$", re.MULTILINE)
 
 
 def parse_gradle_output(output: str) -> tuple[int, int, list[str]]:
@@ -37,20 +38,20 @@ def parse_gradle_output(output: str) -> tuple[int, int, list[str]]:
     return total - failed, failed, names
 
 
-_PYTEST_SUMMARY = re.compile(
-    r"(?:(\d+)\s+passed)?(?:,\s*(\d+)\s+failed)?",
-)
 _PYTEST_SUMMARY_FULL = re.compile(
-    r"(?P<passed>\d+)\s+passed(?:,\s*(?P<failed>\d+)\s+failed)?",
+    r"(?P<passed>\d+)\s+passed"
+    r"(?:,\s*(?P<failed>\d+)\s+failed)?"
+    r"(?:,\s*(?P<error>\d+)\s+errors?)?"
 )
 _PYTEST_FAILED_LINE = re.compile(r"^FAILED\s+(\S+)", re.MULTILINE)
+_PYTEST_ERROR_LINE = re.compile(r"^ERROR\s+(\S+)", re.MULTILINE)
 
 
 def parse_pytest_output(output: str) -> tuple[int, int, list[str]]:
-    """pytest: summary line `N passed[, M failed] in Xs`."""
+    """pytest: `N passed[, M failed][, K errors] in Xs`. Errors are folded
+    into the failed count for downstream success-flag purposes."""
     m = _PYTEST_SUMMARY_FULL.search(output)
     if not m:
-        # accept fallback "N passed in Xs" or pure "M failed in Xs"
         failed_only = re.search(r"(\d+)\s+failed", output)
         if failed_only:
             failed = int(failed_only.group(1))
@@ -59,5 +60,9 @@ def parse_pytest_output(output: str) -> tuple[int, int, list[str]]:
         raise ValueError("no pytest summary found")
     passed = int(m.group("passed"))
     failed = int(m.group("failed") or 0)
-    names = _PYTEST_FAILED_LINE.findall(output)[:20]
-    return passed, failed, names
+    errors = int(m.group("error") or 0)
+    failed_total = failed + errors
+    fail_names = _PYTEST_FAILED_LINE.findall(output)[:20]
+    err_names = _PYTEST_ERROR_LINE.findall(output)[:20]
+    names = (fail_names + err_names)[:20]
+    return passed, failed_total, names

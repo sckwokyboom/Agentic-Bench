@@ -141,3 +141,70 @@ def test_run_verify_parse_error(tmp_path):
         result = run_verify(tmp_path, "mvn test", timeout_s=10)
     assert result.status == "error"
     assert "compiler crash" in result.raw_output
+
+
+MAVEN_MULTI_CLASS = """\
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.example.FooTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Running com.example.BarTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Results:
+[INFO]
+[INFO] Tests run: 15, Failures: 0, Errors: 0, Skipped: 0
+"""
+
+
+def test_parse_maven_uses_aggregate_not_first_class():
+    p, f, _ = parse_maven_surefire(MAVEN_MULTI_CLASS)
+    assert (p, f) == (15, 0)
+
+
+PYTEST_WITH_ERROR = """\
+ERROR tests/test_one.py::test_alpha - ImportError
+================ 8 passed, 1 error in 0.45s ================
+"""
+
+
+def test_parse_pytest_treats_errors_as_failures():
+    p, f, names = parse_pytest_output(PYTEST_WITH_ERROR)
+    assert (p, f) == (8, 1)
+    assert "tests/test_one.py::test_alpha" in names
+
+
+def test_run_verify_returncode_nonzero_with_zero_failed_is_error(tmp_path):
+    """Compile failure: mvn exits 1 but `Tests run: 0, Failures: 0` is parseable.
+    Must classify as 'error', NOT 'failed'."""
+    fake = subprocess.CompletedProcess(
+        args=["mvn", "test"], returncode=1,
+        stdout="Tests run: 0, Failures: 0, Errors: 0, Skipped: 0", stderr="",
+    )
+    with patch("abench.verify.subprocess.run", return_value=fake):
+        result = run_verify(tmp_path, "mvn test", timeout_s=10)
+    assert result.status == "error"
+
+
+def test_detect_command_mvnw(tmp_path):
+    (tmp_path / "pom.xml").write_text("")
+    (tmp_path / "mvnw").write_text("#!/bin/sh")
+    assert detect_command(tmp_path) == "./mvnw test"
+
+
+GRADLE_FAIL_WITH_TASK_NOISE = """\
+> Task :compileJava
+> Task :test FAILED
+
+com.example.FooTest > testA FAILED
+    java.lang.AssertionError at FooTest.java:12
+
+3 tests completed, 1 failed
+"""
+
+
+def test_parse_gradle_skips_task_lines_in_failed_names():
+    _, _, names = parse_gradle_output(GRADLE_FAIL_WITH_TASK_NOISE)
+    assert "com.example.FooTest > testA" in names
+    # task lines (no ' > ') must NOT appear in failed names
+    assert all(" > " in n for n in names)

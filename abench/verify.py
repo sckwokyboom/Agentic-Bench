@@ -1,7 +1,6 @@
 """Post-run verification — runs the project's test suite and parses the result."""
 from __future__ import annotations
 
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -39,12 +38,6 @@ def detect_command(workdir: Path) -> str | None:
         if (workdir / "gradlew").exists():
             return "./gradlew test"
         return "gradle test"
-    if (workdir / "package.json").exists():
-        return "npm test"
-    if (workdir / "Cargo.toml").exists():
-        return "cargo test"
-    if (workdir / "go.mod").exists():
-        return "go test ./..."
     if (workdir / "pyproject.toml").exists() and (workdir / "tests").is_dir():
         return "pytest"
     return None
@@ -111,7 +104,18 @@ def run_verify(workdir: Path, command: str, timeout_s: int) -> VerifyResult:
             raw_output=output[:8000],
         )
 
-    status: Status = "passed" if failed == 0 and completed.returncode == 0 else "failed"
+    status: Status
+    if completed.returncode != 0 and failed == 0:
+        return VerifyResult(
+            status="error",
+            command=command,
+            duration_s=duration,
+            passed_count=passed,
+            failed_count=failed,
+            failed_names=names,
+            raw_output=output[:8000],
+        )
+    status = "passed" if failed == 0 else "failed"
     return VerifyResult(
         status=status,
         command=command,
