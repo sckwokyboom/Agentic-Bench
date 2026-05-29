@@ -12,9 +12,11 @@ import PreviousRunsPanel from "../components/PreviousRunsPanel";
 import { useExperiment, useExperiments, useSaveExperiment, useStartRun } from "../api/queries";
 import { loadSchema, type JsonSchema } from "../api/schemaCache";
 import { uiSchema } from "../schema/uiSchema";
-import { ModelValidationWidget } from "../schema/widgets";
+import {
+  ModelValidationWidget, TargetMethodsWidget,
+} from "../schema/widgets";
 
-const customWidgets = { ModelValidationWidget };
+const customWidgets = { ModelValidationWidget, TargetMethodsWidget };
 
 export default function ExperimentEdit() {
   const { name } = useParams<{ name: string }>();
