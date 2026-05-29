@@ -37,3 +37,45 @@ def test_load_and_report(tmp_path):
     assert "## Mean per condition" in md
     # invalid (rate_limit) run excluded -> augmented mean n_steps == 7, not pulled to ~37
     assert "n_steps" in md
+
+
+from abench import report
+
+
+def _write_summary_run(root: Path, condition: str, rep: int, metrics: dict) -> None:
+    d = root / condition / f"rep_{rep}"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "metrics.json").write_text(json.dumps(metrics))
+    (d / "manifest.json").write_text(json.dumps({"condition": condition, "rep": rep}))
+
+
+def test_summary_json_means_and_deltas(tmp_path: Path):
+    root = tmp_path / "runs"
+    base = {"interrupted_reason": None, "success": True}
+    _write_summary_run(root, "baseline", 0, {**base, "n_steps": 10, "duration_s": 100.0, "cost": 0.02})
+    _write_summary_run(root, "baseline", 1, {**base, "n_steps": 20, "duration_s": 200.0, "cost": 0.04})
+    _write_summary_run(root, "augmented", 0, {**base, "n_steps": 6, "duration_s": 80.0, "cost": 0.03})
+    _write_summary_run(root, "augmented", 1, {**base, "n_steps": 6, "duration_s": 120.0, "cost": 0.03})
+
+    out = report.summary_json(root)
+
+    assert out["total_runs"] == 4
+    assert out["valid_runs"] == 4
+    conds = {c["name"]: c for c in out["conditions"]}
+    assert conds["baseline"]["metrics"]["n_steps"]["mean"] == 15.0
+    assert conds["augmented"]["metrics"]["n_steps"]["mean"] == 6.0
+    assert conds["baseline"]["success_rate"] == 1.0
+    assert out["deltas"]["n_steps"] == -60.0
+
+
+def test_summary_json_excludes_interrupted_and_handles_empty(tmp_path: Path):
+    root = tmp_path / "runs"
+    _write_summary_run(root, "baseline", 0, {"interrupted_reason": "timeout", "success": None, "n_steps": 99})
+    out = report.summary_json(root)
+    assert out["total_runs"] == 1
+    assert out["valid_runs"] == 0
+    assert out["conditions"] == []
+    assert out["deltas"] == {}
+
+    empty = report.summary_json(tmp_path / "nope")
+    assert empty == {"conditions": [], "deltas": {}, "total_runs": 0, "valid_runs": 0}

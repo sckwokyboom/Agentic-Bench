@@ -32,6 +32,62 @@ def summarize(df: pd.DataFrame) -> pd.DataFrame:
     return valid.groupby("condition")[NUMERIC].agg(["mean", "median", "std"])
 
 
+def summary_json(root: Path) -> dict:
+    """JSON-friendly aggregate for the Web UI. Reuses load_runs; means/medians
+    per condition over valid runs (interrupted excluded), plus augmented-vs-
+    baseline percent deltas. NaN -> None; numpy scalars -> native floats."""
+    df = load_runs(Path(root))
+    if df.empty:
+        return {"conditions": [], "deltas": {}, "total_runs": 0, "valid_runs": 0}
+
+    valid = df[df["interrupted_reason"].isna()]
+    total_runs = int(len(df))
+    valid_runs = int(len(valid))
+    if valid.empty:
+        return {"conditions": [], "deltas": {}, "total_runs": total_runs, "valid_runs": valid_runs}
+
+    mean = valid.groupby("condition")[NUMERIC].mean()
+    median = valid.groupby("condition")[NUMERIC].median()
+
+    conditions = []
+    for cond in mean.index:
+        sub = valid[valid["condition"] == cond]
+        succ = sub["success"].dropna()
+        success_rate = (
+            float((succ == True).sum()) / len(succ) if len(succ) else None  # noqa: E712
+        )
+        metrics = {}
+        for m in NUMERIC:
+            mv = mean.loc[cond, m]
+            dv = median.loc[cond, m]
+            metrics[m] = {
+                "mean": None if pd.isna(mv) else float(mv),
+                "median": None if pd.isna(dv) else float(dv),
+            }
+        conditions.append({
+            "name": str(cond),
+            "runs": int(len(sub)),
+            "success_rate": success_rate,
+            "metrics": metrics,
+        })
+
+    deltas: dict[str, float] = {}
+    names = list(mean.index)
+    if "baseline" in names and "augmented" in names:
+        for m in NUMERIC:
+            base = mean.loc["baseline", m]
+            aug = mean.loc["augmented", m]
+            if not pd.isna(base) and not pd.isna(aug) and base != 0:
+                deltas[m] = round(float((aug - base) / base * 100), 1)
+
+    return {
+        "conditions": conditions,
+        "deltas": deltas,
+        "total_runs": total_runs,
+        "valid_runs": valid_runs,
+    }
+
+
 def _to_markdown(df: pd.DataFrame) -> str:
     valid = df[df["interrupted_reason"].isna()]
     means = valid.groupby("condition")[NUMERIC].mean()
