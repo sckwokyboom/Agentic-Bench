@@ -3,11 +3,12 @@ import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography }
 interface Props {
   open: boolean;
   name: string;
+  busy?: boolean;
   onClose: () => void;
   onConfirm: () => void;
 }
 
-export default function DeleteExperimentDialog({ open, name, onClose, onConfirm }: Props) {
+export default function DeleteExperimentDialog({ open, name, busy = false, onClose, onConfirm }: Props) {
   return (
     <Dialog open={open} onClose={onClose}>
       <DialogTitle>Delete "{name}"?</DialogTitle>
@@ -18,8 +19,8 @@ export default function DeleteExperimentDialog({ open, name, onClose, onConfirm 
         </Typography>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button color="error" variant="contained" onClick={onConfirm}>Delete</Button>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button color="error" variant="contained" onClick={onConfirm} disabled={busy}>Delete</Button>
       </DialogActions>
     </Dialog>
   );

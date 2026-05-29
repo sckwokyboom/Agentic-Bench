@@ -84,7 +84,7 @@ export default function ExperimentList() {
                     <IconButton
                       size="small"
                       title="Run"
-                      disabled={!e.has_fixture}
+                      disabled={!e.has_fixture || start.isPending}
                       onClick={() => handleRun(e.name)}
                       aria-label="run"
                     >
@@ -123,6 +123,7 @@ export default function ExperimentList() {
       <DeleteExperimentDialog
         open={toDelete !== null}
         name={toDelete ?? ""}
+        busy={del.isPending}
         onClose={() => setToDelete(null)}
         onConfirm={async () => {
           if (toDelete) await del.mutateAsync(toDelete);
