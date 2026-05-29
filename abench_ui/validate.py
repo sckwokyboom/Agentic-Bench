@@ -30,6 +30,7 @@ _PROVIDERS_CACHE: TTLCache = TTLCache(maxsize=1, ttl=30)
 _MODELS_CACHE: TTLCache = TTLCache(maxsize=16, ttl=300)
 
 
+@cached(_PROVIDERS_CACHE)
 def _providers() -> set[str]:
     result = subprocess.run(
         ["opencode", "providers", "list"],
@@ -49,6 +50,7 @@ def _providers() -> set[str]:
     return out
 
 
+@cached(_MODELS_CACHE)
 def _models(provider: str) -> list[str]:
     result = subprocess.run(
         ["opencode", "models", provider],
