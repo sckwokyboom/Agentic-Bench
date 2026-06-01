@@ -20,7 +20,7 @@ from .metrics import MetricsConfig, extract
 from .opencode_client import OpenCodeClient
 from .prompt import compose
 from .trace_model import FileChange, FinalDiffSummary
-from .verify import detect_command as _detect_verify, run_verify
+from .verify import detect_command as _detect_verify, run_verify, write_verify_log
 
 ClientFactory = Callable[[Experiment], OpenCodeClient]
 
@@ -38,19 +38,6 @@ def compute_plan(exp: Experiment) -> list[tuple["Condition", int]]:
 def _log(msg: str) -> None:
     sys.stderr.write(msg + "\n")
     sys.stderr.flush()
-
-
-def _write_verify_log(rundir: Path, v) -> None:
-    """Persist the full verify output with a small diagnostic header."""
-    dur = f"{v.duration_s:.1f}s" if v.duration_s is not None else "—"
-    header = (
-        f"# command: {v.command}\n"
-        f"# status: {v.status} ({v.reason})\n"
-        f"# message: {v.message}\n"
-        f"# duration: {dur}\n"
-        f"───\n"
-    )
-    (Path(rundir) / "verify_output.log").write_text(header + (v.raw_output or ""))
 
 
 def _dump_resolved(exp: Experiment) -> str:
@@ -180,7 +167,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     result.trace.verify_failed_names = v.failed_names
                     result.trace.verify_reason = v.reason
                     result.trace.verify_message = v.message
-                    _write_verify_log(rundir, v)
+                    write_verify_log(rundir, v)
                 except Exception as exc:
                     _log(f"[abench] WARN verify raised unexpectedly: {exc!r}")
                     result.trace.verify_status = "error"
@@ -291,7 +278,7 @@ def _maybe_run_baseline_verify(exp: Experiment, cache_path: Path) -> None:
             "status": v.status, "reason": v.reason, "message": v.message,
             "passed_count": v.passed_count, "failed_count": v.failed_count,
         }))
-        _write_verify_log(cache_path.parent, v)
+        write_verify_log(cache_path.parent, v)
         (cache_path.parent / "verify_output.log").rename(
             cache_path.parent / ".verify-baseline-output.log")
     except Exception:

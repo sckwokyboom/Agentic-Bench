@@ -178,3 +178,16 @@ def run_verify(workdir: Path, command: str, timeout_s: int) -> VerifyResult:
         message="could not parse test output",
         command=command, duration_s=duration, raw_output=output,
     )
+
+
+def write_verify_log(rundir: Path, v: VerifyResult) -> None:
+    """Persist the full verify output with a small diagnostic header."""
+    dur = f"{v.duration_s:.1f}s" if v.duration_s is not None else "—"
+    header = (
+        f"# command: {v.command}\n"
+        f"# status: {v.status} ({v.reason})\n"
+        f"# message: {v.message}\n"
+        f"# duration: {dur}\n"
+        f"───\n"
+    )
+    (Path(rundir) / "verify_output.log").write_text(header + (v.raw_output or ""))
