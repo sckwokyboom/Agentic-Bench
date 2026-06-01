@@ -8,6 +8,15 @@ from .diffstat import parse_diffstat
 from .trace_model import StepKind, Trace
 
 
+def _success_from_status(status: str | None) -> bool | None:
+    """Single source for the success verdict: passed→True, failed→False, else None."""
+    if status == "passed":
+        return True
+    if status == "failed":
+        return False
+    return None
+
+
 @dataclass
 class MetricsConfig:
     test_command_patterns: list[str]
@@ -60,13 +69,7 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
     if trace.started_at is not None and trace.ended_at is not None:
         duration = trace.ended_at - trace.started_at
 
-    success: bool | None
-    if trace.verify_status == "passed":
-        success = True
-    elif trace.verify_status == "failed":
-        success = False
-    else:
-        success = None
+    success = _success_from_status(trace.verify_status)
 
     return {
         "duration_s": duration,

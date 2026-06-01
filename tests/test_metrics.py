@@ -108,3 +108,14 @@ def test_metrics_include_verify_reason_and_message():
     assert m["verify_reason"] == "build_failed"
     assert m["verify_message"] == "build failed — COMPILATION ERROR"
     assert m["success"] is None
+
+
+from abench.metrics import _success_from_status
+
+
+def test_success_from_status_rule():
+    assert _success_from_status("passed") is True
+    assert _success_from_status("failed") is False
+    assert _success_from_status("error") is None
+    assert _success_from_status("skipped") is None
+    assert _success_from_status(None) is None
