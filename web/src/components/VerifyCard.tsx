@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card, CardContent, Stack, Typography, Chip, Button, Collapse, Box, Dialog,
   DialogTitle, DialogContent, CircularProgress,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { useVerifyLog } from "../api/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { useVerifyLog, useStartReverify, useReverifyStatus, qk } from "../api/queries";
 import { buildSystemLabel } from "../lib/buildSystem";
 import { selectable } from "../theme";
 import type { Trace } from "../api/types";
@@ -20,6 +21,26 @@ export default function VerifyCard({ trace, name, condition, rep }: Props) {
   const [open, setOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const log = useVerifyLog(name, condition, rep, logOpen);
+
+  const qc = useQueryClient();
+  const start = useStartReverify();
+  const [verifyId, setVerifyId] = useState<string | null>(null);
+  const job = useReverifyStatus(verifyId);
+  const running = start.isPending || job.data?.state === "running";
+
+  useEffect(() => {
+    if (job.data?.state === "done" || job.data?.state === "error") {
+      qc.invalidateQueries({ queryKey: qk.trace(name, condition, rep) });
+      qc.invalidateQueries({ queryKey: qk.metrics(name, condition, rep) });
+      qc.invalidateQueries({ queryKey: qk.verifyLog(name, condition, rep) });
+      setVerifyId(null);
+    }
+  }, [job.data?.state, qc, name, condition, rep]);
+
+  async function handleReverify() {
+    const { verify_id } = await start.mutateAsync({ name, condition, rep });
+    setVerifyId(verify_id);
+  }
 
   const status = trace.verify_status;
   if (!status) return null;
@@ -46,6 +67,9 @@ export default function VerifyCard({ trace, name, condition, rep }: Props) {
           )}
           <Typography variant="body2">{headline}</Typography>
           <Box sx={{ flexGrow: 1 }} />
+          <Button size="small" onClick={handleReverify} disabled={running}>
+            {running ? "Re-verifying…" : "Re-verify"}
+          </Button>
           <Button size="small" onClick={() => setLogOpen(true)}>View verify output</Button>
         </Stack>
 

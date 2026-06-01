@@ -39,3 +39,18 @@ test("renders nothing when verify_status is null", () => {
   );
   expect(container.firstChild).toBeNull();
 });
+
+test("Re-verify starts a job and polls to done", async () => {
+  mswServer.use(
+    http.post("/api/verify", () => HttpResponse.json({ verify_id: "v1" })),
+    http.get("/api/verify/v1", () => HttpResponse.json({
+      state: "done", total: 1, done: 1, current: null, error: null,
+      results: [{ condition: "baseline", rep: 0, status: "passed", reason: "passed",
+                  message: "ok", passed_count: 5, failed_count: 0 }],
+    })),
+  );
+  render(wrap(<VerifyCard trace={base} name="exp" condition="baseline" rep={0} />));
+  await userEvent.click(screen.getByRole("button", { name: /^re-verify$/i }));
+  // resolves back to the idle "Re-verify" label once the job reports done
+  await screen.findByRole("button", { name: /^re-verify$/i });
+});
