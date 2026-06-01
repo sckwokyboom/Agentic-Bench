@@ -89,13 +89,12 @@ and `reverify_run`, so they cannot drift.
   results: [{condition, rep, status, reason, message, passed_count, failed_count}], error: str|None}`.
 - `POST /api/verify` body `{name: str, condition?: str, rep?: int}` → `{verify_id}`
   (`verify_id = uuid4().hex`). Resolves the experiment
-  (`load_experiment(_exp_dir_for(name)/"experiment.yaml")`), seeds the job dict, and schedules
-  the work via `asyncio.create_task(...)` where the task body does
-  `await loop.run_in_executor(None, _run_reverify_job, ...)` — the blocking re-verify loop runs
-  in a threadpool so the POST returns immediately and the event loop stays responsive. The job
-  function iterates the target set (single or whole experiment), updating the job dict after
-  each run (`done`, `current`, append to `results`), then sets `state="done"` (or
-  `state="error"` + `error` on an unexpected exception).
+  (`load_experiment(_exp_dir_for(name)/"experiment.yaml")`), seeds the job dict, and runs the
+  work on a daemon `threading.Thread` (mirroring the existing `RunSession` threading — keeps the
+  blocking `run_verify` fully off the event loop without a captured loop reference; the POST
+  returns immediately). The job function iterates the target set (single or whole experiment),
+  updating the job dict after each run (`done`, `current`, append to `results`), then sets
+  `state="done"` (or `state="error"` + `error` on an unexpected exception).
 - `GET /api/verify/{verify_id}` → the job dict (404 if unknown).
 - 404 when the experiment/run is absent; a per-run failure (patch/no_run) is recorded as a
   result entry, not a job-level error (the job still completes).

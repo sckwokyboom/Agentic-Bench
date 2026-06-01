@@ -51,6 +51,23 @@ def test_post_verify_runs_and_status_reaches_done(tmp_path):
     assert body["results"][0]["condition"] == "baseline"
 
 
+def test_per_run_failure_lands_as_result_row_not_job_crash(tmp_path):
+    """A run whose changes.patch won't apply must surface as an error result row;
+    the job itself must still reach state=done (not crash to state=error)."""
+    exp_dir = tmp_path / "experiments"
+    _seed_experiment(exp_dir)
+    # Replace the good patch with an unapplyable one.
+    bogus = exp_dir / "exp" / "runs" / "exp" / "baseline" / "rep_0" / "changes.patch"
+    bogus.write_text("diff --git a/a.txt b/a.txt\n@@ bogus @@\nnonsense\n")
+    client = TestClient(create_app(experiments_dir=exp_dir))
+    vid = client.post("/api/verify", json={"name": "exp"}).json()["verify_id"]
+    body = _wait_done(client, vid)
+    assert body["state"] == "done"
+    assert body["done"] == 1
+    assert body["results"][0]["reason"] == "patch_apply_failed"
+    assert body["results"][0]["status"] == "error"
+
+
 def test_verify_status_404_unknown(tmp_path):
     exp_dir = tmp_path / "experiments"
     (exp_dir / "exp").mkdir(parents=True)
