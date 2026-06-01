@@ -26,7 +26,9 @@ export default function VerifyCard({ trace, name, condition, rep }: Props) {
   const start = useStartReverify();
   const [verifyId, setVerifyId] = useState<string | null>(null);
   const job = useReverifyStatus(verifyId);
-  const running = start.isPending || job.data?.state === "running";
+  // `verifyId !== null` keeps the button disabled in the one render between the
+  // POST resolving and the first poll, so a fast double-click can't start a 2nd job.
+  const running = start.isPending || verifyId !== null || job.data?.state === "running";
 
   useEffect(() => {
     if (job.data?.state === "done" || job.data?.state === "error") {

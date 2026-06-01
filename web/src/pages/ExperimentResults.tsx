@@ -21,7 +21,9 @@ export default function ExperimentResults() {
   const start = useStartReverify();
   const [verifyId, setVerifyId] = useState<string | null>(null);
   const job = useReverifyStatus(verifyId);
-  const running = start.isPending || job.data?.state === "running";
+  // `verifyId !== null` keeps the button disabled between the POST resolving and
+  // the first poll, so a fast double-click can't start a second job.
+  const running = start.isPending || verifyId !== null || job.data?.state === "running";
 
   useEffect(() => {
     if (job.data?.state === "done" || job.data?.state === "error") {
