@@ -91,6 +91,8 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "verify_passed_count": trace.verify_passed_count,
         "verify_failed_count": trace.verify_failed_count,
         "verify_failed_names": list(trace.verify_failed_names),
+        "verify_reason": trace.verify_reason,
+        "verify_message": trace.verify_message,
         "verify_baseline_unknown": trace.verify_baseline_unknown,
         "isolation_nonce": trace.isolation_nonce,
         "success": success,

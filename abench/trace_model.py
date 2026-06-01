@@ -67,6 +67,8 @@ class Trace:
     turns: list[TurnInfo] = field(default_factory=list)
 
     verify_status: str | None = None
+    verify_reason: str | None = None
+    verify_message: str | None = None
     verify_command: str | None = None
     verify_duration_s: float | None = None
     verify_passed_count: int | None = None

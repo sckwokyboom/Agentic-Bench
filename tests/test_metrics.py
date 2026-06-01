@@ -97,3 +97,14 @@ def test_extract_auto_success_none_when_skipped():
     )
     m = extract(trace, "", cfg)
     assert m["success"] is None
+
+
+def test_metrics_include_verify_reason_and_message():
+    tr = Trace()
+    tr.verify_status = "error"
+    tr.verify_reason = "build_failed"
+    tr.verify_message = "build failed — COMPILATION ERROR"
+    m = extract(tr, "", _cfg())
+    assert m["verify_reason"] == "build_failed"
+    assert m["verify_message"] == "build failed — COMPILATION ERROR"
+    assert m["success"] is None
