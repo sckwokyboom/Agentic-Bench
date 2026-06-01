@@ -20,6 +20,7 @@ export const qk = {
   verifyLog: (name: string, condition: string, rep: number) =>
     ["verifyLog", name, condition, rep] as const,
   detectedVerify: (name: string) => ["detectedVerify", name] as const,
+  verifyJob: (id: string) => ["verifyJob", id] as const,
   providers: ["providers"] as const,
   sessionState: (sid: string) => ["sessionState", sid] as const,
 };
@@ -123,6 +124,22 @@ export const useDetectedVerify = (name: string | undefined) =>
     queryKey: qk.detectedVerify(name ?? ""),
     enabled: Boolean(name),
     queryFn: () => apiGet<t.DetectedVerify>(`/api/experiments/${name}/verify_command`),
+  });
+
+export function useStartReverify() {
+  return useMutation({
+    mutationFn: (args: { name: string; condition?: string; rep?: number }) =>
+      apiPostJson<{ verify_id: string }>(`/api/verify`, args),
+  });
+}
+
+export const useReverifyStatus = (verifyId: string | null) =>
+  useQuery({
+    queryKey: qk.verifyJob(verifyId ?? ""),
+    enabled: Boolean(verifyId),
+    queryFn: () => apiGet<t.ReverifyJob>(`/api/verify/${verifyId}`),
+    refetchInterval: (q) =>
+      q.state.data && q.state.data.state === "running" ? 1000 : false,
   });
 
 export const useMethodComparison = (

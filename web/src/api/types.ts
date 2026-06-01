@@ -122,6 +122,25 @@ export interface DetectedVerify {
   system: "maven" | "gradle" | "pytest" | "custom" | null;
 }
 
+export interface ReverifyResultRow {
+  condition: string;
+  rep: number;
+  status: VerifyStatus | null;
+  reason: string;
+  message: string;
+  passed_count: number | null;
+  failed_count: number | null;
+}
+
+export interface ReverifyJob {
+  state: "running" | "done" | "error";
+  total: number;
+  done: number;
+  current: { condition: string; rep: number } | null;
+  results: ReverifyResultRow[];
+  error: string | null;
+}
+
 export interface ProviderEntry { id: string; configured: boolean; }
 
 export interface SessionState {
