@@ -254,6 +254,27 @@ def test_tool_not_found_via_exit_127():
     assert "mvn" in r.message
 
 
+def test_tool_not_found_via_explicit_marker_nonzero_exit():
+    # The "<tool>: command not found" line with a non-127 exit still counts.
+    r = _run_classify(stderr="pytest: command not found\n", returncode=1, command="pytest")
+    assert r.status == "error"
+    assert r.reason == "tool_not_found"
+
+
+def test_real_test_failure_with_not_found_in_message_is_not_tool_missing():
+    # Regression: a genuine test failure whose output merely mentions the tool and
+    # "not found" (e.g. an assertion message) must classify as tests_failed with
+    # counts — NOT tool_not_found (which would drop the counts and flip success).
+    out = (
+        "1 passed, 1 failed in 0.3s\n"
+        "FAILED tests/test_x.py::test_cfg - AssertionError: pytest: config key not found\n"
+    )
+    r = _run_classify(stdout=out, returncode=1, command="pytest")
+    assert r.status == "failed"
+    assert r.reason == "tests_failed"
+    assert r.passed_count == 1 and r.failed_count == 1
+
+
 def test_no_tests_run():
     r = _run_classify(stdout="Tests run: 0, Failures: 0, Errors: 0\n", returncode=0, command="mvn test")
     assert r.status == "error"

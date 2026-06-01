@@ -80,13 +80,16 @@ def _build_fail_message(output: str, returncode: int) -> str:
 
 
 def _tool_missing(output: str, returncode: int, tool: str) -> bool:
+    # Only the shell's own "command not found" (exit 127) or the explicit
+    # "<tool>: ... not found" line counts. A loose "<tool>" + "not found"
+    # anywhere would misclassify a real test failure (e.g. an assertion message
+    # mentioning both) as an environment error and drop the pass/fail counts.
     low = output.lower()
     t = tool.lower()
     return (
         returncode == 127
         or f"{t}: command not found" in low
         or f"{t}: not found" in low
-        or (f"{t}: " in low and "not found" in low)
     )
 
 
