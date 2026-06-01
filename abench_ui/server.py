@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import threading
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -54,6 +55,12 @@ class _SuccessPatchBody(BaseModel):
     success: bool | None = None
 
 
+class _VerifyStartBody(BaseModel):
+    name: str
+    condition: str | None = None
+    rep: int | None = None
+
+
 # ── Module helpers ─────────────────────────────────────────────────────────
 
 def _verify_system_label(command: str | None) -> str | None:
@@ -86,6 +93,7 @@ def create_app(
         "sessions": {},       # sid -> RunSession
         "buffers": {},        # sid -> SessionEventBuffer
         "ws_queues": {},      # sid -> list[asyncio.Queue]
+        "verify_jobs": {},    # vid -> job dict
         "client_factory_override": client_factory_override,
         "event_loop": None,   # captured on startup
     }
@@ -372,6 +380,56 @@ def create_app(
             raise HTTPException(404, "session not found")
         session.cancel()
         return {"ok": True}
+
+    # ── Re-verify jobs ────────────────────────────────────────────────────────
+
+    @api.post("/verify")
+    def _start_verify(body: _VerifyStartBody):
+        from abench.config import load_experiment
+        from abench import reverify as reverify_mod
+
+        exp_dir = _exp_dir_for(body.name)
+        yaml_path = exp_dir / "experiment.yaml"
+        if not yaml_path.is_file():
+            raise HTTPException(404, f"experiment '{body.name}' not found")
+        exp = load_experiment(yaml_path)
+
+        if body.condition is not None and body.rep is not None:
+            targets = [(body.condition, body.rep)]
+        else:
+            targets = reverify_mod.discover_runs(exp)
+
+        vid = uuid.uuid4().hex
+        job = {"state": "running", "total": len(targets), "done": 0,
+               "current": None, "results": [], "error": None}
+        state["verify_jobs"][vid] = job
+
+        def _run_job() -> None:
+            try:
+                for condition, rep in targets:
+                    job["current"] = {"condition": condition, "rep": rep}
+                    v = reverify_mod.reverify_run(exp, condition, rep)
+                    job["results"].append({
+                        "condition": condition, "rep": rep, "status": v.status,
+                        "reason": v.reason, "message": v.message,
+                        "passed_count": v.passed_count, "failed_count": v.failed_count,
+                    })
+                    job["done"] += 1
+                job["current"] = None
+                job["state"] = "done"
+            except Exception as exc:  # noqa: BLE001
+                job["state"] = "error"
+                job["error"] = repr(exc)
+
+        threading.Thread(target=_run_job, daemon=True).start()
+        return {"verify_id": vid}
+
+    @api.get("/verify/{verify_id}")
+    def _verify_job_status(verify_id: str):
+        job = state["verify_jobs"].get(verify_id)
+        if job is None:
+            raise HTTPException(404, "verify job not found")
+        return job
 
     app.include_router(api)
 
