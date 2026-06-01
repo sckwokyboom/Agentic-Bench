@@ -208,3 +208,71 @@ def test_parse_gradle_skips_task_lines_in_failed_names():
     assert "com.example.FooTest > testA" in names
     # task lines (no ' > ') must NOT appear in failed names
     assert all(" > " in n for n in names)
+
+
+# ── Classifier (reason + message) ────────────────────────────────────────────
+
+def _run_classify(stdout="", stderr="", returncode=0, command="mvn test", raises=None):
+    from unittest import mock
+
+    if raises is not None:
+        with mock.patch("abench.verify.subprocess.run", side_effect=raises):
+            return run_verify(".", command, timeout_s=60)
+    completed = mock.Mock(stdout=stdout, stderr=stderr, returncode=returncode)
+    with mock.patch("abench.verify.subprocess.run", return_value=completed):
+        return run_verify(".", command, timeout_s=60)
+
+
+def test_tests_failed_with_counts():
+    out = "Tests run: 10, Failures: 2, Errors: 0\nFailed tests:\n  com.x.AT.tb\n  com.x.AT.tc\n"
+    r = _run_classify(stdout=out, returncode=1, command="mvn test")
+    assert r.status == "failed"
+    assert r.reason == "tests_failed"
+    assert r.passed_count == 8 and r.failed_count == 2
+    assert "2 of 10" in r.message
+
+
+def test_passed():
+    r = _run_classify(stdout="Tests run: 5, Failures: 0, Errors: 0\n", returncode=0, command="mvn test")
+    assert r.status == "passed"
+    assert r.reason == "passed"
+    assert r.passed_count == 5 and r.failed_count == 0
+
+
+def test_build_failed_when_no_summary_and_nonzero_exit():
+    out = "[INFO] ...\n[ERROR] COMPILATION ERROR :\n[ERROR] Score.java:[10,5] cannot find symbol\nBUILD FAILURE\n"
+    r = _run_classify(stdout=out, returncode=1, command="mvn test")
+    assert r.status == "error"
+    assert r.reason == "build_failed"
+    assert "COMPILATION ERROR" in r.message or "build failed" in r.message
+
+
+def test_tool_not_found_via_exit_127():
+    r = _run_classify(stderr="mvn: command not found", returncode=127, command="mvn test")
+    assert r.status == "error"
+    assert r.reason == "tool_not_found"
+    assert "mvn" in r.message
+
+
+def test_no_tests_run():
+    r = _run_classify(stdout="Tests run: 0, Failures: 0, Errors: 0\n", returncode=0, command="mvn test")
+    assert r.status == "error"
+    assert r.reason == "no_tests"
+
+
+def test_unparseable_zero_exit():
+    r = _run_classify(stdout="some custom output, no summary", returncode=0, command="bash run.sh")
+    assert r.status == "error"
+    assert r.reason == "unparseable"
+
+
+def test_timeout():
+    r = _run_classify(command="mvn test", raises=subprocess.TimeoutExpired(cmd="mvn test", timeout=60))
+    assert r.status == "timeout"
+    assert r.reason == "timeout"
+
+
+def test_raw_output_is_full_not_truncated():
+    big = "x" * 20000 + "\nTests run: 1, Failures: 0, Errors: 0\n"
+    r = _run_classify(stdout=big, returncode=0, command="mvn test")
+    assert len(r.raw_output) >= 20000
