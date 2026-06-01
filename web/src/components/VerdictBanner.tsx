@@ -32,6 +32,15 @@ export default function VerdictBanner({ trace }: Props) {
   }
   if (v === "skipped") return <Alert severity="info">Verify skipped.</Alert>;
   if (v === "timeout") return <Alert severity="warning">Verify timed out after {trace.verify_duration_s?.toFixed(0)}s.</Alert>;
-  if (v === "error") return <Alert severity="warning">Verify errored — see verify_output.log.</Alert>;
+  if (v === "error") {
+    return (
+      <Alert severity="warning">
+        <Typography variant="subtitle1">⚠ Verify error</Typography>
+        <Typography variant="caption" color="text.secondary">
+          {trace.verify_message ?? "see verify output"}
+        </Typography>
+      </Alert>
+    );
+  }
   return <Alert severity="info">No verify result.</Alert>;
 }

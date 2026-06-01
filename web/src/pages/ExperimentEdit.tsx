@@ -9,7 +9,9 @@ import ValidationPanel from "../components/ValidationPanel";
 import PlanPanel from "../components/PlanPanel";
 import FixturesPanel from "../components/FixturesPanel";
 import PreviousRunsPanel from "../components/PreviousRunsPanel";
-import { useExperiment, useExperiments, useSaveExperiment, useStartRun } from "../api/queries";
+import {
+  useExperiment, useExperiments, useSaveExperiment, useStartRun, useDetectedVerify,
+} from "../api/queries";
 import { loadSchema, type JsonSchema } from "../api/schemaCache";
 import { uiSchema } from "../schema/uiSchema";
 import {
@@ -23,6 +25,7 @@ export default function ExperimentEdit() {
   const navigate = useNavigate();
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const exp = useExperiment(name);
+  const detected = useDetectedVerify(name);
   const list = useExperiments();
   const save = useSaveExperiment();
   const start = useStartRun();
@@ -84,6 +87,8 @@ export default function ExperimentEdit() {
             referencePath={formData.reference_path as string | undefined}
             hasFixture={Boolean(summary?.has_fixture)}
             hasReference={Boolean(summary?.has_reference)}
+            verifyCommand={detected.data?.command ?? null}
+            verifySystem={detected.data?.system ?? null}
           />
           {name && <PreviousRunsPanel name={name} />}
         </Stack>

@@ -7,6 +7,8 @@ interface Props {
   referencePath?: string;
   hasFixture: boolean;
   hasReference: boolean;
+  verifyCommand?: string | null;
+  verifySystem?: string | null;
 }
 
 function Row({ ok, label, path }: { ok: boolean; label: string; path?: string }) {
@@ -22,7 +24,9 @@ function Row({ ok, label, path }: { ok: boolean; label: string; path?: string })
   );
 }
 
-export default function FixturesPanel({ fixturePath, referencePath, hasFixture, hasReference }: Props) {
+export default function FixturesPanel({
+  fixturePath, referencePath, hasFixture, hasReference, verifyCommand, verifySystem,
+}: Props) {
   return (
     <Card variant="outlined">
       <CardContent>
@@ -30,6 +34,14 @@ export default function FixturesPanel({ fixturePath, referencePath, hasFixture, 
         <Stack spacing={0.5}>
           <Row ok={hasFixture}   label="fixture"   path={fixturePath} />
           <Row ok={hasReference} label="reference" path={referencePath} />
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2">
+              <b>build:</b>{" "}
+              {verifyCommand
+                ? <>{verifySystem ?? "custom"} · <code>{verifyCommand}</code></>
+                : <i>no build system detected — set <code>verify.command</code></i>}
+            </Typography>
+          </Stack>
         </Stack>
       </CardContent>
     </Card>

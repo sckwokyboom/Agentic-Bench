@@ -39,6 +39,12 @@ export default function TraceView() {
       <Stack spacing={2} sx={{ flex: 1, minWidth: 0 }}>
         <Typography variant="h5">{name} / {condition} / rep {repN}</Typography>
         <VerdictBanner trace={trace.data} />
+        {trace.data.verify_baseline_unknown && (
+          <Alert severity="warning">
+            The reference project itself does not pass verify (build/environment issue) —
+            run verdicts may be unreliable.
+          </Alert>
+        )}
         <AggregateStatsBar turns={trace.data.turns} />
         {trace.data.turns.map((t, i) => {
           const g = groups.find((gg) => gg.messageId === t.message_id);
@@ -46,7 +52,7 @@ export default function TraceView() {
           const raw = events.data?.filter((e: any) => e?.part?.messageID === t.message_id) ?? [];
           return <TurnCard key={t.message_id} turn={t} group={g} index={i} rawEvents={raw} />;
         })}
-        <VerifyCard trace={trace.data} />
+        <VerifyCard trace={trace.data} name={name!} condition={condition!} rep={repN} />
         <FinalDiffCard name={name!} condition={condition!} rep={repN} />
         <MethodComparisonCard name={name!} condition={condition!} rep={repN} />
         <MetricsDrawer name={name!} condition={condition!} rep={repN} />
