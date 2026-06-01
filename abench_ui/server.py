@@ -54,6 +54,21 @@ class _SuccessPatchBody(BaseModel):
     success: bool | None = None
 
 
+# ── Module helpers ─────────────────────────────────────────────────────────
+
+def _verify_system_label(command: str | None) -> str | None:
+    if not command:
+        return None
+    first = command.split()[0]
+    if first in ("mvn", "./mvnw"):
+        return "maven"
+    if first in ("gradle", "./gradlew"):
+        return "gradle"
+    if first == "pytest":
+        return "pytest"
+    return "custom"
+
+
 # ── App factory ──────────────────────────────────────────────────────────────
 
 def create_app(
@@ -136,6 +151,22 @@ def create_app(
         except exp_mod.ExperimentNotFound:
             raise HTTPException(404, f"experiment '{name}' not found")
 
+    @api.get("/experiments/{name}/verify_command")
+    def _detect_verify_command(name: str):
+        from abench.config import load_experiment
+        from abench.verify import detect_command
+
+        exp_dir = _exp_dir_for(name)
+        yaml_path = exp_dir / "experiment.yaml"
+        if not yaml_path.is_file():
+            raise HTTPException(404, f"experiment '{name}' not found")
+        try:
+            exp = load_experiment(yaml_path)
+            command = exp.verify.command or detect_command(exp.fixture_path)
+        except Exception:
+            command = None
+        return {"command": command, "system": _verify_system_label(command)}
+
     @api.put("/experiments/{name}")
     async def _write_exp(name: str, request: Request):
         _exp_dir_for(name)  # traversal guard
@@ -208,6 +239,17 @@ def create_app(
         try:
             return Response(
                 runs_mod.read_artefact(runs_dir, condition, rep, "events.jsonl"),
+                media_type="text/plain",
+            )
+        except runs_mod.RunNotFound as exc:
+            raise HTTPException(404, str(exc))
+
+    @api.get("/runs/{name}/{condition}/{rep}/verify_log")
+    def _read_verify_log(name: str, condition: str, rep: int):
+        runs_dir = _exp_dir_for(name) / "runs" / name
+        try:
+            return Response(
+                runs_mod.read_artefact(runs_dir, condition, rep, "verify_output.log"),
                 media_type="text/plain",
             )
         except runs_mod.RunNotFound as exc:
