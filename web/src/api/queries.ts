@@ -17,6 +17,9 @@ export const qk = {
     ["patch", name, condition, rep] as const,
   methodCmp: (name: string, condition: string, rep: number, method: string) =>
     ["methodCmp", name, condition, rep, method] as const,
+  verifyLog: (name: string, condition: string, rep: number) =>
+    ["verifyLog", name, condition, rep] as const,
+  detectedVerify: (name: string) => ["detectedVerify", name] as const,
   providers: ["providers"] as const,
   sessionState: (sid: string) => ["sessionState", sid] as const,
 };
@@ -104,6 +107,22 @@ export const usePatch = (name: string, condition: string, rep: number) =>
   useQuery({
     queryKey: qk.patch(name, condition, rep),
     queryFn: () => apiGet<string>(`/api/runs/${name}/${condition}/${rep}/patch`),
+  });
+
+export const useVerifyLog = (
+  name: string, condition: string, rep: number, enabled: boolean,
+) =>
+  useQuery({
+    queryKey: qk.verifyLog(name, condition, rep),
+    enabled,
+    queryFn: () => apiGet<string>(`/api/runs/${name}/${condition}/${rep}/verify_log`),
+  });
+
+export const useDetectedVerify = (name: string | undefined) =>
+  useQuery({
+    queryKey: qk.detectedVerify(name ?? ""),
+    enabled: Boolean(name),
+    queryFn: () => apiGet<t.DetectedVerify>(`/api/experiments/${name}/verify_command`),
   });
 
 export const useMethodComparison = (

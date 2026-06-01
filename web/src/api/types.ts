@@ -59,6 +59,8 @@ export interface MetricsJson {
   verify_passed_count: number | null;
   verify_failed_count: number | null;
   verify_failed_names?: string[];
+  verify_reason?: string | null;
+  verify_message?: string | null;
   isolation_nonce?: string | null;
   [key: string]: unknown;
 }
@@ -90,6 +92,8 @@ export interface Trace {
   verify_failed_count: number | null;
   verify_failed_names: string[];
   verify_baseline_unknown: boolean;
+  verify_reason?: string | null;
+  verify_message?: string | null;
   isolation_nonce: string | null;
   final_diff_summary: FinalDiffSummary | null;
   [key: string]: unknown;
@@ -111,6 +115,11 @@ export interface ValidateModelResp {
   status: "ok" | "no_credentials" | "model_not_found" | "malformed";
   provider: string | null;
   suggestions: string[];
+}
+
+export interface DetectedVerify {
+  command: string | null;
+  system: "maven" | "gradle" | "pytest" | "custom" | null;
 }
 
 export interface ProviderEntry { id: string; configured: boolean; }
