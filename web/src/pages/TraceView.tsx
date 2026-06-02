@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { Stack, Typography, CircularProgress, Alert, Box } from "@mui/material";
-import { useTrace, useEvents, useRuns } from "../api/queries";
-import { groupEventsByTurn } from "../lib/groupEventsByTurn";
+import { useTrace, useEvents, useRuns, useMetrics } from "../api/queries";
+import { turnsFromTrace } from "../lib/traceModel";
 import VerdictBanner from "../components/VerdictBanner";
 import AggregateStatsBar from "../components/AggregateStatsBar";
 import TurnCard from "../components/TurnCard";
@@ -17,12 +17,15 @@ export default function TraceView() {
   const repN = Number(rep);
   const trace = useTrace(name!, condition!, repN);
   const events = useEvents(name!, condition!, repN);
+  const metrics = useMetrics(name!, condition!, repN);
   const runs = useRuns(name);
 
   if (trace.isLoading) return <CircularProgress />;
   if (trace.error || !trace.data) return <Alert severity="error">Failed to load trace.</Alert>;
 
-  const groups = events.data ? groupEventsByTurn(events.data) : [];
+  const uiTurns = turnsFromTrace(trace.data);
+  const rawByMsg = (mid: string | null) =>
+    (events.data ?? []).filter((e: any) => e?.part?.messageID === mid);
 
   return (
     <Stack direction="row" spacing={3} sx={{ maxWidth: 1280, mx: "auto", alignItems: "flex-start" }}>
@@ -45,13 +48,10 @@ export default function TraceView() {
             run verdicts may be unreliable.
           </Alert>
         )}
-        <AggregateStatsBar turns={trace.data.turns} />
-        {trace.data.turns.map((t, i) => {
-          const g = groups.find((gg) => gg.messageId === t.message_id);
-          if (!g) return null;
-          const raw = events.data?.filter((e: any) => e?.part?.messageID === t.message_id) ?? [];
-          return <TurnCard key={t.message_id} turn={t} group={g} index={i} rawEvents={raw} />;
-        })}
+        {metrics.data && <AggregateStatsBar metrics={metrics.data} />}
+        {uiTurns.map((t) => (
+          <TurnCard key={t.messageId ?? t.index} turn={t} index={t.index} rawEvents={rawByMsg(t.messageId)} />
+        ))}
         <VerifyCard trace={trace.data} name={name!} condition={condition!} rep={repN} />
         <FinalDiffCard name={name!} condition={condition!} rep={repN} />
         <MethodComparisonCard name={name!} condition={condition!} rep={repN} />

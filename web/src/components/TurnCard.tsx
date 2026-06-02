@@ -59,7 +59,7 @@ export default function TurnCard({ turn, index, rawEvents }: Props) {
                 </Typography>
               </Box>
             );
-            return (
+            if (p.kind === "tool") return (
               <Box key={i} sx={{ borderLeft: 2, borderColor: p.ok === false ? "error.main" : "success.main", pl: 1.5, ...selectable }}>
                 <Typography variant="body2">
                   <b>{p.ok === false ? "✗" : p.ok ? "✓" : "✎"} {p.name}</b> {argSummary(p.args)}
@@ -72,6 +72,7 @@ export default function TurnCard({ turn, index, rawEvents }: Props) {
                 )}
               </Box>
             );
+            return null;
           })}
         </Stack>
 

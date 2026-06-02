@@ -8,7 +8,7 @@ import VerifyCard from "../src/components/VerifyCard";
 import type { Trace } from "../src/api/types";
 
 const base: Trace = {
-  turns: [], verify_status: "error", verify_command: "mvn test",
+  steps: [], turns: [], verify_status: "error", verify_command: "mvn test",
   verify_duration_s: 12.3, verify_passed_count: 0, verify_failed_count: 0,
   verify_failed_names: [], verify_baseline_unknown: false,
   isolation_nonce: null, final_diff_summary: null,

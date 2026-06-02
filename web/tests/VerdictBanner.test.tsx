@@ -3,7 +3,7 @@ import VerdictBanner from "../src/components/VerdictBanner";
 import type { Trace } from "../src/api/types";
 
 const base: Trace = {
-  turns: [], verify_status: "passed", verify_command: "pytest",
+  steps: [], turns: [], verify_status: "passed", verify_command: "pytest",
   verify_duration_s: 1.2, verify_passed_count: 5, verify_failed_count: 0,
   verify_failed_names: [], verify_baseline_unknown: false,
   isolation_nonce: null, final_diff_summary: null,
