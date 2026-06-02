@@ -7,7 +7,8 @@ export const uiSchema: UiSchema = {
   // Core fields first; remaining (advanced) fields fall under "*", which the
   // RootObjectFieldTemplate routes into the collapsible Advanced accordion.
   "ui:order": [
-    "name", "model", "task_prompt", "system_prompt", "conditions",
+    "name", "fixture_path", "reference_path", "model",
+    "task_prompt", "system_prompt", "conditions",
     "repetitions", "verify", "*",
   ],
   model:       { "ui:widget": "ModelValidationWidget" },
@@ -36,9 +37,8 @@ export const uiSchema: UiSchema = {
     search_tool_names: { items: { "ui:options": { label: false } } },
     command_arg_keys: { items: { "ui:options": { label: false } } },
   },
-  // System prompt + user message can be long → multiline.
+  // System prompt can be long → multiline.
   system_prompt: { "ui:widget": "textarea", "ui:options": { rows: 10 } },
-  user_message: { "ui:widget": "textarea", "ui:options": { rows: 6 } },
   // VerifyField owns the entire verify object rendering (build-system dropdown,
   // enabled switch, timeout). This replaces the old raw command help/placeholder.
   verify: { "ui:field": "VerifyField" },

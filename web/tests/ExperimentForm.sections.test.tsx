@@ -52,7 +52,7 @@ function renderForm() {
 test("renders an Advanced accordion with metrics/isolation inside it (collapsed by default)", () => {
   renderForm();
   // The Advanced accordion summary is present.
-  const summary = screen.getByText(/Advanced \(metrics, isolation, paths, tuning\)/i);
+  const summary = screen.getByText(/Advanced \(metrics, isolation, tuning\)/i);
   expect(summary).toBeInTheDocument();
 
   // The accordion is collapsed by default → its region is not expanded.
@@ -72,7 +72,7 @@ test("a core field (name) is visible at the top without expanding Advanced", () 
 test("metrics/isolation controls live inside the Advanced region", async () => {
   renderForm();
   // Expand the accordion.
-  await userEvent.click(screen.getByText(/Advanced \(metrics, isolation, paths, tuning\)/i));
+  await userEvent.click(screen.getByText(/Advanced \(metrics, isolation, tuning\)/i));
   // After expanding, an isolation control (Nonce prefix) becomes reachable.
   const region = screen.getByRole("region");
   expect(within(region).getByText(/Nonce prefix/i)).toBeInTheDocument();

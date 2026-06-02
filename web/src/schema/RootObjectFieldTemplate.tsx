@@ -1,38 +1,60 @@
-import type { ComponentType } from "react";
 import type { ObjectFieldTemplateProps, ObjectFieldTemplatePropertyType } from "@rjsf/utils";
 import {
   Accordion, AccordionDetails, AccordionSummary, Box, Stack, Typography,
 } from "@mui/material";
-// The MUI theme's default ObjectFieldTemplate. We import it directly rather than
-// reading props.registry.templates.ObjectFieldTemplate, because once this custom
-// template is registered the registry slot IS this component — delegating to it
-// would recurse infinitely. The sub-path import gives us the true theme default.
-import MuiObjectFieldTemplate from "@rjsf/mui/lib/ObjectFieldTemplate/ObjectFieldTemplate.js";
 
 // Root properties that belong in the collapsible "Advanced" accordion. Everything
-// else stays in the always-visible core section.
+// else (including the REQUIRED identity fields name/model/prompts/paths) stays in
+// the always-visible core section so a blocking validation error is never hidden.
 const ADVANCED = new Set<string>([
   "metrics",
   "isolation",
   "opencode",
   "timeout_s",
   "min_seconds_between_runs",
-  "output_dir",
   "target_file",
   "target_methods",
-  "fixture_path",
-  "reference_path",
 ]);
 
+function renderProps(properties: ObjectFieldTemplatePropertyType[]) {
+  return (
+    <Stack spacing={1}>
+      {properties.map((p) => (
+        <Box key={p.name}>{p.content}</Box>
+      ))}
+    </Stack>
+  );
+}
+
 /**
- * Custom ObjectFieldTemplate. Only the ROOT object is special-cased: its
- * properties are split into a core section and a collapsed "Advanced" accordion.
- * Every non-root object delegates to the theme's default ObjectFieldTemplate so
- * nested objects (verify, conditions items, isolation, ...) render normally.
+ * Custom ObjectFieldTemplate. The ROOT object is split into a core section and a
+ * collapsed "Advanced" accordion. Every non-root object (isolation, opencode,
+ * condition items, ...) renders its properties as a simple vertical stack — we
+ * render `properties` ourselves rather than delegating to the theme default,
+ * which both avoids an infinite recursion (the registry slot IS this component
+ * once registered) and avoids a fragile deep import of an @rjsf/mui internal path.
  */
 export default function RootObjectFieldTemplate(props: ObjectFieldTemplateProps) {
-  const Default = MuiObjectFieldTemplate as ComponentType<ObjectFieldTemplateProps>;
-  if (props.idSchema.$id !== "root") return <Default {...props} />;
+  const isRoot = props.idSchema.$id === "root";
+
+  const header = (
+    <>
+      {props.title && (
+        <Typography variant={isRoot ? "h6" : "subtitle2"} sx={{ mb: isRoot ? 1 : 0.5 }}>
+          {props.title}
+        </Typography>
+      )}
+      {props.description && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          {props.description}
+        </Typography>
+      )}
+    </>
+  );
+
+  if (!isRoot) {
+    return <Box>{header}{renderProps(props.properties)}</Box>;
+  }
 
   const core: ObjectFieldTemplatePropertyType[] = [];
   const advanced: ObjectFieldTemplatePropertyType[] = [];
@@ -42,33 +64,14 @@ export default function RootObjectFieldTemplate(props: ObjectFieldTemplateProps)
 
   return (
     <Box>
-      {props.title && (
-        <Typography variant="h6" sx={{ mb: 1 }}>{props.title}</Typography>
-      )}
-      {props.description && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {props.description}
-        </Typography>
-      )}
-
-      <Stack spacing={1}>
-        {core.map((p) => (
-          <Box key={p.name}>{p.content}</Box>
-        ))}
-      </Stack>
-
+      {header}
+      {renderProps(core)}
       {advanced.length > 0 && (
         <Accordion defaultExpanded={false} sx={{ mt: 2 }}>
           <AccordionSummary expandIcon={<span aria-hidden>▾</span>}>
-            <Typography>Advanced (metrics, isolation, paths, tuning)</Typography>
+            <Typography>Advanced (metrics, isolation, tuning)</Typography>
           </AccordionSummary>
-          <AccordionDetails>
-            <Stack spacing={1}>
-              {advanced.map((p) => (
-                <Box key={p.name}>{p.content}</Box>
-              ))}
-            </Stack>
-          </AccordionDetails>
+          <AccordionDetails>{renderProps(advanced)}</AccordionDetails>
         </Accordion>
       )}
     </Box>
