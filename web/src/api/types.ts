@@ -143,6 +143,8 @@ export interface ValidateModelResp {
 export interface DetectedVerify {
   command: string | null;
   system: "maven" | "gradle" | "pytest" | "custom" | null;
+  ambiguous: boolean;
+  candidates: string[];
 }
 
 export interface ReverifyResultRow {

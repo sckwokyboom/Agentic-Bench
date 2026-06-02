@@ -9,6 +9,8 @@ interface Props {
   hasReference: boolean;
   verifyCommand?: string | null;
   verifySystem?: string | null;
+  verifyAmbiguous?: boolean;
+  verifyCandidates?: string[];
 }
 
 function Row({ ok, label, path }: { ok: boolean; label: string; path?: string }) {
@@ -26,6 +28,7 @@ function Row({ ok, label, path }: { ok: boolean; label: string; path?: string })
 
 export default function FixturesPanel({
   fixturePath, referencePath, hasFixture, hasReference, verifyCommand, verifySystem,
+  verifyAmbiguous, verifyCandidates,
 }: Props) {
   return (
     <Card variant="outlined">
@@ -34,13 +37,19 @@ export default function FixturesPanel({
         <Stack spacing={0.5}>
           <Row ok={hasFixture}   label="fixture"   path={fixturePath} />
           <Row ok={hasReference} label="reference" path={referencePath} />
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
             <Typography variant="body2">
               <b>build:</b>{" "}
               {verifyCommand
                 ? <>{verifySystem ?? "custom"} · <code>{verifyCommand}</code></>
                 : <i>no build system detected — set <code>verify.command</code></i>}
             </Typography>
+            {verifyAmbiguous && (
+              <Typography variant="caption" color="warning.main">
+                ⚠ ambiguous ({(verifyCandidates ?? []).join(" + ")}) — using {verifySystem};
+                set verify.command if wrong
+              </Typography>
+            )}
           </Stack>
         </Stack>
       </CardContent>

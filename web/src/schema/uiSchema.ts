@@ -19,4 +19,10 @@ export const uiSchema: UiSchema = {
   // System prompt + user message can be long → multiline.
   system_prompt: { "ui:widget": "textarea", "ui:options": { rows: 10 } },
   user_message: { "ui:widget": "textarea", "ui:options": { rows: 6 } },
+  verify: {
+    command: {
+      "ui:help": "Build/test command. Leave blank to auto-detect; override for e.g. ./gradlew test, mvn -q test, pytest -q.",
+      "ui:placeholder": "auto-detect",
+    },
+  },
 };

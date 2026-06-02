@@ -89,6 +89,8 @@ export default function ExperimentEdit() {
             hasReference={Boolean(summary?.has_reference)}
             verifyCommand={detected.data?.command ?? null}
             verifySystem={detected.data?.system ?? null}
+            verifyAmbiguous={detected.data?.ambiguous ?? false}
+            verifyCandidates={detected.data?.candidates ?? []}
           />
           {name && <PreviousRunsPanel name={name} />}
         </Stack>
