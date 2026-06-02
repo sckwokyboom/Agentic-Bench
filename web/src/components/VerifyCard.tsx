@@ -44,7 +44,7 @@ export default function VerifyCard({ trace, name, condition, rep, batch }: Props
   }, [job.data?.state, qc, name, condition, rep]);
 
   async function handleReverify() {
-    const { verify_id } = await start.mutateAsync({ name, condition, rep });
+    const { verify_id } = await start.mutateAsync({ name, condition, rep, batch });
     setVerifyId(verify_id);
   }
 

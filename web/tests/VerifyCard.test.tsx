@@ -59,3 +59,26 @@ test("Re-verify starts a job and polls to done", async () => {
   // resolves back to the idle "Re-verify" label once the job reports done
   await screen.findByRole("button", { name: /^re-verify$/i });
 });
+
+test("Re-verify forwards the batch prop in the POST body", async () => {
+  let seenBody: Record<string, unknown> | null = null;
+  mswServer.use(
+    http.post("/api/verify", async ({ request }) => {
+      seenBody = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json({ verify_id: "v1" });
+    }),
+    http.get("/api/verify/v1", () => HttpResponse.json({
+      state: "done", total: 1, done: 1, current: null, error: null,
+      results: [{ condition: "baseline", rep: 0, status: "passed", reason: "passed",
+                  message: "ok", passed_count: 5, failed_count: 0 }],
+    })),
+  );
+  render(wrap(
+    <VerifyCard trace={base} name="exp" condition="baseline" rep={0} batch="20260101-000000" />,
+  ));
+  await userEvent.click(screen.getByRole("button", { name: /^re-verify$/i }));
+  await screen.findByRole("button", { name: /^re-verify$/i });
+  expect(seenBody).toMatchObject({
+    name: "exp", condition: "baseline", rep: 0, batch: "20260101-000000",
+  });
+});

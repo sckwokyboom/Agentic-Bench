@@ -9,17 +9,29 @@ from typing import Iterator
 from . import fixture as fx
 from .config import Experiment
 from .metrics import _success_from_status
+from .run_layout import batch_runs_dir
 from .verify import VerifyResult, detect_command, run_verify, write_verify_log
 
 
-def _rundir(exp: Experiment, condition: str, rep: int) -> Path:
-    return exp.output_dir / exp.name / condition / f"rep_{rep}"
+def _runs_root(exp: Experiment, batch: str | None) -> Path | None:
+    """Resolve the runs dir for the chosen batch under <exp>/runs/<exp>.
+
+    batch=None → newest batch (or the flat/legacy layout if that's all there
+    is). Returns None if no runs resolve."""
+    return batch_runs_dir(exp.output_dir / exp.name, batch)
 
 
-def discover_runs(exp: Experiment) -> list[tuple[str, int]]:
-    root = exp.output_dir / exp.name
+def _rundir(exp: Experiment, condition: str, rep: int, batch: str | None = None) -> Path | None:
+    runs_root = _runs_root(exp, batch)
+    if runs_root is None:
+        return None
+    return runs_root / condition / f"rep_{rep}"
+
+
+def discover_runs(exp: Experiment, batch: str | None = None) -> list[tuple[str, int]]:
+    root = _runs_root(exp, batch)
     out: list[tuple[str, int]] = []
-    if not root.is_dir():
+    if root is None or not root.is_dir():
         return out
     for cond_dir in sorted(root.iterdir()):
         if not cond_dir.is_dir():
@@ -56,14 +68,16 @@ def _write_back(rundir: Path, v: VerifyResult) -> None:
     write_verify_log(rundir, v)
 
 
-def reverify_run(exp: Experiment, condition: str, rep: int) -> VerifyResult:
-    rundir = _rundir(exp, condition, rep)
-    patch = rundir / "changes.patch"
-    if not rundir.is_dir() or not patch.is_file():
+def reverify_run(
+    exp: Experiment, condition: str, rep: int, batch: str | None = None
+) -> VerifyResult:
+    rundir = _rundir(exp, condition, rep, batch)
+    if rundir is None or not rundir.is_dir() or not (rundir / "changes.patch").is_file():
         return VerifyResult(
             status="error", reason="no_run",
             message=f"no saved run at {condition}/rep_{rep}",
         )
+    patch = rundir / "changes.patch"
     workdir, _sha = fx.create_workdir(exp.fixture_path)
     try:
         applied = subprocess.run(
@@ -92,6 +106,8 @@ def reverify_run(exp: Experiment, condition: str, rep: int) -> VerifyResult:
         fx.cleanup(workdir)
 
 
-def reverify_experiment(exp: Experiment) -> Iterator[tuple[str, int, VerifyResult]]:
-    for condition, rep in discover_runs(exp):
-        yield condition, rep, reverify_run(exp, condition, rep)
+def reverify_experiment(
+    exp: Experiment, batch: str | None = None
+) -> Iterator[tuple[str, int, VerifyResult]]:
+    for condition, rep in discover_runs(exp, batch):
+        yield condition, rep, reverify_run(exp, condition, rep, batch)

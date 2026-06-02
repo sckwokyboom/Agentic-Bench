@@ -29,6 +29,16 @@ def _seed_run(runs: Path, condition: str, rep: int, patch: str):
     return rd
 
 
+def _seed_batched_run(runs: Path, batch: str, condition: str, rep: int, patch: str):
+    """Seed a TIMESTAMPED-BATCH run at runs/exp/<batch>/<cond>/rep_N/."""
+    rd = runs / "exp" / batch / condition / f"rep_{rep}"
+    rd.mkdir(parents=True)
+    (rd / "changes.patch").write_text(patch)
+    (rd / "metrics.json").write_text(json.dumps({"verify_status": "error", "success": None}))
+    (rd / "trace.json").write_text(json.dumps({"steps": [], "turns": []}))
+    return rd
+
+
 _GOOD_PATCH = (
     "diff --git a/a.txt b/a.txt\n"
     "--- a/a.txt\n+++ b/a.txt\n"
@@ -81,5 +91,78 @@ def test_discover_and_reverify_experiment(tmp_path):
     with mock.patch("abench.reverify.run_verify", return_value=fake), \
          mock.patch("abench.reverify.detect_command", return_value="pytest"):
         results = list(reverify.reverify_experiment(exp))
+    assert len(results) == 2
+    assert all(v.status == "passed" for _c, _r, v in results)
+
+
+# ── batch-aware re-verify (timestamped-batch layout is now the default) ───────
+
+_BATCH = "20260101-000000"
+
+
+def test_discover_runs_finds_batched_run_by_explicit_id(tmp_path):
+    exp, _fix, runs = _make_exp(tmp_path)
+    _seed_batched_run(runs, _BATCH, "baseline", 0, _GOOD_PATCH)
+    assert reverify.discover_runs(exp, batch=_BATCH) == [("baseline", 0)]
+
+
+def test_discover_runs_default_resolves_newest_batch(tmp_path):
+    exp, _fix, runs = _make_exp(tmp_path)
+    _seed_batched_run(runs, "20260101-000000", "baseline", 0, _GOOD_PATCH)
+    _seed_batched_run(runs, "20260102-000000", "augmented", 0, _GOOD_PATCH)
+    # No batch → newest batch only.
+    assert reverify.discover_runs(exp) == [("augmented", 0)]
+
+
+def test_discover_runs_default_resolves_legacy_flat(tmp_path):
+    exp, _fix, runs = _make_exp(tmp_path)
+    _seed_run(runs, "baseline", 0, _GOOD_PATCH)  # flat / legacy layout
+    assert reverify.discover_runs(exp) == [("baseline", 0)]
+
+
+def test_reverify_run_resolves_batched_rundir_and_writes_back(tmp_path):
+    exp, _fix, runs = _make_exp(tmp_path)
+    rd = _seed_batched_run(runs, _BATCH, "baseline", 0, _GOOD_PATCH)
+    fake = VerifyResult(status="passed", reason="passed", message="5 tests passed",
+                        command="pytest", duration_s=1.2, passed_count=5, failed_count=0,
+                        raw_output="5 passed in 1.2s\n")
+    with mock.patch("abench.reverify.run_verify", return_value=fake), \
+         mock.patch("abench.reverify.detect_command", return_value="pytest"):
+        v = reverify.reverify_run(exp, "baseline", 0, batch=_BATCH)
+    assert v.status == "passed"
+    m = json.loads((rd / "metrics.json").read_text())
+    assert m["verify_status"] == "passed"
+    assert m["success"] is True
+    tr = json.loads((rd / "trace.json").read_text())
+    assert tr["verify_message"] == "5 tests passed"
+    assert "5 passed" in (rd / "verify_output.log").read_text()
+
+
+def test_reverify_run_default_batch_writes_to_newest(tmp_path):
+    exp, _fix, runs = _make_exp(tmp_path)
+    rd = _seed_batched_run(runs, _BATCH, "baseline", 0, _GOOD_PATCH)
+    fake = VerifyResult(status="passed", reason="passed", message="ok", command="pytest")
+    with mock.patch("abench.reverify.run_verify", return_value=fake), \
+         mock.patch("abench.reverify.detect_command", return_value="pytest"):
+        v = reverify.reverify_run(exp, "baseline", 0)
+    assert v.status == "passed"
+    m = json.loads((rd / "metrics.json").read_text())
+    assert m["verify_status"] == "passed"
+
+
+def test_reverify_run_no_run_when_batch_missing(tmp_path):
+    exp, _fix, _runs = _make_exp(tmp_path)
+    v = reverify.reverify_run(exp, "baseline", 0, batch="nope")
+    assert v.status == "error" and v.reason == "no_run"
+
+
+def test_reverify_experiment_batched(tmp_path):
+    exp, _fix, runs = _make_exp(tmp_path)
+    _seed_batched_run(runs, _BATCH, "baseline", 0, _GOOD_PATCH)
+    _seed_batched_run(runs, _BATCH, "augmented", 0, _GOOD_PATCH)
+    fake = VerifyResult(status="passed", reason="passed", message="ok", command="pytest")
+    with mock.patch("abench.reverify.run_verify", return_value=fake), \
+         mock.patch("abench.reverify.detect_command", return_value="pytest"):
+        results = list(reverify.reverify_experiment(exp, batch=_BATCH))
     assert len(results) == 2
     assert all(v.status == "passed" for _c, _r, v in results)

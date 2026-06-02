@@ -1,9 +1,12 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
+import { act } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { mswServer } from "./setup";
-import { useBatches, useTrace, useRunsSummary } from "../src/api/queries";
+import {
+  useBatches, useTrace, useRunsSummary, useStartReverify,
+} from "../src/api/queries";
 import type { RunBatch } from "../src/api/types";
 
 function wrapper() {
@@ -99,5 +102,38 @@ describe("useRunsSummary with batch", () => {
     );
     await waitFor(() => expect(result.current.data).toBeDefined());
     expect(seenBatch).toBe("20260601-090000");
+  });
+});
+
+describe("useStartReverify with batch", () => {
+  it("POSTs the chosen batch in the request body", async () => {
+    let seenBody: Record<string, unknown> | null = null;
+    mswServer.use(
+      http.post("/api/verify", async ({ request }) => {
+        seenBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ verify_id: "v1" });
+      }),
+    );
+    const { result } = renderHook(() => useStartReverify(), { wrapper: wrapper() });
+    await act(async () => {
+      await result.current.mutateAsync({ name: "exp", batch: "20260601-090000" });
+    });
+    expect(seenBody).toMatchObject({ name: "exp", batch: "20260601-090000" });
+  });
+
+  it("omits batch when not provided", async () => {
+    let seenBody: Record<string, unknown> | null = null;
+    mswServer.use(
+      http.post("/api/verify", async ({ request }) => {
+        seenBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ verify_id: "v2" });
+      }),
+    );
+    const { result } = renderHook(() => useStartReverify(), { wrapper: wrapper() });
+    await act(async () => {
+      await result.current.mutateAsync({ name: "exp" });
+    });
+    expect(seenBody).toMatchObject({ name: "exp" });
+    expect(seenBody).not.toHaveProperty("batch");
   });
 });

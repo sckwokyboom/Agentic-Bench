@@ -63,7 +63,8 @@ export default function ExperimentResults() {
 
   async function handleReverifyAll() {
     if (!name) return;
-    const { verify_id } = await start.mutateAsync({ name });
+    // Re-verify the currently-selected batch (undefined → newest, server-side).
+    const { verify_id } = await start.mutateAsync({ name, batch });
     setVerifyId(verify_id);
   }
 

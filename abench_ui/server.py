@@ -59,6 +59,7 @@ class _VerifyStartBody(BaseModel):
     name: str
     condition: str | None = None
     rep: int | None = None
+    batch: str | None = None
 
 
 # ── Module helpers ─────────────────────────────────────────────────────────
@@ -427,7 +428,7 @@ def create_app(
         if body.condition is not None and body.rep is not None:
             targets = [(body.condition, body.rep)]
         else:
-            targets = reverify_mod.discover_runs(exp)
+            targets = reverify_mod.discover_runs(exp, batch=body.batch)
 
         vid = uuid.uuid4().hex
         job = {"state": "running", "total": len(targets), "done": 0,
@@ -438,7 +439,7 @@ def create_app(
             try:
                 for condition, rep in targets:
                     job["current"] = {"condition": condition, "rep": rep}
-                    v = reverify_mod.reverify_run(exp, condition, rep)
+                    v = reverify_mod.reverify_run(exp, condition, rep, batch=body.batch)
                     job["results"].append({
                         "condition": condition, "rep": rep, "status": v.status,
                         "reason": v.reason, "message": v.message,

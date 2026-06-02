@@ -26,6 +26,10 @@ def main(argv: list[str] | None = None) -> int:
     verify_p.add_argument("experiment", help="path to experiment YAML")
     verify_p.add_argument("--condition", default=None)
     verify_p.add_argument("--rep", type=int, default=None)
+    verify_p.add_argument(
+        "--batch", default=None,
+        help="batch dir name under output_dir/<exp>/ (default: newest batch, "
+             "or the flat/legacy layout if that's all that exists)")
 
     args = parser.parse_args(argv)
 
@@ -54,9 +58,10 @@ def main(argv: list[str] | None = None) -> int:
         exp = load_experiment(args.experiment)
         if args.condition is not None and args.rep is not None:
             results = [(args.condition, args.rep,
-                        reverify.reverify_run(exp, args.condition, args.rep))]
+                        reverify.reverify_run(exp, args.condition, args.rep,
+                                              batch=args.batch))]
         else:
-            results = list(reverify.reverify_experiment(exp))
+            results = list(reverify.reverify_experiment(exp, batch=args.batch))
         for cond, rep, v in results:
             if v.passed_count is not None:
                 total = (v.passed_count or 0) + (v.failed_count or 0)

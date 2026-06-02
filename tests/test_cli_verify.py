@@ -25,3 +25,27 @@ def test_verify_whole_experiment(capsys):
         rc = cli.main(["verify", "exp.yaml"])
     assert rc == 0
     assert "baseline/rep_0 → passed/passed" in capsys.readouterr().out
+
+
+def test_verify_batch_threaded_to_experiment(capsys):
+    from abench.verify import VerifyResult
+    rows = [("baseline", 0, VerifyResult(status="passed", reason="passed", message="ok"))]
+    with mock.patch("abench.cli.load_experiment", return_value=mock.Mock()), \
+         mock.patch("abench.reverify.reverify_experiment",
+                    return_value=iter(rows)) as rv:
+        rc = cli.main(["verify", "exp.yaml", "--batch", "20260101-000000"])
+    assert rc == 0
+    _args, kwargs = rv.call_args
+    assert kwargs.get("batch") == "20260101-000000"
+
+
+def test_verify_batch_threaded_to_single_run():
+    from abench.verify import VerifyResult
+    fake = VerifyResult(status="passed", reason="passed", message="ok")
+    with mock.patch("abench.cli.load_experiment", return_value=mock.Mock()), \
+         mock.patch("abench.reverify.reverify_run", return_value=fake) as rv:
+        rc = cli.main(["verify", "exp.yaml", "--condition", "baseline", "--rep", "0",
+                       "--batch", "20260101-000000"])
+    assert rc == 0
+    _args, kwargs = rv.call_args
+    assert kwargs.get("batch") == "20260101-000000"

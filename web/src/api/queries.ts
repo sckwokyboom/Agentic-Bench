@@ -158,7 +158,9 @@ export const useDetectedVerify = (name: string | undefined) =>
 
 export function useStartReverify() {
   return useMutation({
-    mutationFn: (args: { name: string; condition?: string; rep?: number }) =>
+    mutationFn: (args: {
+      name: string; condition?: string; rep?: number; batch?: string;
+    }) =>
       apiPostJson<{ verify_id: string }>(`/api/verify`, args),
   });
 }
