@@ -9,11 +9,12 @@ interface Props {
   name: string;
   condition: string;
   rep: number;
+  batch?: string;
 }
 
-export default function MetricsDrawer({ name, condition, rep }: Props) {
+export default function MetricsDrawer({ name, condition, rep, batch }: Props) {
   const [open, setOpen] = useState(false);
-  const metrics = useMetrics(name, condition, rep);
+  const metrics = useMetrics(name, condition, rep, batch);
   return (
     <>
       <Tooltip title="Metrics">

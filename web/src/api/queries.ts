@@ -4,21 +4,31 @@ import {
   apiGet, apiPostJson, apiPut, apiPostRawYaml, apiDelete, apiPatch,
 } from "./client";
 
+// Batch is a UTC timestamp id (or "legacy"); "" means "newest" (no ?batch=).
+const b = (batch?: string) => batch ?? "";
+
+// Append ?batch=<id> when a batch is selected; otherwise leave the URL alone
+// so behaviour is identical to before (server returns the newest batch).
+const withBatch = (url: string, batch?: string) =>
+  batch ? `${url}?batch=${encodeURIComponent(batch)}` : url;
+
 export const qk = {
   experiments: ["experiments"] as const,
   experiment: (name: string) => ["experiment", name] as const,
-  runs: (name: string) => ["runs", name] as const,
-  runsSummary: (name: string) => ["runsSummary", name] as const,
-  trace: (name: string, condition: string, rep: number) =>
-    ["trace", name, condition, rep] as const,
-  metrics: (name: string, condition: string, rep: number) =>
-    ["metrics", name, condition, rep] as const,
-  patch: (name: string, condition: string, rep: number) =>
-    ["patch", name, condition, rep] as const,
-  methodCmp: (name: string, condition: string, rep: number, method: string) =>
-    ["methodCmp", name, condition, rep, method] as const,
-  verifyLog: (name: string, condition: string, rep: number) =>
-    ["verifyLog", name, condition, rep] as const,
+  batches: (name: string) => ["batches", name] as const,
+  runs: (name: string, batch?: string) => ["runs", name, b(batch)] as const,
+  runsSummary: (name: string, batch?: string) =>
+    ["runsSummary", name, b(batch)] as const,
+  trace: (name: string, condition: string, rep: number, batch?: string) =>
+    ["trace", name, condition, rep, b(batch)] as const,
+  metrics: (name: string, condition: string, rep: number, batch?: string) =>
+    ["metrics", name, condition, rep, b(batch)] as const,
+  patch: (name: string, condition: string, rep: number, batch?: string) =>
+    ["patch", name, condition, rep, b(batch)] as const,
+  methodCmp: (name: string, condition: string, rep: number, method: string, batch?: string) =>
+    ["methodCmp", name, condition, rep, method, b(batch)] as const,
+  verifyLog: (name: string, condition: string, rep: number, batch?: string) =>
+    ["verifyLog", name, condition, rep, b(batch)] as const,
   detectedVerify: (name: string) => ["detectedVerify", name] as const,
   verifyJob: (id: string) => ["verifyJob", id] as const,
   providers: ["providers"] as const,
@@ -65,32 +75,44 @@ export function useUploadExperiment() {
   });
 }
 
-export const useRuns = (name: string | undefined) =>
+export const useBatches = (name: string | undefined) =>
   useQuery({
-    queryKey: qk.runs(name ?? ""),
+    queryKey: qk.batches(name ?? ""),
     enabled: Boolean(name),
-    queryFn: () => apiGet<t.RunSummary[]>(`/api/runs/${name}`),
+    // Server returns batches newest-first; a legacy flat layout surfaces as a
+    // single {id:"legacy", ...}.
+    queryFn: () => apiGet<t.RunBatch[]>(`/api/runs/${name}/batches`),
   });
 
-export const useRunsSummary = (name: string | undefined) =>
+export const useRuns = (name: string | undefined, batch?: string) =>
   useQuery({
-    queryKey: qk.runsSummary(name ?? ""),
+    queryKey: qk.runs(name ?? "", batch),
     enabled: Boolean(name),
-    queryFn: () => apiGet<t.RunsSummary>(`/api/runs/${name}/summary`),
+    queryFn: () => apiGet<t.RunSummary[]>(withBatch(`/api/runs/${name}`, batch)),
   });
 
-export const useTrace = (name: string, condition: string, rep: number) =>
+export const useRunsSummary = (name: string | undefined, batch?: string) =>
   useQuery({
-    queryKey: qk.trace(name, condition, rep),
-    queryFn: () => apiGet<t.Trace>(`/api/runs/${name}/${condition}/${rep}/trace`),
+    queryKey: qk.runsSummary(name ?? "", batch),
+    enabled: Boolean(name),
+    queryFn: () => apiGet<t.RunsSummary>(withBatch(`/api/runs/${name}/summary`, batch)),
   });
 
-export const useEvents = (name: string, condition: string, rep: number) =>
+export const useTrace = (name: string, condition: string, rep: number, batch?: string) =>
   useQuery({
-    queryKey: ["events", name, condition, rep],
+    queryKey: qk.trace(name, condition, rep, batch),
+    queryFn: () =>
+      apiGet<t.Trace>(withBatch(`/api/runs/${name}/${condition}/${rep}/trace`, batch)),
+  });
+
+export const useEvents = (name: string, condition: string, rep: number, batch?: string) =>
+  useQuery({
+    queryKey: ["events", name, condition, rep, b(batch)],
     queryFn: async () => {
       // Backend returns text/plain JSONL (one JSON per line).
-      const text = await apiGet<string>(`/api/runs/${name}/${condition}/${rep}/events`);
+      const text = await apiGet<string>(
+        withBatch(`/api/runs/${name}/${condition}/${rep}/events`, batch),
+      );
       return text
         .split("\n")
         .filter((l) => l.trim().length > 0)
@@ -98,25 +120,28 @@ export const useEvents = (name: string, condition: string, rep: number) =>
     },
   });
 
-export const useMetrics = (name: string, condition: string, rep: number) =>
+export const useMetrics = (name: string, condition: string, rep: number, batch?: string) =>
   useQuery({
-    queryKey: qk.metrics(name, condition, rep),
-    queryFn: () => apiGet<t.MetricsJson>(`/api/runs/${name}/${condition}/${rep}/metrics`),
+    queryKey: qk.metrics(name, condition, rep, batch),
+    queryFn: () =>
+      apiGet<t.MetricsJson>(withBatch(`/api/runs/${name}/${condition}/${rep}/metrics`, batch)),
   });
 
-export const usePatch = (name: string, condition: string, rep: number) =>
+export const usePatch = (name: string, condition: string, rep: number, batch?: string) =>
   useQuery({
-    queryKey: qk.patch(name, condition, rep),
-    queryFn: () => apiGet<string>(`/api/runs/${name}/${condition}/${rep}/patch`),
+    queryKey: qk.patch(name, condition, rep, batch),
+    queryFn: () =>
+      apiGet<string>(withBatch(`/api/runs/${name}/${condition}/${rep}/patch`, batch)),
   });
 
 export const useVerifyLog = (
-  name: string, condition: string, rep: number, enabled: boolean,
+  name: string, condition: string, rep: number, enabled: boolean, batch?: string,
 ) =>
   useQuery({
-    queryKey: qk.verifyLog(name, condition, rep),
+    queryKey: qk.verifyLog(name, condition, rep, batch),
     enabled,
-    queryFn: () => apiGet<string>(`/api/runs/${name}/${condition}/${rep}/verify_log`),
+    queryFn: () =>
+      apiGet<string>(withBatch(`/api/runs/${name}/${condition}/${rep}/verify_log`, batch)),
   });
 
 export const useDetectedVerify = (name: string | undefined) =>
@@ -144,26 +169,32 @@ export const useReverifyStatus = (verifyId: string | null) =>
 
 export const useMethodComparison = (
   name: string, condition: string, rep: number, method: string | undefined,
+  batch?: string,
 ) =>
   useQuery({
-    queryKey: qk.methodCmp(name, condition, rep, method ?? ""),
+    queryKey: qk.methodCmp(name, condition, rep, method ?? "", batch),
     enabled: Boolean(method),
     queryFn: () => apiGet<t.MethodComparison>(
-      `/api/runs/${name}/${condition}/${rep}/method_comparison?method=${encodeURIComponent(method!)}`,
+      `/api/runs/${name}/${condition}/${rep}/method_comparison?method=${encodeURIComponent(method!)}`
+      + (batch ? `&batch=${encodeURIComponent(batch)}` : ""),
     ),
   });
 
 export function usePatchSuccess() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { name: string; condition: string; rep: number; success: boolean | null }) =>
+    mutationFn: (args: {
+      name: string; condition: string; rep: number; success: boolean | null; batch?: string;
+    }) =>
       apiPatch<t.MetricsJson>(
-        `/api/runs/${args.name}/${args.condition}/${args.rep}`,
+        withBatch(`/api/runs/${args.name}/${args.condition}/${args.rep}`, args.batch),
         { success: args.success },
       ),
     onSuccess: (_d, a) => {
-      qc.invalidateQueries({ queryKey: qk.metrics(a.name, a.condition, a.rep) });
-      qc.invalidateQueries({ queryKey: qk.runs(a.name) });
+      // Invalidate by prefix so both newest ("") and the specific batch refetch.
+      qc.invalidateQueries({ queryKey: ["metrics", a.name, a.condition, a.rep] });
+      qc.invalidateQueries({ queryKey: ["runs", a.name] });
+      qc.invalidateQueries({ queryKey: ["runsSummary", a.name] });
     },
   });
 }

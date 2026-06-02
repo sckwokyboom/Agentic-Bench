@@ -5,6 +5,7 @@ interface Props {
   name: string;
   condition: string;
   rep: number;
+  batch?: string;
 }
 
 function SideBySide({ original, regen }: { original: string[]; regen: string[] }) {
@@ -29,8 +30,8 @@ function SideBySide({ original, regen }: { original: string[]; regen: string[] }
   );
 }
 
-function MethodRow({ name, condition, rep, method }: Props & { method: string }) {
-  const cmp = useMethodComparison(name, condition, rep, method);
+function MethodRow({ name, condition, rep, method, batch }: Props & { method: string }) {
+  const cmp = useMethodComparison(name, condition, rep, method, batch);
   if (cmp.isLoading) return null;
   if (cmp.error || !cmp.data) return (
     <Typography variant="caption" color="error">{method}: failed to extract</Typography>
@@ -50,7 +51,7 @@ function MethodRow({ name, condition, rep, method }: Props & { method: string })
   );
 }
 
-export default function MethodComparisonCard({ name, condition, rep }: Props) {
+export default function MethodComparisonCard({ name, condition, rep, batch }: Props) {
   const exp = useExperiment(name);
   const targetFile = exp.data?.target_file as string | undefined;
   const targetMethods = exp.data?.target_methods as string[] | undefined;
@@ -63,7 +64,7 @@ export default function MethodComparisonCard({ name, condition, rep }: Props) {
       <CardContent>
         <Typography variant="subtitle2">Method comparison · {targetFile}</Typography>
         {methods.map((m) => (
-          <MethodRow key={m} name={name} condition={condition} rep={rep} method={m} />
+          <MethodRow key={m} name={name} condition={condition} rep={rep} method={m} batch={batch} />
         ))}
       </CardContent>
     </Card>

@@ -9,6 +9,13 @@ export interface ExperimentSummary {
   last_run_at: string | null;
 }
 
+export interface RunBatch {
+  id: string;
+  total_runs: number;
+  valid_runs: number;
+  success_rate?: number | null;
+}
+
 export interface RunSummary {
   condition: string;
   rep: number;

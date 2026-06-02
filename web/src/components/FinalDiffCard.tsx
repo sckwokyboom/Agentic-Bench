@@ -7,6 +7,7 @@ interface Props {
   name: string;
   condition: string;
   rep: number;
+  batch?: string;
 }
 
 function HunkLine({ line }: { line: string }) {
@@ -22,8 +23,9 @@ function HunkLine({ line }: { line: string }) {
   );
 }
 
-export default function FinalDiffCard({ name, condition, rep }: Props) {
-  const patch = usePatch(name, condition, rep);
+export default function FinalDiffCard({ name, condition, rep, batch }: Props) {
+  const patch = usePatch(name, condition, rep, batch);
+  const batchQs = batch ? `?batch=${encodeURIComponent(batch)}` : "";
   const [expanded, setExpanded] = useState(false);
   if (patch.isLoading) return null;
   if (!patch.data || patch.data.length === 0) {
@@ -54,7 +56,7 @@ export default function FinalDiffCard({ name, condition, rep }: Props) {
           <Box sx={{ flex: 1 }} />
           <Button
             size="small"
-            href={`/api/runs/${name}/${condition}/${rep}/patch`}
+            href={`/api/runs/${name}/${condition}/${rep}/patch${batchQs}`}
             download={`changes-${condition}-${rep}.patch`}
           >Download .patch</Button>
         </Stack>

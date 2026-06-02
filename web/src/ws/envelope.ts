@@ -6,6 +6,10 @@ export interface SessionStarted {
   event_id: number;
   total_runs: number;
   conditions: string[];
+  // Added in the batches feature. The server always sends these now, but they
+  // are kept optional so existing constructors (tests/replay) compile unchanged.
+  batch_id?: string;
+  isolation?: { nonce_prefix: boolean; shuffle_order: boolean };
 }
 
 export interface RunStarted {
@@ -39,6 +43,8 @@ export interface RunFinished {
   finished: boolean;
   interrupted_reason: string | null;
   verify: VerifySummary;
+  // Added in the batches feature; optional-safe (see SessionStarted).
+  batch_id?: string;
 }
 
 export interface SessionError {

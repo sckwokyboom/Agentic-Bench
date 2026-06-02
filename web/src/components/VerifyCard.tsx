@@ -5,7 +5,7 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { useQueryClient } from "@tanstack/react-query";
-import { useVerifyLog, useStartReverify, useReverifyStatus, qk } from "../api/queries";
+import { useVerifyLog, useStartReverify, useReverifyStatus } from "../api/queries";
 import { buildSystemLabel } from "../lib/buildSystem";
 import { selectable } from "../theme";
 import type { Trace } from "../api/types";
@@ -15,12 +15,13 @@ interface Props {
   name: string;
   condition: string;
   rep: number;
+  batch?: string;
 }
 
-export default function VerifyCard({ trace, name, condition, rep }: Props) {
+export default function VerifyCard({ trace, name, condition, rep, batch }: Props) {
   const [open, setOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
-  const log = useVerifyLog(name, condition, rep, logOpen);
+  const log = useVerifyLog(name, condition, rep, logOpen, batch);
 
   const qc = useQueryClient();
   const start = useStartReverify();
@@ -32,9 +33,10 @@ export default function VerifyCard({ trace, name, condition, rep }: Props) {
 
   useEffect(() => {
     if (job.data?.state === "done" || job.data?.state === "error") {
-      qc.invalidateQueries({ queryKey: qk.trace(name, condition, rep) });
-      qc.invalidateQueries({ queryKey: qk.metrics(name, condition, rep) });
-      qc.invalidateQueries({ queryKey: qk.verifyLog(name, condition, rep) });
+      // Bare prefixes so every batch variant (incl. newest "") is invalidated.
+      qc.invalidateQueries({ queryKey: ["trace", name, condition, rep] });
+      qc.invalidateQueries({ queryKey: ["metrics", name, condition, rep] });
+      qc.invalidateQueries({ queryKey: ["verifyLog", name, condition, rep] });
       setVerifyId(null);
     }
   }, [job.data?.state, qc, name, condition, rep]);

@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Stack, Typography, CircularProgress, Alert, Box } from "@mui/material";
 import { useTrace, useEvents, useRuns, useMetrics } from "../api/queries";
 import { turnsFromTrace } from "../lib/traceModel";
@@ -14,11 +14,15 @@ import TraceRunSwitcher from "../components/TraceRunSwitcher";
 export default function TraceView() {
   const { name, condition, rep } = useParams<{ name: string; condition: string; rep: string }>();
   const navigate = useNavigate();
+  const [sp] = useSearchParams();
+  // Batch is a search param, not a path segment; undefined → server's newest.
+  const batch = sp.get("batch") ?? undefined;
+  const batchQs = batch ? `?batch=${encodeURIComponent(batch)}` : "";
   const repN = Number(rep);
-  const trace = useTrace(name!, condition!, repN);
-  const events = useEvents(name!, condition!, repN);
-  const metrics = useMetrics(name!, condition!, repN);
-  const runs = useRuns(name);
+  const trace = useTrace(name!, condition!, repN, batch);
+  const events = useEvents(name!, condition!, repN, batch);
+  const metrics = useMetrics(name!, condition!, repN, batch);
+  const runs = useRuns(name, batch);
 
   if (trace.isLoading) return <CircularProgress />;
   if (trace.error || !trace.data) return <Alert severity="error">Failed to load trace.</Alert>;
@@ -34,7 +38,7 @@ export default function TraceView() {
           <TraceRunSwitcher
             rows={runs.data}
             current={{ condition: condition!, rep: repN }}
-            onSelect={(c, r) => navigate(`/runs/${name}/${c}/${r}`)}
+            onSelect={(c, r) => navigate(`/runs/${name}/${c}/${r}${batchQs}`)}
           />
         )}
       </Box>
@@ -52,10 +56,10 @@ export default function TraceView() {
         {uiTurns.map((t) => (
           <TurnCard key={t.messageId ?? t.index} turn={t} index={t.index} rawEvents={rawByMsg(t.messageId)} />
         ))}
-        <VerifyCard trace={trace.data} name={name!} condition={condition!} rep={repN} />
-        <FinalDiffCard name={name!} condition={condition!} rep={repN} />
-        <MethodComparisonCard name={name!} condition={condition!} rep={repN} />
-        <MetricsDrawer name={name!} condition={condition!} rep={repN} />
+        <VerifyCard trace={trace.data} name={name!} condition={condition!} rep={repN} batch={batch} />
+        <FinalDiffCard name={name!} condition={condition!} rep={repN} batch={batch} />
+        <MethodComparisonCard name={name!} condition={condition!} rep={repN} batch={batch} />
+        <MetricsDrawer name={name!} condition={condition!} rep={repN} batch={batch} />
       </Stack>
     </Stack>
   );
