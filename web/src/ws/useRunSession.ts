@@ -42,7 +42,11 @@ export function useRunSession(sid: string | undefined) {
         } catch {
           return;
         }
-        if (typeof env.event_id === "number" && env.event_id > lastIdRef.current) {
+        // Drop replayed duplicates: on reconnect the server replays from
+        // last_event_id and any overlap would otherwise be appended twice,
+        // inflating done/running counts. Skip anything we have already seen.
+        if (typeof env.event_id === "number") {
+          if (env.event_id <= lastIdRef.current) return;
           lastIdRef.current = env.event_id;
         }
         if (env.type === "session.finished" || env.type === "session.error") {

@@ -5,7 +5,7 @@ import { useRunSession } from "../ws/useRunSession";
 import ProgressHeader from "../components/ProgressHeader";
 import RunSidebar from "../components/RunSidebar";
 import EventStream from "../components/EventStream";
-import { useCancelSession } from "../api/queries";
+import { useCancelSession, useRuns } from "../api/queries";
 import type { SessionStarted } from "../ws/envelope";
 
 export default function Run() {
@@ -26,10 +26,21 @@ export default function Run() {
     let firstFinishedCond: string | null = null;
     let firstFinishedRep: number | null = null;
     let sessionFinished = false;
-    const isolationOn = { nonce: true, shuffle: true };
+    // Real isolation flags from the live session.started envelope. The server
+    // always sends `isolation`, but the field is optional-safe (replay/tests
+    // may omit it) — fall back to on/on only when truly absent.
+    let isolationOn = { nonce: true, shuffle: true };
+    let batchId: string | null = null;
     for (const e of ws.envelopes) {
       if (e.type === "session.started") {
         totalRuns = e.total_runs;
+        if (e.isolation) {
+          isolationOn = {
+            nonce: e.isolation.nonce_prefix,
+            shuffle: e.isolation.shuffle_order,
+          };
+        }
+        if (e.batch_id !== undefined) batchId = e.batch_id;
       } else if (e.type === "run.started") {
         runIdx = e.run_idx; condition = e.condition; rep = e.rep; running += 1;
       } else if (e.type === "run.finished") {
@@ -52,9 +63,20 @@ export default function Run() {
     return {
       totalRuns, done, running, pending, runIdx, condition, rep,
       verify: { passed: verifyPassed, failed: verifyFailed, total: verifyTotal },
-      sessionFinished, firstFinishedCond, firstFinishedRep, isolationOn,
+      sessionFinished, firstFinishedCond, firstFinishedRep, isolationOn, batchId,
     };
   }, [ws.envelopes]);
+
+  const batchId = derived.batchId;
+
+  // Resilience backstop: while the session is live, poll the batch's runs so a
+  // `done` run becomes clickable even if a socket run.finished was missed.
+  // Live envelopes still win for in-flight state (see RunSidebar merge).
+  const polledRuns = useRuns(
+    experimentName ?? undefined,
+    batchId ?? undefined,
+    { refetchInterval: derived.sessionFinished ? false : 2000 },
+  );
 
   const conditionsArr = useMemo(() => {
     const e = ws.envelopes.find((x): x is SessionStarted => x.type === "session.started");
@@ -72,9 +94,10 @@ export default function Run() {
       derived.firstFinishedRep !== null &&
       experimentName
     ) {
-      navigate(`/runs/${experimentName}/${derived.firstFinishedCond}/${derived.firstFinishedRep}`);
+      const suffix = batchId ? `?batch=${encodeURIComponent(batchId)}` : "";
+      navigate(`/runs/${experimentName}/${derived.firstFinishedCond}/${derived.firstFinishedRep}${suffix}`);
     }
-  }, [derived.sessionFinished, derived.firstFinishedCond, derived.firstFinishedRep, experimentName, navigate]);
+  }, [derived.sessionFinished, derived.firstFinishedCond, derived.firstFinishedRep, experimentName, batchId, navigate]);
 
   return (
     <Stack spacing={2} sx={{ height: "100%" }}>
@@ -104,7 +127,14 @@ export default function Run() {
       )}
       <Stack direction="row" spacing={2} sx={{ flex: 1, minHeight: 0 }}>
         <Box sx={{ width: 280, overflow: "auto" }}>
-          <RunSidebar conditions={conditionsArr} totalReps={totalReps} envelopes={ws.envelopes} />
+          <RunSidebar
+            conditions={conditionsArr}
+            totalReps={totalReps}
+            envelopes={ws.envelopes}
+            experimentName={experimentName}
+            batchId={batchId}
+            polledRuns={polledRuns.data}
+          />
         </Box>
         <Box sx={{ flex: 1, overflow: "hidden" }}>
           <EventStream envelopes={ws.envelopes} />

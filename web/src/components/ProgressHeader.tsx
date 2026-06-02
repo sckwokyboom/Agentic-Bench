@@ -19,6 +19,12 @@ interface Props {
 
 export default function ProgressHeader(props: Props) {
   const pct = props.totalRuns === 0 ? 0 : (props.done / props.totalRuns) * 100;
+  // Derive the aggregate verify status from real counts instead of hardcoding:
+  // failed if any failed, passed if any results and none failed, otherwise
+  // neutral (null) so VerifyChip renders "no tests" rather than a green 0/0.
+  const { passed: vPassed, failed: vFailed, total: vTotal } = props.verifyCounts;
+  const verifyStatus: VerifyStatus | null =
+    vFailed > 0 ? "failed" : vTotal > 0 ? "passed" : null;
   return (
     <Stack spacing={1}>
       <Typography variant="h6">
@@ -33,9 +39,9 @@ export default function ProgressHeader(props: Props) {
         <Chip size="small" label={`${props.pending} pending`} variant="outlined" />
         <Box sx={{ flex: 1 }} />
         <VerifyChip
-          status="passed"
-          passed={props.verifyCounts.passed}
-          failed={props.verifyCounts.failed}
+          status={verifyStatus}
+          passed={vPassed}
+          failed={vFailed}
         />
         {props.baselineStatus && (
           <Chip

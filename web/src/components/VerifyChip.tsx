@@ -1,4 +1,5 @@
 import { Chip } from "@mui/material";
+import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import type { VerifyStatus } from "../api/types";
 
 interface Props {
@@ -16,15 +17,41 @@ const palette: Record<string, "success" | "error" | "warning" | "info" | "defaul
   running: "info",
 };
 
+const sci = <ScienceOutlinedIcon fontSize="inherit" />;
+
 export default function VerifyChip({ status, passed, failed }: Props) {
-  if (!status) return <Chip size="small" label="🧪 pending" variant="outlined" />;
+  const p = passed ?? 0;
+  const f = failed ?? 0;
+  const total = p + f;
+
+  if (!status) {
+    // No verify result yet — neutral, never a green 0/0.
+    return (
+      <Chip size="small" icon={sci} label="no tests" variant="outlined" />
+    );
+  }
+  if (status === "running") {
+    return <Chip size="small" color="info" icon={sci} label="running…" />;
+  }
   if (status === "passed") {
-    return <Chip size="small" color="success" label={`🧪 ${passed ?? "?"}/${passed ?? "?"}`} />;
+    if (total === 0) {
+      return (
+        <Chip size="small" icon={sci} label="no tests" variant="outlined" />
+      );
+    }
+    return <Chip size="small" color="success" icon={sci} label={`${p}/${total}`} />;
   }
   if (status === "failed") {
-    const total = (passed ?? 0) + (failed ?? 0);
-    return <Chip size="small" color="error" label={`🧪 ${passed ?? "?"}/${total} (${failed ?? "?"} failing)`} />;
+    return (
+      <Chip
+        size="small"
+        color="error"
+        icon={sci}
+        label={`${p}/${total} (${f} failing)`}
+      />
+    );
   }
-  if (status === "running") return <Chip size="small" color="info" label="🧪 running…" />;
-  return <Chip size="small" color={palette[status] ?? "default"} label={`🧪 ${status}`} />;
+  return (
+    <Chip size="small" color={palette[status] ?? "default"} icon={sci} label={status} />
+  );
 }

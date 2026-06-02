@@ -87,6 +87,55 @@ describe("useRunSession", () => {
     expect(FakeWS.instances[1]!.url).toContain("last_event_id=4");
   });
 
+  it("skips a replayed duplicate event_id (appends only once)", async () => {
+    const { result } = renderHook(() => useRunSession("S5"));
+    await waitFor(() => expect(FakeWS.instances).toHaveLength(1));
+    act(() => {
+      FakeWS.instances[0]!.push({
+        type: "run.started",
+        session_id: "S5",
+        event_id: 1,
+        run_idx: 1,
+        total_runs: 2,
+        condition: "a",
+        rep: 0,
+      });
+      // Server replay re-sends the SAME event_id after a reconnect overlap.
+      FakeWS.instances[0]!.push({
+        type: "run.started",
+        session_id: "S5",
+        event_id: 1,
+        run_idx: 1,
+        total_runs: 2,
+        condition: "a",
+        rep: 0,
+      });
+    });
+    await waitFor(() => expect(result.current.envelopes).toHaveLength(1));
+    expect(result.current.envelopes).toHaveLength(1);
+    expect(result.current.lastEventId).toBe(1);
+  });
+
+  it("appends every envelope of a normal increasing sequence", async () => {
+    const { result } = renderHook(() => useRunSession("S6"));
+    await waitFor(() => expect(FakeWS.instances).toHaveLength(1));
+    act(() => {
+      for (let id = 1; id <= 4; id += 1) {
+        FakeWS.instances[0]!.push({
+          type: "run.started",
+          session_id: "S6",
+          event_id: id,
+          run_idx: id,
+          total_runs: 4,
+          condition: "a",
+          rep: id - 1,
+        });
+      }
+    });
+    await waitFor(() => expect(result.current.envelopes).toHaveLength(4));
+    expect(result.current.lastEventId).toBe(4);
+  });
+
   it("stops reconnecting after session.finished", async () => {
     renderHook(() => useRunSession("S4"));
     await waitFor(() => expect(FakeWS.instances).toHaveLength(1));

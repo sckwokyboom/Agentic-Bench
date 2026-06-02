@@ -84,11 +84,16 @@ export const useBatches = (name: string | undefined) =>
     queryFn: () => apiGet<t.RunBatch[]>(`/api/runs/${name}/batches`),
   });
 
-export const useRuns = (name: string | undefined, batch?: string) =>
+export const useRuns = (
+  name: string | undefined,
+  batch?: string,
+  opts?: { refetchInterval?: number | false },
+) =>
   useQuery({
     queryKey: qk.runs(name ?? "", batch),
     enabled: Boolean(name),
     queryFn: () => apiGet<t.RunSummary[]>(withBatch(`/api/runs/${name}`, batch)),
+    refetchInterval: opts?.refetchInterval,
   });
 
 export const useRunsSummary = (name: string | undefined, batch?: string) =>
