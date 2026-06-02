@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Button } from "@mui/material";
+import FileUploadIcon from "@mui/icons-material/FileUpload";
 import { useUploadExperiment } from "../api/queries";
 
 interface Props { onUploaded: (parsed: Record<string, unknown>) => void; }
@@ -19,8 +20,12 @@ export default function UploadYamlButton({ onUploaded }: Props) {
 
   return (
     <>
-      <Button variant="outlined" size="small" onClick={() => ref.current?.click()}>
-        ↑ Upload YAML
+      <Button
+        variant="outlined" size="small"
+        startIcon={<FileUploadIcon />}
+        onClick={() => ref.current?.click()}
+      >
+        Upload YAML
       </Button>
       <input
         ref={ref}

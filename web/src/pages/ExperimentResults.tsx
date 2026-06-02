@@ -5,6 +5,7 @@ import {
   FormControl, InputLabel, Select, MenuItem,
 } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useRuns, useRunsSummary, useBatches, useStartReverify, useReverifyStatus,
@@ -129,7 +130,10 @@ export default function ExperimentResults() {
         )}
       </Box>
 
-      <Link component={RouterLink} to="/runs" variant="body2">← all experiments with runs</Link>
+      <Link component={RouterLink} to="/runs" variant="body2"
+        sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+        <ArrowBackIcon fontSize="inherit" /> all experiments with runs
+      </Link>
     </Stack>
   );
 }
