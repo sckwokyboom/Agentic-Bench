@@ -8,8 +8,13 @@ let pending: Promise<JsonSchema> | null = null;
 // Pydantic emits Optional[T] as { anyOf: [{type:"<T>"}, {type:"null"}] }, which rjsf
 // renders as a pointless type-picker dropdown. Collapse any such two-branch nullable
 // anyOf to the non-null branch T, preserving that branch's own constraints (enum/pattern/
-// format) AND the parent node's sibling keys (title/description/default), so it renders
-// as a single field. Pure: returns new objects, never mutates the input.
+// format) AND the parent node's sibling keys (title/description/default).
+//
+// CRUCIAL: keep the value nullable — emit `type: ["<T>", "null"]` (not just "<T>"), so
+// AJV still ACCEPTS null (the common "auto"/baseline case where command/augmentation are
+// null) while rjsf renders a single widget for the non-null type rather than the type
+// picker. Collapsing to a bare "<T>" would make AJV reject null and disable Save.
+// Pure: returns new objects, never mutates the input.
 function isNullBranch(s: unknown): boolean {
   return !!s && typeof s === "object" && (s as Record<string, unknown>).type === "null";
 }
@@ -26,9 +31,16 @@ export function collapseNullable(node: unknown): unknown {
         const nnObj = nn as Record<string, unknown>;
         const { anyOf: _drop, ...rest } = obj;
         // Spread nn first so its enum/pattern/format survive; spread rest so the parent's
-        // title/description/default win; keep nn.type explicitly when the branch has one.
-        const merged: Record<string, unknown> =
-          "type" in nnObj ? { ...nnObj, ...rest, type: nnObj.type } : { ...nnObj, ...rest };
+        // title/description/default win.
+        const merged: Record<string, unknown> = { ...nnObj, ...rest };
+        // Preserve nullability via an array type so null stays valid.
+        const t = nnObj.type;
+        if (typeof t === "string") merged.type = [t, "null"];
+        else if (Array.isArray(t)) merged.type = t.includes("null") ? t : [...t, "null"];
+        // If the non-null branch constrains values via enum, allow null too.
+        if (Array.isArray(merged.enum) && !merged.enum.includes(null)) {
+          merged.enum = [...merged.enum, null];
+        }
         return collapseNullable(merged);
       }
     }

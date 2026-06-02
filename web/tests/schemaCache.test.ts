@@ -6,40 +6,40 @@ import {
 } from "../src/api/schemaCache";
 
 describe("collapseNullable", () => {
-  it("collapses { anyOf: [string, null] } to a plain string, preserving title", () => {
+  it("collapses { anyOf: [string, null] } to a nullable string, preserving title", () => {
     expect(
       collapseNullable({ anyOf: [{ type: "string" }, { type: "null" }], title: "Command" }),
-    ).toEqual({ type: "string", title: "Command" });
+    ).toEqual({ type: ["string", "null"], title: "Command" });
   });
 
-  it("collapses the reverse order [null, string] too", () => {
+  it("collapses the reverse order [null, string] too (still nullable, default kept)", () => {
     expect(
       collapseNullable({ anyOf: [{ type: "null" }, { type: "string" }], default: null }),
-    ).toEqual({ type: "string", default: null });
+    ).toEqual({ type: ["string", "null"], default: null });
   });
 
-  it("collapses { anyOf: [integer, null] } to a plain integer, preserving title", () => {
+  it("collapses { anyOf: [integer, null] } to a nullable integer, preserving title", () => {
     expect(
       collapseNullable({ anyOf: [{ type: "integer" }, { type: "null" }], title: "Reps" }),
-    ).toEqual({ type: "integer", title: "Reps" });
+    ).toEqual({ type: ["integer", "null"], title: "Reps" });
   });
 
   it("collapses the reverse order [null, integer] too", () => {
     expect(
       collapseNullable({ anyOf: [{ type: "null" }, { type: "integer" }] }),
-    ).toEqual({ type: "integer" });
+    ).toEqual({ type: ["integer", "null"] });
   });
 
-  it("preserves the non-null branch's own constraints (enum)", () => {
+  it("preserves the non-null branch's constraints (enum) and adds null to the enum", () => {
     expect(
       collapseNullable({ anyOf: [{ type: "string", enum: ["a", "b"] }, { type: "null" }] }),
-    ).toEqual({ type: "string", enum: ["a", "b"] });
+    ).toEqual({ type: ["string", "null"], enum: ["a", "b", null] });
   });
 
   it("lets the parent's sibling keys win over the non-null branch", () => {
     expect(
       collapseNullable({ anyOf: [{ type: "string" }, { type: "null" }], description: "D" }),
-    ).toEqual({ type: "string", description: "D" });
+    ).toEqual({ type: ["string", "null"], description: "D" });
   });
 
   it("leaves a genuine (non-nullable) anyOf unchanged", () => {
@@ -65,7 +65,7 @@ describe("collapseNullable", () => {
         verify: {
           type: "object",
           properties: {
-            command: { type: "string", title: "Command" },
+            command: { type: ["string", "null"], title: "Command" },
           },
         },
       },
@@ -82,7 +82,7 @@ describe("collapseNullable", () => {
     expect(collapseNullable(input)).toEqual({
       type: "object",
       properties: {
-        x: { type: "integer" },
+        x: { type: ["integer", "null"] },
       },
     });
   });
@@ -93,7 +93,7 @@ describe("collapseNullable", () => {
         { anyOf: [{ type: "string" }, { type: "null" }] },
         { type: "integer" },
       ]),
-    ).toEqual([{ type: "string" }, { type: "integer" }]);
+    ).toEqual([{ type: ["string", "null"] }, { type: "integer" }]);
   });
 });
 
@@ -129,8 +129,8 @@ describe("schemaCache", () => {
     const props = s.properties as {
       verify: { properties: { command: unknown; reps: unknown } };
     };
-    expect(props.verify.properties.command).toEqual({ type: "string", title: "Command" });
-    expect(props.verify.properties.reps).toEqual({ type: "integer", title: "Reps" });
+    expect(props.verify.properties.command).toEqual({ type: ["string", "null"], title: "Command" });
+    expect(props.verify.properties.reps).toEqual({ type: ["integer", "null"], title: "Reps" });
   });
 
   it("propagates ApiError and does not cache the failure", async () => {
