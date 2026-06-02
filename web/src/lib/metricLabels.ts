@@ -17,5 +17,7 @@ export const SUMMARY_METRICS: { key: string; label: string; direction: Direction
   { key: "tokens_reasoning", label: "reasoning tokens", direction: "lower" },
   { key: "cache_read", label: "cache read", direction: "neutral",
     help: "From the provider's prompt cache; ≈0 expected with run isolation on." },
+  { key: "cache_write", label: "cache write", direction: "neutral",
+    help: "Tokens written to the provider's prompt cache — informational, not better/worse." },
   { key: "cost", label: "cost ($)", direction: "lower" },
 ];
