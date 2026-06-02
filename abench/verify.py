@@ -54,9 +54,13 @@ def detect_verify(workdir: Path) -> DetectResult:
                       "settings.gradle.kts", "gradlew"))
     has_maven = (workdir / "pom.xml").exists() or (workdir / "mvnw").exists()
     has_pytest = (workdir / "pyproject.toml").exists() and (workdir / "tests").is_dir()
-    candidates = ([("gradle") for _ in (1,) if has_gradle]
-                  + ["maven"] * (1 if has_maven else 0)
-                  + ["pytest"] * (1 if has_pytest else 0))
+    candidates: list[str] = []
+    if has_gradle:
+        candidates.append("gradle")
+    if has_maven:
+        candidates.append("maven")
+    if has_pytest:
+        candidates.append("pytest")
     if has_gradle and has_maven:
         return DetectResult(_gradle_command(workdir), "gradle", True, candidates)
     if has_gradle:
