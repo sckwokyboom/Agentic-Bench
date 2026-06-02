@@ -1,40 +1,33 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { expect, test } from "vitest";
 import TurnCard from "../src/components/TurnCard";
-import type { TurnInfo } from "../src/api/types";
-import type { TurnGroup } from "../src/lib/groupEventsByTurn";
+import type { UiTurn } from "../src/lib/traceModel";
 
-const turn: TurnInfo = {
-  message_id: "M1", reason: "tool-calls",
-  tokens_in: 100, tokens_out: 50, tokens_reasoning: null,
-  cost: 0.001, started_at: 0, ended_at: 2,
-};
-const group: TurnGroup = {
-  messageId: "M1",
+const turn: UiTurn = {
+  index: 0, messageId: "M0", reason: "tool-calls",
+  tokensIn: 11700, tokensOut: 118, tokensReasoning: 5, cost: 0.0017, durationS: 62,
   parts: [
-    { type: "reasoning", text: "thinking…" },
-    { type: "tool-call", name: "read", input: { path: "a.py" }, toolCallID: "c1" },
-    { type: "tool-result", toolCallID: "c1", output: "ok" },
+    { kind: "reasoning", text: "thinking about it" },
+    { kind: "tool", name: "read", args: { path: "a.py" }, output: "file body", exitCode: 0, ok: true },
+    { kind: "tool", name: "grep", args: { pattern: "foo" }, output: "match", exitCode: 0, ok: true },
+    { kind: "edit", path: "a.py", patch: "@@\n-x\n+y\n" },
   ],
-  reason: "tool-calls", tokensIn: 100, tokensOut: 50, tokensReasoning: null,
-  cost: 0.001, startedAt: 0, endedAt: 2,
 };
 
-test("renders reasoning + tool call + per-turn stats", async () => {
-  render(<TurnCard turn={turn} group={group} index={0} rawEvents={[{ part: { type: "tool-call" } }]} />);
+// JSX splits "{icon} {name}" into separate text nodes inside <b>, so match on
+// the bold element's full textContent to assert the success glyph + tool name.
+const bWithText = (want: string) => (_content: string, el: Element | null) =>
+  el?.tagName.toLowerCase() === "b" && el.textContent === want;
+
+test("renders tool calls with name+args+result, edits, and a real-name breakdown", async () => {
+  render(<TurnCard turn={turn} index={0} rawEvents={[{ part: { type: "tool" } }]} />);
   expect(screen.getByText(/turn 1/)).toBeInTheDocument();
-  // Reasoning appears both in the header summary and the body; the 💭 prefix is unique to the body.
-  expect(screen.getByText(/💭 thinking…/)).toBeInTheDocument();
-  // The tool-call has a matching tool-result, so ToolCallBlock renders the ✓ (success) icon.
-  // JSX splits "{icon} {name}" into separate text nodes, so match on the bold element's textContent.
-  expect(
-    screen.getByText((_content, el) => el?.tagName.toLowerCase() === "b" && el.textContent === "✓ read"),
-  ).toBeInTheDocument();
-  expect(screen.getByText(/reads 1/)).toBeInTheDocument();
-  const btn = screen.getByRole("button", { name: /show raw/i });
-  await userEvent.click(btn);
-  // The raw JSONL line is unique (the turn reason chip also contains "tool-call").
-  expect(screen.getByText(/"type":"tool-call"/)).toBeInTheDocument();
-  // Role marker for reasoning is present in the airier layout.
-  expect(screen.getByText(/💭/)).toBeInTheDocument();
+  expect(screen.getByText(bWithText("✓ read"))).toBeInTheDocument();
+  expect(screen.getByText(bWithText("✓ grep"))).toBeInTheDocument();
+  expect(screen.getByText(bWithText("📝 a.py"))).toBeInTheDocument();
+  expect(screen.getByText(/read ×1 · grep ×1 · edit ×1/)).toBeInTheDocument();
+  expect(screen.getByText(/in 11\.7k · out 118/)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: /show raw/i }));
+  expect(screen.getByText(/"type":"tool"/)).toBeInTheDocument();
 });
