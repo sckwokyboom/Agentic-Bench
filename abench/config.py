@@ -16,58 +16,196 @@ DEFAULT_TEST_PATTERNS = [
 
 
 class Condition(BaseModel):
-    name: str
-    augmentation: str | None = None
+    name: str = Field(
+        title="Name",
+        description="Condition label (e.g. baseline, augmented).",
+    )
+    augmentation: str | None = Field(
+        default=None,
+        title="Augmentation",
+        description=(
+            "Path to the context-slice markdown injected for this condition; "
+            "blank = no augmentation (baseline)."
+        ),
+    )
 
 
 class OpenCodeCfg(BaseModel):
-    agent: str = "bench"
-    binary: str = "opencode"
+    agent: str = Field(
+        default="bench",
+        title="Agent",
+        description="OpenCode agent profile name to run.",
+    )
+    binary: str = Field(
+        default="opencode",
+        title="Binary",
+        description="OpenCode executable name/path.",
+    )
 
 
 class MetricsCfg(BaseModel):
     test_command_patterns: list[str] = Field(
-        default_factory=lambda: list(DEFAULT_TEST_PATTERNS))
-    shell_tool_names: list[str] = Field(default_factory=lambda: ["bash"])
-    read_tool_names: list[str] = Field(default_factory=lambda: ["read"])
+        default_factory=lambda: list(DEFAULT_TEST_PATTERNS),
+        title="Test command patterns",
+        description=(
+            "Regexes matched against tool commands to count test runs "
+            "(e.g. 'pytest', 'go test')."
+        ),
+    )
+    shell_tool_names: list[str] = Field(
+        default_factory=lambda: ["bash"],
+        title="Shell tool names",
+        description="Tool names treated as shell/command execution.",
+    )
+    read_tool_names: list[str] = Field(
+        default_factory=lambda: ["read"],
+        title="Read tool names",
+        description="Tool names counted as file reads.",
+    )
     search_tool_names: list[str] = Field(
-        default_factory=lambda: ["grep", "glob", "list"])
+        default_factory=lambda: ["grep", "glob", "list"],
+        title="Search tool names",
+        description="Tool names counted as code search (grep/glob/list).",
+    )
     command_arg_keys: list[str] = Field(
-        default_factory=lambda: ["command", "cmd", "script"])
+        default_factory=lambda: ["command", "cmd", "script"],
+        title="Command arg keys",
+        description=(
+            "Tool-arg keys whose value holds the shell command "
+            "(matched against test_command_patterns)."
+        ),
+    )
 
 
 class VerifyCfg(BaseModel):
-    command: str | None = None          # override; otherwise auto-detect at run time
-    enabled: bool = True
-    timeout_s: int = 300
+    command: str | None = Field(
+        default=None,
+        title="Verify command",
+        description="Build/test command. Leave blank to auto-detect (gradle/maven/pytest).",
+    )
+    enabled: bool = Field(
+        default=True,
+        title="Enabled",
+        description="Run the build/test verification step after the agent finishes.",
+    )
+    timeout_s: int = Field(
+        default=300,
+        title="Verify timeout (s)",
+        description="Max seconds for the verify command.",
+    )
 
 
 class IsolationCfg(BaseModel):
-    nonce_prefix: bool = True            # uuid4 comment line at top of system_prompt
-    shuffle_order: bool = True           # randomize condition×rep order
+    nonce_prefix: bool = Field(
+        default=True,
+        title="Nonce prefix",
+        description=(
+            "Prepend a unique comment line to the system prompt so each run "
+            "defeats provider prompt-cache reuse."
+        ),
+    )
+    shuffle_order: bool = Field(
+        default=True,
+        title="Shuffle order",
+        description=(
+            "Randomize condition×repetition execution order to avoid ordering bias."
+        ),
+    )
     # v2 heavyweight (not consumed in v1; placeholder for forward-compat):
-    user_field_template: str | None = None
-    api_key_env_list: str | None = None
+    user_field_template: str | None = Field(
+        default=None,
+        title="User field template",
+        description="Reserved for v2 (not used in v1).",
+    )
+    api_key_env_list: str | None = Field(
+        default=None,
+        title="API key env list",
+        description="Reserved for v2 (not used in v1).",
+    )
 
 
 class Experiment(BaseModel):
-    name: str
-    fixture_path: Path
-    reference_path: Path
-    task_prompt: str
-    system_prompt: str
-    model: str
-    output_dir: Path
-    conditions: list[Condition]
-    repetitions: int = Field(default=3, ge=1)
-    opencode: OpenCodeCfg = Field(default_factory=OpenCodeCfg)
-    timeout_s: int = 600
-    min_seconds_between_runs: float = 0.0
-    metrics: MetricsCfg = Field(default_factory=MetricsCfg)
-    verify: VerifyCfg = Field(default_factory=VerifyCfg)
-    isolation: IsolationCfg = Field(default_factory=IsolationCfg)
-    target_file: str | None = None
-    target_methods: list[str] | None = None
+    name: str = Field(
+        title="Name",
+        description="Experiment name.",
+    )
+    fixture_path: Path = Field(
+        title="Fixture path",
+        description="Working tree the agent edits (the stripped project).",
+    )
+    reference_path: Path = Field(
+        title="Reference path",
+        description="Ground-truth tree for comparison (the original project).",
+    )
+    task_prompt: str = Field(
+        title="Task prompt",
+        description="Task instructions — inline text or a path to a .md file.",
+    )
+    system_prompt: str = Field(
+        title="System prompt",
+        description="System prompt — inline text or a path to a .md file.",
+    )
+    model: str = Field(
+        title="Model",
+        description=(
+            "Model identifier passed to OpenCode "
+            "(e.g. opencode/deepseek-v4-flash-free)."
+        ),
+    )
+    output_dir: Path = Field(
+        title="Output dir",
+        description="Directory where run artefacts are written.",
+    )
+    conditions: list[Condition] = Field(
+        title="Conditions",
+        description="Conditions to compare (baseline vs augmented).",
+    )
+    repetitions: int = Field(
+        default=3,
+        ge=1,
+        title="Repetitions",
+        description="Runs per condition.",
+    )
+    opencode: OpenCodeCfg = Field(
+        default_factory=OpenCodeCfg,
+        title="OpenCode",
+        description="OpenCode agent/binary configuration.",
+    )
+    timeout_s: int = Field(
+        default=600,
+        title="Run timeout (s)",
+        description="Max seconds per agent run.",
+    )
+    min_seconds_between_runs: float = Field(
+        default=0.0,
+        title="Min seconds between runs",
+        description="Throttle between runs to respect provider rate limits (0 = none).",
+    )
+    metrics: MetricsCfg = Field(
+        default_factory=MetricsCfg,
+        title="Metrics",
+        description="Tool-usage metric extraction configuration.",
+    )
+    verify: VerifyCfg = Field(
+        default_factory=VerifyCfg,
+        title="Verify",
+        description="Build/test verification configuration.",
+    )
+    isolation: IsolationCfg = Field(
+        default_factory=IsolationCfg,
+        title="Isolation",
+        description="Run-isolation configuration (cache busting, ordering).",
+    )
+    target_file: str | None = Field(
+        default=None,
+        title="Target file",
+        description="File the target method lives in — optional, for analysis.",
+    )
+    target_methods: list[str] | None = Field(
+        default=None,
+        title="Target methods",
+        description="Method names under test — optional, for analysis.",
+    )
 
 
 def _resolve_text(value: str | None, base: Path) -> str | None:
