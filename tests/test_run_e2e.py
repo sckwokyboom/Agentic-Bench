@@ -68,7 +68,11 @@ def test_abench_run_e2e(tmp_path: Path):
     assert rc == 0, "CLI main() returned non-zero"
 
     # ── Artifact tree ────────────────────────────────────────────────────────
-    run_root = tmp_path / "runs" / "smoke"
+    # Each run now writes under a timestamped batch dir: runs/smoke/<batch>/...
+    exp_root = tmp_path / "runs" / "smoke"
+    batches = [p for p in exp_root.iterdir() if p.is_dir()]
+    assert len(batches) == 1, f"expected exactly one batch dir, got {batches}"
+    run_root = batches[0]
     rep_dir = run_root / "baseline" / "rep_0"
 
     for name in ("manifest.json", "events.jsonl", "trace.json",

@@ -14,6 +14,9 @@ def main(argv: list[str] | None = None) -> int:
 
     run_p = sub.add_parser("run", help="run an experiment")
     run_p.add_argument("experiment", help="path to experiment YAML")
+    run_p.add_argument(
+        "--batch-id", default=None,
+        help="batch dir name under output_dir/<exp>/ (default: UTC timestamp)")
 
     report_p = sub.add_parser("report", help="build summary from a run dir")
     report_p.add_argument("run_dir", help="path to runs/<name> directory")
@@ -36,7 +39,12 @@ def main(argv: list[str] | None = None) -> int:
         from .runner import run_experiment
 
         exp = load_experiment(args.experiment)
-        root = run_experiment(exp, lambda e: RealOpenCodeClient(e.opencode, e.timeout_s))
+        root = run_experiment(
+            exp,
+            lambda e: RealOpenCodeClient(e.opencode, e.timeout_s),
+            batch_id=args.batch_id,
+        )
+        print(f"batch: {root.name}")
         write_report(root)
         return 0
 

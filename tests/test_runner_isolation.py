@@ -79,10 +79,10 @@ def test_shuffle_changes_run_order_deterministically(tmp_path):
     reproducible within the same day."""
     exp = _make_exp(tmp_path, IsolationCfg(nonce_prefix=False, shuffle_order=True))
     rec = _RecordingClient()
-    run_experiment(exp, lambda e: rec)
+    root = run_experiment(exp, lambda e: rec)
 
     # Read manifests in disk order — they should reflect the actual run sequence
-    manifests = sorted((tmp_path / "runs" / "iso-test").glob("*/rep_*/manifest.json"))
+    manifests = sorted(root.glob("*/rep_*/manifest.json"))
     order = [json.loads(m.read_text())["condition"] + "/" +
              str(json.loads(m.read_text())["rep"]) for m in manifests]
     assert sorted(order) == sorted([
@@ -151,9 +151,9 @@ def test_run_verify_exception_does_not_lose_manifest(tmp_path, monkeypatch):
                         lambda *a, **kw: None)
 
     from tests.fakes import FakeOpenCodeClient
-    runner_module.run_experiment(exp, lambda e: FakeOpenCodeClient())
+    root = runner_module.run_experiment(exp, lambda e: FakeOpenCodeClient())
 
-    rundir = tmp_path / "runs" / exp.name / "baseline" / "rep_0"
+    rundir = root / "baseline" / "rep_0"
     assert (rundir / "manifest.json").is_file(), "manifest.json must exist even when verify raises"
     import json as _json
     metrics = _json.loads((rundir / "metrics.json").read_text())

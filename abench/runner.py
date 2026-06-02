@@ -8,6 +8,7 @@ import random
 import sys
 import time
 import uuid
+from datetime import datetime as _datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -23,6 +24,11 @@ from .trace_model import FileChange, FinalDiffSummary
 from .verify import detect_command as _detect_verify, run_verify, write_verify_log
 
 ClientFactory = Callable[[Experiment], OpenCodeClient]
+
+
+def default_batch_id() -> str:
+    """Timestamped batch id (UTC), e.g. ``20260602-143015``."""
+    return _datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 
 def compute_plan(exp: Experiment) -> list[tuple["Condition", int]]:
@@ -56,8 +62,11 @@ def run_experiment(
     exp: Experiment,
     client_factory: ClientFactory,
     _plan: list[tuple["Condition", int]] | None = None,
+    batch_id: str | None = None,
 ) -> Path:
-    root = exp.output_dir / exp.name
+    if batch_id is None:
+        batch_id = default_batch_id()
+    root = exp.output_dir / exp.name / batch_id
     root.mkdir(parents=True, exist_ok=True)
     (root / "experiment.resolved.yaml").write_text(_dump_resolved(exp))
 

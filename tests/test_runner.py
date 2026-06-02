@@ -59,8 +59,7 @@ def test_run_experiment_writes_all_artifacts(tmp_path):
 def test_run_experiment_writes_isolation_nonce_to_trace(tmp_path):
     """When isolation.nonce_prefix is on (default), each trace records its UUID."""
     exp = _experiment(tmp_path)  # existing helper; default isolation = both on
-    run_experiment(exp, lambda e: FakeOpenCodeClient())
-    root = tmp_path / "runs" / exp.name
+    root = run_experiment(exp, lambda e: FakeOpenCodeClient())
     for cond in ("baseline", "augmented"):
         for rep in range(exp.repetitions):
             trace = json.loads((root / cond / f"rep_{rep}" / "trace.json").read_text())
@@ -69,8 +68,7 @@ def test_run_experiment_writes_isolation_nonce_to_trace(tmp_path):
 
 def test_run_experiment_populates_final_diff_summary(tmp_path):
     exp = _experiment(tmp_path)
-    run_experiment(exp, lambda e: FakeOpenCodeClient())
-    root = tmp_path / "runs" / exp.name
+    root = run_experiment(exp, lambda e: FakeOpenCodeClient())
     trace = json.loads((root / "baseline" / "rep_0" / "trace.json").read_text())
     fds = trace.get("final_diff_summary")
     assert fds is not None
