@@ -5,15 +5,15 @@ These build tiny real Java projects and run `gradle test` / `mvn test`. They ski
 if a tool is absent (so CI elsewhere is unaffected). The FIRST run downloads
 JUnit + toolchain deps, so the per-test verify timeout is generous (600s).
 
-Notes on the build fixtures (these surface the output the verify parsers read):
+Notes on the build fixtures (these are VANILLA modern projects — no console hacks):
 - Modern Gradle (9.x) does NOT print the "<N> tests completed, <M> failed"
-  summary to the console by default — it only writes the HTML/XML report. The
-  parser (parse_gradle_output) needs that line, so the fixture build scripts add
-  an `afterSuite` hook that prints it. This is the standard idiom for surfacing
-  the summary; it does not change the pass/fail outcome.
-- Maven is run as `mvn test` (NOT `mvn -q test`): `-q` suppresses the Surefire
-  "Tests run: ..." summary line that parse_maven_surefire needs, so a genuinely
-  green build would come back unparseable. Plain `mvn test` prints it.
+  summary to the console on a green build — it only writes the JUnit XML/HTML
+  report under build/test-results/. run_verify falls back to that XML when the
+  console output has no parseable summary, so a plain `gradle test` verifies
+  green WITHOUT any `afterSuite`/logging idiom in the build script.
+- Maven is run as `mvn test` (NOT `mvn -q test`): plain `mvn test` prints the
+  Surefire "Tests run: ..." summary; `-q` would suppress it, but the same XML
+  fallback (target/surefire-reports/) would cover that too.
 """
 import shutil
 import textwrap
@@ -27,19 +27,6 @@ GRADLE = shutil.which("gradle")
 MVN = shutil.which("mvn")
 JAVA = shutil.which("java")
 
-# A `test {}` block that runs JUnit AND prints the root-suite summary line
-# ("<N> tests completed, <M> failed") that parse_gradle_output looks for.
-_GRADLE_TEST_BLOCK = """
-        test {
-            useJUnit()
-            afterSuite { desc, result ->
-                if (!desc.parent) {
-                    println "${result.testCount} tests completed, ${result.failedTestCount} failed"
-                }
-            }
-        }
-"""
-
 
 @pytest.mark.skipif(not (GRADLE and JAVA), reason="gradle/java not on PATH")
 def test_real_gradle_project_detects_and_runs(tmp_path):
@@ -48,7 +35,7 @@ def test_real_gradle_project_detects_and_runs(tmp_path):
         plugins { id 'java' }
         repositories { mavenCentral() }
         dependencies { testImplementation 'junit:junit:4.13.2' }
-    """) + textwrap.dedent(_GRADLE_TEST_BLOCK))
+    """))
     td = tmp_path / "src/test/java/demo"; td.mkdir(parents=True)
     (td / "AppTest.java").write_text(textwrap.dedent("""
         package demo; import org.junit.Test; import static org.junit.Assert.*;
@@ -89,7 +76,7 @@ def test_picocli_like_ambiguous_picks_gradle_not_maven(tmp_path):
         plugins { id 'java' }
         repositories { mavenCentral() }
         dependencies { testImplementation 'junit:junit:4.13.2' }
-    """) + textwrap.dedent(_GRADLE_TEST_BLOCK))
+    """))
     (tmp_path / "pom.xml").write_text("<project><broken/>")  # would fail `mvn test`
     td = tmp_path / "src/test/java/demo"; td.mkdir(parents=True)
     (td / "AppTest.java").write_text(

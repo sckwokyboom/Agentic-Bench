@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+import xml.etree.ElementTree as _ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal
@@ -91,6 +92,71 @@ def _parser_for(command: str) -> Callable[[str], tuple[int, int, list[str]]] | N
     return _PARSER_BY_PREFIX.get(first)
 
 
+def _results_glob(workdir: Path, system: str) -> list[Path]:
+    workdir = Path(workdir)
+    patterns: tuple[str, ...] = ()
+    if system == "gradle":
+        patterns = ("**/build/test-results/**/*.xml",)
+    elif system == "maven":
+        patterns = ("target/surefire-reports/*.xml",
+                    "target/failsafe-reports/*.xml",
+                    "**/target/surefire-reports/*.xml",
+                    "**/target/failsafe-reports/*.xml")
+    # Overlapping patterns (e.g. `**/` also matching zero dirs) can return the
+    # same file twice; dedupe by resolved path so suites aren't double-counted.
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for pat in patterns:
+        for p in sorted(workdir.glob(pat)):
+            rp = p.resolve()
+            if rp not in seen:
+                seen.add(rp)
+                out.append(p)
+    return out
+
+
+def _parse_results_xml(workdir: Path, system: str) -> tuple[int, int, list[str]] | None:
+    """Sum JUnit XML test-results (always written even when the console output has
+    no parseable summary — e.g. modern Gradle, or Maven -q). Returns
+    (passed, failed, failed_names) or None if no result files exist."""
+    files = _results_glob(workdir, system)
+    if not files:
+        return None
+    tests = failures = errors = skipped = 0
+    names: list[str] = []
+    found = False
+    for f in files:
+        try:
+            root = _ET.parse(f).getroot()
+        except _ET.ParseError:
+            continue
+        suites = [root] if root.tag == "testsuite" else root.iter("testsuite")
+        for ts in suites:
+            found = True
+            tests += int(ts.get("tests", 0) or 0)
+            failures += int(ts.get("failures", 0) or 0)
+            errors += int(ts.get("errors", 0) or 0)
+            skipped += int(ts.get("skipped", 0) or 0)
+            for tc in ts.iter("testcase"):
+                if tc.find("failure") is not None or tc.find("error") is not None:
+                    cls = tc.get("classname", ""); nm = tc.get("name", "")
+                    names.append(f"{cls}.{nm}" if cls else nm)
+    if not found:
+        return None
+    failed = failures + errors
+    passed = max(0, tests - failed - skipped)
+    return passed, failed, names[:20]
+
+
+def _system_of(command: str) -> str | None:
+    first = command.split()[0] if command.split() else ""
+    if first in ("gradle", "./gradlew"):
+        return "gradle"
+    if first in ("mvn", "./mvnw"):
+        return "maven"
+    return None
+
+
 _BUILD_MARKERS = (
     "COMPILATION ERROR",
     "BUILD FAILURE",
@@ -167,6 +233,14 @@ def run_verify(workdir: Path, command: str, timeout_s: int) -> VerifyResult:
             parsed = parser(output)
         except ValueError:
             parsed = None
+
+    # Fall back to the JUnit XML test-results when the console output had no
+    # parseable summary (modern Gradle on a green build, Maven -q, etc.). These
+    # files are always written by the test task regardless of console verbosity.
+    if parsed is None:
+        system = _system_of(command)
+        if system is not None:
+            parsed = _parse_results_xml(workdir, system)
 
     if parsed is not None:
         passed, failed, names = parsed

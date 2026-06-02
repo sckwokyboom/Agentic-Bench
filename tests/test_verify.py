@@ -330,3 +330,50 @@ def test_detect_command_shim(tmp_path):
     (tmp_path / "pom.xml").write_text("<project/>")
     assert detect_command(tmp_path) == "mvn test"
     assert detect_command(tmp_path / "empty") is None
+
+
+def _write_junit_xml(path, tests, failures, errors=0, skipped=0, failed_cases=()):
+    cases = "".join(
+        f'<testcase classname="{c[0]}" name="{c[1]}"><failure/></testcase>'
+        for c in failed_cases)
+    path.write_text(
+        f'<testsuite tests="{tests}" failures="{failures}" errors="{errors}" '
+        f'skipped="{skipped}">{cases}</testsuite>')
+
+
+def test_parse_results_xml_gradle(tmp_path):
+    from abench.verify import _parse_results_xml
+    d = tmp_path / "build/test-results/test"; d.mkdir(parents=True)
+    _write_junit_xml(d / "TEST-a.xml", tests=10, failures=0)
+    _write_junit_xml(d / "TEST-b.xml", tests=5, failures=2,
+                     failed_cases=[("demo.BarTest", "tb"), ("demo.BarTest", "tc")])
+    res = _parse_results_xml(tmp_path, "gradle")
+    assert res is not None
+    passed, failed, names = res
+    assert passed == 13 and failed == 2
+    assert "demo.BarTest.tb" in names
+
+
+def test_parse_results_xml_maven(tmp_path):
+    from abench.verify import _parse_results_xml
+    d = tmp_path / "target/surefire-reports"; d.mkdir(parents=True)
+    _write_junit_xml(d / "TEST-x.xml", tests=7, failures=0)
+    res = _parse_results_xml(tmp_path, "maven")
+    assert res == (7, 0, []) or (res[0] == 7 and res[1] == 0)
+
+
+def test_parse_results_xml_none_when_absent(tmp_path):
+    from abench.verify import _parse_results_xml
+    assert _parse_results_xml(tmp_path, "gradle") is None
+
+
+def test_run_verify_gradle_falls_back_to_xml_on_unparseable_stdout(tmp_path):
+    """Modern Gradle: BUILD SUCCESSFUL but no 'N tests completed' line → use XML."""
+    from unittest import mock
+    from abench.verify import run_verify
+    d = tmp_path / "build/test-results/test"; d.mkdir(parents=True)
+    _write_junit_xml(d / "TEST-a.xml", tests=3, failures=0)
+    completed = mock.Mock(stdout="BUILD SUCCESSFUL in 2s\n", stderr="", returncode=0)
+    with mock.patch("abench.verify.subprocess.run", return_value=completed):
+        v = run_verify(tmp_path, "gradle test", timeout_s=60)
+    assert v.status == "passed" and v.passed_count == 3 and v.reason == "passed"
