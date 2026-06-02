@@ -1,4 +1,6 @@
 import { Card, CardContent, Stack, Typography, Button, Chip } from "@mui/material";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 
 interface Props {
   name: string;
@@ -25,8 +27,9 @@ export default function SavedExperimentCard({
     <Card variant="outlined" data-testid="saved-card">
       <CardContent>
         <Stack spacing={2}>
-          <Stack direction="row" spacing={1} alignItems="baseline" flexWrap="wrap">
-            <Typography variant="h6" color="success.main">✓ Saved</Typography>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+            <CheckCircleIcon color="success" fontSize="small" />
+            <Typography variant="h6" color="success.main">Saved</Typography>
             <Typography variant="body2" color="text.secondary">
               Configuration for <b>{name}</b> was written to disk.
             </Typography>
@@ -47,7 +50,7 @@ export default function SavedExperimentCard({
               color="success"
               onClick={onRun}
               disabled={!canRun || running}
-              startIcon={<span aria-hidden>▶</span>}
+              startIcon={<PlayArrowIcon />}
             >
               {running ? "Starting…" : "Run experiment"}
             </Button>

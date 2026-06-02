@@ -15,17 +15,25 @@ const turn: UiTurn = {
   ],
 };
 
-// JSX splits "{icon} {name}" into separate text nodes inside <b>, so match on
-// the bold element's full textContent to assert the success glyph + tool name.
+// JSX renders the success icon + tool name inside one <b>; the icon is an SVG
+// (no text), so match on the bold element's textContent for the tool name.
 const bWithText = (want: string) => (_content: string, el: Element | null) =>
   el?.tagName.toLowerCase() === "b" && el.textContent === want;
 
 test("renders tool calls with name+args+result, edits, and a real-name breakdown", async () => {
-  render(<TurnCard turn={turn} index={0} rawEvents={[{ part: { type: "tool" } }]} />);
+  const { container } = render(
+    <TurnCard turn={turn} index={0} rawEvents={[{ part: { type: "tool" } }]} />,
+  );
   expect(screen.getByText(/turn 1/)).toBeInTheDocument();
-  expect(screen.getByText(bWithText("✓ read"))).toBeInTheDocument();
-  expect(screen.getByText(bWithText("✓ grep"))).toBeInTheDocument();
-  expect(screen.getByText(bWithText("📝 a.py"))).toBeInTheDocument();
+  expect(screen.getByText(bWithText("read"))).toBeInTheDocument();
+  expect(screen.getByText(bWithText("grep"))).toBeInTheDocument();
+  // both successful tool calls carry the success CheckCircle icon
+  expect(container.querySelectorAll('[data-testid="CheckCircleIcon"]').length).toBe(2);
+  // the edit part shows its path + the EditNote icon
+  expect(screen.getByText(bWithText("a.py"))).toBeInTheDocument();
+  expect(container.querySelector('[data-testid="EditNoteIcon"]')).not.toBeNull();
+  // the reasoning part shows the Psychology icon
+  expect(container.querySelector('[data-testid="PsychologyOutlinedIcon"]')).not.toBeNull();
   expect(screen.getByText(/read ×1 · grep ×1 · edit ×1/)).toBeInTheDocument();
   expect(screen.getByText(/in 11\.7k · out 118/)).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /show raw/i }));

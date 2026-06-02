@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import FixturesPanel from "../src/components/FixturesPanel";
 
-test("renders the detected command, system and an ambiguity warning", () => {
-  render(
+test("renders the detected command, system and an ambiguity warning icon", () => {
+  const { container } = render(
     <FixturesPanel
       fixturePath="fixture/"
       referencePath="reference/"
@@ -16,8 +16,24 @@ test("renders the detected command, system and an ambiguity warning", () => {
     />,
   );
   expect(screen.getByText("mvn test")).toBeInTheDocument();
-  expect(screen.getByText(/⚠ ambiguous \(gradle \+ maven\)/)).toBeInTheDocument();
+  expect(screen.getByText(/ambiguous \(gradle \+ maven\)/)).toBeInTheDocument();
   expect(screen.getByText(/using maven/)).toBeInTheDocument();
+  expect(container.querySelector('[data-testid="WarningAmberIcon"]')).not.toBeNull();
+});
+
+test("explains the fixture vs reference paths for a newcomer", () => {
+  render(
+    <FixturesPanel
+      fixturePath="fixture/"
+      referencePath="reference/"
+      hasFixture
+      hasReference
+      verifyCommand="pytest -q"
+      verifySystem="pytest"
+    />,
+  );
+  expect(screen.getByText(/working tree the agent edits/i)).toBeInTheDocument();
+  expect(screen.getByText(/ground-truth original/i)).toBeInTheDocument();
 });
 
 test("shows the no-build-system hint when no command is detected", () => {

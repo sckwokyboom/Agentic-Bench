@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   Stack, Box, Typography, CircularProgress, Alert, Button, Snackbar,
 } from "@mui/material";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import type { RJSFValidationError } from "@rjsf/utils";
 import ExperimentForm from "../components/ExperimentForm";
 import SavedExperimentCard from "../components/SavedExperimentCard";
@@ -73,7 +74,7 @@ export default function ExperimentEdit() {
             color="success"
             disabled={errors.length > 0 || !summary?.has_fixture || start.isPending}
             onClick={handleRun}
-            startIcon={<span>▶</span>}
+            startIcon={<PlayArrowIcon />}
           >
             Run
           </Button>
@@ -132,7 +133,7 @@ export default function ExperimentEdit() {
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
         <Alert severity="success" variant="filled" onClose={() => setToastOpen(false)}>
-          Configuration saved ✓
+          Configuration saved
         </Alert>
       </Snackbar>
     </Stack>

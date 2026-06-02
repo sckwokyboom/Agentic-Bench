@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { Stack, TextField, Chip, Button, Box, Typography } from "@mui/material";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { useValidateModel } from "../api/queries";
 import type { ValidateModelResp } from "../api/types";
 import AddApiKeyDialog from "./AddApiKeyDialog";
@@ -41,18 +44,18 @@ export default function ModelValidationChip({ value, onChange, label = "Model" }
       {result && (
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           {result.status === "ok" && (
-            <Chip size="small" color="success" label="✓ available" />
+            <Chip size="small" color="success" icon={<CheckCircleIcon />} label="available" />
           )}
           {result.status === "model_not_found" && (
-            <Chip size="small" color="warning" label="⚠ not in catalog" />
+            <Chip size="small" color="warning" icon={<WarningAmberIcon />} label="not in catalog" />
           )}
           {result.status === "malformed" && (
-            <Chip size="small" color="warning"
-                  label="⚠ malformed (expected provider/model)" />
+            <Chip size="small" color="warning" icon={<WarningAmberIcon />}
+                  label="malformed (expected provider/model)" />
           )}
           {result.status === "no_credentials" && (
             <>
-              <Chip size="small" color="error" label="✗ no key" />
+              <Chip size="small" color="error" icon={<CancelIcon />} label="no key" />
               {result.provider && (
                 <Button
                   size="small"

@@ -12,9 +12,11 @@ const rows: RunSummary[] = [
 
 test("renders a row and fires onOpen on row click", async () => {
   const onOpen = vi.fn();
-  render(<RunsTable rows={rows} onOpen={onOpen} />);
+  const { container } = render(<RunsTable rows={rows} onOpen={onOpen} />);
   expect(screen.getByText("baseline")).toBeInTheDocument();
   expect(screen.getByText(/passed/i)).toBeInTheDocument();
+  // the success column shows a CheckCircle icon for a successful run (was ✓)
+  expect(container.querySelector('[data-testid="CheckCircleIcon"]')).not.toBeNull();
   await userEvent.click(screen.getByText("baseline"));
   expect(onOpen).toHaveBeenCalledWith("baseline", 0);
 });

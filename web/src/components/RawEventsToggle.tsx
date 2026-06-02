@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Box, Button, Typography } from "@mui/material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
 interface Props { events: unknown[]; }
 
@@ -7,8 +8,16 @@ export default function RawEventsToggle({ events }: Props) {
   const [open, setOpen] = useState(false);
   return (
     <Box>
-      <Button size="small" onClick={() => setOpen(!open)}>
-        {open ? "hide raw ▴" : "show raw ▾"}
+      <Button
+        size="small"
+        onClick={() => setOpen(!open)}
+        endIcon={
+          <ExpandMoreIcon
+            sx={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}
+          />
+        }
+      >
+        {open ? "hide raw" : "show raw"}
       </Button>
       {open && (
         <Box sx={{

@@ -2,6 +2,7 @@ import type { ObjectFieldTemplateProps, ObjectFieldTemplatePropertyType } from "
 import {
   Accordion, AccordionDetails, AccordionSummary, Box, Stack, Typography,
 } from "@mui/material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
 // Root properties that belong in the collapsible "Advanced" accordion. Everything
 // else (including the REQUIRED identity fields name/model/prompts/paths) stays in
@@ -68,7 +69,7 @@ export default function RootObjectFieldTemplate(props: ObjectFieldTemplateProps)
       {renderProps(core)}
       {advanced.length > 0 && (
         <Accordion defaultExpanded={false} sx={{ mt: 2 }}>
-          <AccordionSummary expandIcon={<span aria-hidden>▾</span>}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Typography>Advanced (metrics, isolation, tuning)</Typography>
           </AccordionSummary>
           <AccordionDetails>{renderProps(advanced)}</AccordionDetails>

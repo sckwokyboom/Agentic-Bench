@@ -1,6 +1,9 @@
-import { Card, CardContent, Typography, Stack } from "@mui/material";
+import { Card, CardContent, Typography, Stack, Box } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+
+const inlineIcon = { fontSize: "inherit", verticalAlign: "middle", mr: 0.5 } as const;
 
 interface Props {
   fixturePath?: string;
@@ -13,16 +16,21 @@ interface Props {
   verifyCandidates?: string[];
 }
 
-function Row({ ok, label, path }: { ok: boolean; label: string; path?: string }) {
+function Row({ ok, label, path, caption }: { ok: boolean; label: string; path?: string; caption: string }) {
   return (
-    <Stack direction="row" spacing={1} alignItems="center">
-      {ok
-        ? <CheckCircleIcon color="success" fontSize="small" />
-        : <CancelIcon color="error" fontSize="small" />}
-      <Typography variant="body2">
-        <b>{label}:</b> <code>{path ?? "(unset)"}</code>
+    <Box>
+      <Stack direction="row" spacing={1} alignItems="center">
+        {ok
+          ? <CheckCircleIcon color="success" fontSize="small" />
+          : <CancelIcon color="error" fontSize="small" />}
+        <Typography variant="body2">
+          <b>{label}:</b> <code>{path ?? "(unset)"}</code>
+        </Typography>
+      </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", pl: 4 }}>
+        {caption}
       </Typography>
-    </Stack>
+    </Box>
   );
 }
 
@@ -35,8 +43,18 @@ export default function FixturesPanel({
       <CardContent>
         <Typography variant="subtitle2" gutterBottom>Fixtures</Typography>
         <Stack spacing={0.5}>
-          <Row ok={hasFixture}   label="fixture"   path={fixturePath} />
-          <Row ok={hasReference} label="reference" path={referencePath} />
+          <Row
+            ok={hasFixture}
+            label="fixture"
+            path={fixturePath}
+            caption="The working tree the agent edits — your stripped project (target code removed)."
+          />
+          <Row
+            ok={hasReference}
+            label="reference"
+            path={referencePath}
+            caption="The ground-truth original, used only for comparison — never shown to the agent."
+          />
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
             <Typography variant="body2">
               <b>build:</b>{" "}
@@ -46,7 +64,8 @@ export default function FixturesPanel({
             </Typography>
             {verifyAmbiguous && (
               <Typography variant="caption" color="warning.main">
-                ⚠ ambiguous ({(verifyCandidates ?? []).join(" + ")}) — using {verifySystem};
+                <WarningAmberIcon color="warning" sx={inlineIcon} />
+                ambiguous ({(verifyCandidates ?? []).join(" + ")}) — using {verifySystem};
                 set verify.command if wrong
               </Typography>
             )}

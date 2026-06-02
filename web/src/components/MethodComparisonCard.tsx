@@ -1,4 +1,5 @@
 import { Card, CardContent, Stack, Typography, Chip, Box } from "@mui/material";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { useMethodComparison, useExperiment } from "../api/queries";
 
 interface Props {
@@ -43,7 +44,7 @@ function MethodRow({ name, condition, rep, method, batch }: Props & { method: st
       <Stack direction="row" spacing={1} alignItems="center">
         <Typography variant="subtitle2">{method}</Typography>
         {cmp.data.equivalent
-          ? <Chip size="small" color="success" label="semantically equivalent ✓" />
+          ? <Chip size="small" color="success" icon={<CheckCircleIcon />} label="semantically equivalent" />
           : <Chip size="small" color="warning" label={`divergent (${diffCount} lines differ)`} />}
       </Stack>
       <SideBySide original={cmp.data.original_lines} regen={cmp.data.regen_lines} />

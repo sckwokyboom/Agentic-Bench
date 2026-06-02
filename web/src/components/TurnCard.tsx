@@ -1,5 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Card, CardContent, Stack, Typography, Chip, Box, Button } from "@mui/material";
+import PsychologyOutlinedIcon from "@mui/icons-material/PsychologyOutlined";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
+import EditNoteIcon from "@mui/icons-material/EditNote";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
+import PendingOutlinedIcon from "@mui/icons-material/PendingOutlined";
 import RawEventsToggle from "./RawEventsToggle";
 import { formatTokens } from "../lib/formatTokens";
 import { selectable } from "../theme";
@@ -18,13 +24,17 @@ function argSummary(args: Record<string, unknown>): string {
   return j === "{}" ? "" : j.slice(0, 160);
 }
 
-function Long({ text, prefix, accent }: { text: string; prefix: string; accent: string }) {
+// Inline glyph rendered before a Typography's text: inherits the font size and
+// sits on the text baseline so it reads as a leading marker, not a standalone icon.
+const inlineIcon = { fontSize: "inherit", verticalAlign: "middle", mr: 0.5 } as const;
+
+function Long({ text, prefix, accent }: { text: string; prefix: ReactNode; accent: string }) {
   const [open, setOpen] = useState(false);
   const long = text.length > COLLAPSE;
   const shown = open || !long ? text : text.slice(0, COLLAPSE) + "…";
   return (
     <Box sx={{ borderLeft: 2, borderColor: accent, pl: 1.5, py: 0.25 }}>
-      <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", ...selectable }}>{prefix} {shown}</Typography>
+      <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", ...selectable }}>{prefix}{shown}</Typography>
       {long && <Button size="small" onClick={() => setOpen(!open)} sx={{ mt: 0.25 }}>{open ? "show less" : "show more"}</Button>}
     </Box>
   );
@@ -49,11 +59,13 @@ export default function TurnCard({ turn, index, rawEvents }: Props) {
 
         <Stack spacing={1.25}>
           {turn.parts.map((p, i) => {
-            if (p.kind === "reasoning") return <Long key={i} prefix="💭" accent="info.main" text={p.text} />;
-            if (p.kind === "text") return <Long key={i} prefix="🗨" accent="text.primary" text={p.text} />;
+            if (p.kind === "reasoning") return <Long key={i} prefix={<PsychologyOutlinedIcon color="info" sx={inlineIcon} />} accent="info.main" text={p.text} />;
+            if (p.kind === "text") return <Long key={i} prefix={<ChatBubbleOutlineIcon sx={{ ...inlineIcon, color: "text.primary" }} />} accent="text.primary" text={p.text} />;
             if (p.kind === "edit") return (
               <Box key={i} sx={{ borderLeft: 2, borderColor: "warning.main", pl: 1.5 }}>
-                <Typography variant="body2" sx={selectable}><b>📝 {p.path}</b></Typography>
+                <Typography variant="body2" sx={selectable}>
+                  <b><EditNoteIcon color="warning" sx={inlineIcon} />{p.path}</b>
+                </Typography>
                 <Typography variant="caption" component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", ...selectable }}>
                   {p.patch.slice(0, 400)}
                 </Typography>
@@ -62,7 +74,14 @@ export default function TurnCard({ turn, index, rawEvents }: Props) {
             if (p.kind === "tool") return (
               <Box key={i} sx={{ borderLeft: 2, borderColor: p.ok === false ? "error.main" : "success.main", pl: 1.5, ...selectable }}>
                 <Typography variant="body2">
-                  <b>{p.ok === false ? "✗" : p.ok ? "✓" : "✎"} {p.name}</b> {argSummary(p.args)}
+                  <b>
+                    {p.ok === false
+                      ? <CancelIcon color="error" sx={inlineIcon} />
+                      : p.ok
+                        ? <CheckCircleIcon color="success" sx={inlineIcon} />
+                        : <PendingOutlinedIcon color="disabled" sx={inlineIcon} />}
+                    {p.name}
+                  </b> {argSummary(p.args)}
                   {p.exitCode != null && p.exitCode !== 0 && <> · exit {p.exitCode}</>}
                 </Typography>
                 {p.output && (

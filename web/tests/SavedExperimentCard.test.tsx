@@ -12,13 +12,14 @@ const formData = {
 test("shows a saved confirmation + config summary and fires Run/Edit callbacks", async () => {
   const onRun = vi.fn();
   const onEdit = vi.fn();
-  render(
+  const { container } = render(
     <SavedExperimentCard
       name="demo" formData={formData} canRun running={false}
       onRun={onRun} onEdit={onEdit}
     />,
   );
-  expect(screen.getByText(/✓ Saved/)).toBeInTheDocument();
+  expect(screen.getByText("Saved")).toBeInTheDocument();
+  expect(container.querySelector('[data-testid="CheckCircleIcon"]')).not.toBeNull();
   expect(screen.getByText(/2 conditions/)).toBeInTheDocument();
   expect(screen.getByText(/3 reps/)).toBeInTheDocument();
   expect(screen.getByText(/6 runs/)).toBeInTheDocument();

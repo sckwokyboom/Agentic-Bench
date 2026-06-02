@@ -1,5 +1,10 @@
 import { Alert, Typography } from "@mui/material";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import type { Trace } from "../api/types";
+
+const inlineIcon = { fontSize: "inherit", verticalAlign: "middle", mr: 0.5 } as const;
 
 interface Props { trace: Trace; }
 
@@ -9,7 +14,8 @@ export default function VerdictBanner({ trace }: Props) {
     return (
       <Alert severity="success">
         <Typography variant="subtitle1">
-          ✓ Verified — {trace.verify_passed_count}/{trace.verify_passed_count} tests passed
+          <CheckCircleIcon color="success" sx={inlineIcon} />
+          Verified — {trace.verify_passed_count}/{trace.verify_passed_count} tests passed
         </Typography>
         <Typography variant="caption" color="text.secondary">
           {trace.verify_command} · {trace.verify_duration_s?.toFixed(1)}s
@@ -22,7 +28,8 @@ export default function VerdictBanner({ trace }: Props) {
     return (
       <Alert severity="error">
         <Typography variant="subtitle1">
-          ✗ Verify failed — {trace.verify_passed_count}/{total}
+          <CancelIcon color="error" sx={inlineIcon} />
+          Verify failed — {trace.verify_passed_count}/{total}
         </Typography>
         <Typography variant="caption" color="text.secondary">
           {trace.verify_command} · {trace.verify_duration_s?.toFixed(1)}s
@@ -35,7 +42,10 @@ export default function VerdictBanner({ trace }: Props) {
   if (v === "error") {
     return (
       <Alert severity="warning">
-        <Typography variant="subtitle1">⚠ Verify error</Typography>
+        <Typography variant="subtitle1">
+          <WarningAmberIcon color="warning" sx={inlineIcon} />
+          Verify error
+        </Typography>
         <Typography variant="caption" color="text.secondary">
           {trace.verify_message ?? "see verify output"}
         </Typography>

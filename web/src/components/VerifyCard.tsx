@@ -4,6 +4,8 @@ import {
   DialogTitle, DialogContent, CircularProgress,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVerifyLog, useStartReverify, useReverifyStatus } from "../api/queries";
 import { buildSystemLabel } from "../lib/buildSystem";
@@ -65,7 +67,7 @@ export default function VerifyCard({ trace, name, condition, rep, batch }: Props
     >
       <CardContent>
         <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
-          <Chip size="small" label={`🧪 ${status}`} />
+          <Chip size="small" icon={<ScienceOutlinedIcon />} label={status} />
           {trace.verify_reason && trace.verify_reason !== status && (
             <Chip size="small" variant="outlined" label={trace.verify_reason} />
           )}
@@ -85,8 +87,17 @@ export default function VerifyCard({ trace, name, condition, rep, batch }: Props
 
         {trace.verify_failed_names.length > 0 && (
           <>
-            <Button size="small" onClick={() => setOpen(!open)} sx={{ mt: 1 }}>
-              {open ? "hide failing ▴" : `show ${trace.verify_failed_names.length} failing ▾`}
+            <Button
+              size="small"
+              onClick={() => setOpen(!open)}
+              sx={{ mt: 1 }}
+              endIcon={
+                <ExpandMoreIcon
+                  sx={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}
+                />
+              }
+            >
+              {open ? "hide failing" : `show ${trace.verify_failed_names.length} failing`}
             </Button>
             <Collapse in={open}>
               <Box sx={{ mt: 1, fontFamily: "monospace", fontSize: 12, ...selectable }}>

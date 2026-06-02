@@ -10,12 +10,24 @@ const base: Trace = {
 };
 
 test("passed banner", () => {
-  render(<VerdictBanner trace={base} />);
-  expect(screen.getByText(/✓ Verified/)).toBeInTheDocument();
+  const { container } = render(<VerdictBanner trace={base} />);
+  expect(screen.getByText(/Verified/)).toBeInTheDocument();
+  expect(container.querySelector('[data-testid="CheckCircleIcon"]')).not.toBeNull();
 });
 
 test("failed banner", () => {
-  render(<VerdictBanner trace={{ ...base, verify_status: "failed", verify_passed_count: 3, verify_failed_count: 2 }} />);
-  expect(screen.getByText(/✗ Verify failed/)).toBeInTheDocument();
+  const { container } = render(
+    <VerdictBanner trace={{ ...base, verify_status: "failed", verify_passed_count: 3, verify_failed_count: 2 }} />,
+  );
+  expect(screen.getByText(/Verify failed/)).toBeInTheDocument();
+  expect(container.querySelector('[data-testid="CancelIcon"]')).not.toBeNull();
   expect(screen.getByText(/3\/5/)).toBeInTheDocument();
+});
+
+test("error banner", () => {
+  const { container } = render(
+    <VerdictBanner trace={{ ...base, verify_status: "error", verify_message: "boom" }} />,
+  );
+  expect(screen.getByText(/Verify error/)).toBeInTheDocument();
+  expect(container.querySelector('[data-testid="WarningAmberIcon"]')).not.toBeNull();
 });

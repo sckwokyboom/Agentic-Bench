@@ -25,10 +25,15 @@ test("shows reason, message, build system; opens the log dialog", async () => {
     new HttpResponse("# command: mvn test\n───\nBUILD FAILURE\n", {
       headers: { "content-type": "text/plain" },
     })));
-  render(wrap(<VerifyCard trace={base} name="exp" condition="baseline" rep={0} />));
+  const { container } = render(
+    wrap(<VerifyCard trace={base} name="exp" condition="baseline" rep={0} />),
+  );
   expect(screen.getByText(/build failed — COMPILATION ERROR/)).toBeInTheDocument();
   expect(screen.getByText("build_failed")).toBeInTheDocument();
   expect(screen.getByText(/Maven/)).toBeInTheDocument();
+  // the status chip carries the Science icon (was a 🧪 emoji) + the status text
+  expect(container.querySelector('[data-testid="ScienceOutlinedIcon"]')).not.toBeNull();
+  expect(screen.getByText("error")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /view verify output/i }));
   expect(await screen.findByText(/BUILD FAILURE/)).toBeInTheDocument();
 });

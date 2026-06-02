@@ -1,6 +1,8 @@
 import {
   Table, TableHead, TableBody, TableRow, TableCell, Typography, Box,
 } from "@mui/material";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
 import VerifyStatusChip from "./VerifyStatusChip";
 import { selectable } from "../theme";
 import type { RunSummary } from "../api/types";
@@ -45,7 +47,13 @@ export default function RunsTable({ rows, onOpen }: Props) {
               <TableCell>{r.condition}</TableCell>
               <TableCell align="right">{r.rep}</TableCell>
               <TableCell><VerifyStatusChip status={r.verify_status} /></TableCell>
-              <TableCell>{r.success == null ? "—" : r.success ? "✓" : "✗"}</TableCell>
+              <TableCell>
+                {r.success == null
+                  ? "—"
+                  : r.success
+                    ? <CheckCircleIcon color="success" fontSize="small" titleAccess="success" />
+                    : <CancelIcon color="error" fontSize="small" titleAccess="failed" />}
+              </TableCell>
               <TableCell align="right" sx={selectable}>{num(r.duration_s, 1)}</TableCell>
               <TableCell align="right" sx={selectable}>{num(r.n_steps)}</TableCell>
               <TableCell align="right" sx={selectable}>{num(r.n_tool_calls)}</TableCell>
