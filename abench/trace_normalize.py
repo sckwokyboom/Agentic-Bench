@@ -114,11 +114,18 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
     tokens_out: int | None = None
     cost: float | None = None
 
+    tokens_reasoning: int | None = None
+    cache_read: int | None = None
+    cache_write: int | None = None
     if raw_session is not None:
         info = raw_session.get("info", {})
         tokens = info.get("tokens", {})
         tokens_in = tokens.get("input")
         tokens_out = tokens.get("output")
+        tokens_reasoning = tokens.get("reasoning")
+        cache = tokens.get("cache", {}) or {}
+        cache_read = cache.get("read")
+        cache_write = cache.get("write")
         cost = info.get("cost")
 
     return Trace(
@@ -126,6 +133,9 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
         turns=turns,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
+        tokens_reasoning=tokens_reasoning,
+        cache_read=cache_read,
+        cache_write=cache_write,
         cost=cost,
         # started_at, ended_at, finished, interrupted_reason: caller's responsibility.
     )

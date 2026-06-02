@@ -131,3 +131,13 @@ def test_normalize_populates_turns_from_step_finish():
     message_ids_in_steps = {s.tool_call_id for s in trace.steps if s.tool_call_id}
     # we can't assert exact match without re-deriving — just sanity:
     assert all(t.message_id for t in trace.turns)
+
+
+def test_normalize_captures_reasoning_and_cache_tokens():
+    from abench.trace_normalize import normalize
+    session = {"info": {"tokens": {"input": 100, "output": 20, "reasoning": 5,
+                                    "cache": {"read": 80, "write": 12}}, "cost": 0.01}}
+    tr = normalize([], session)
+    assert tr.tokens_in == 100 and tr.tokens_out == 20
+    assert tr.tokens_reasoning == 5
+    assert tr.cache_read == 80 and tr.cache_write == 12

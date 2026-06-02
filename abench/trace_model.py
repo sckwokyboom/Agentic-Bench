@@ -61,6 +61,9 @@ class Trace:
     tokens_in: int | None = None
     tokens_out: int | None = None
     cost: float | None = None
+    tokens_reasoning: int | None = None
+    cache_read: int | None = None
+    cache_write: int | None = None
     finished: bool = False
     interrupted_reason: str | None = None
 
