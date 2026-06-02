@@ -17,8 +17,12 @@ import { uiSchema } from "../schema/uiSchema";
 import {
   ModelValidationWidget, TargetMethodsWidget, AugmentationWidget,
 } from "../schema/widgets";
+import RootObjectFieldTemplate from "../schema/RootObjectFieldTemplate";
+import VerifyField from "../components/VerifyField";
 
 const customWidgets = { ModelValidationWidget, TargetMethodsWidget, AugmentationWidget };
+const customFields = { VerifyField };
+const customTemplates = { ObjectFieldTemplate: RootObjectFieldTemplate };
 
 export default function ExperimentEdit() {
   const { name } = useParams<{ name: string }>();
@@ -73,6 +77,9 @@ export default function ExperimentEdit() {
           uiSchema={uiSchema}
           formData={formData}
           widgets={customWidgets}
+          fields={customFields}
+          templates={customTemplates}
+          formContext={{ detectedVerify: detected.data }}
           onErrorsChange={setErrors}
           onFormChange={(f) => setFormData(f)}
           onSave={handleSave}

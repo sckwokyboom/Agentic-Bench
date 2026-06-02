@@ -1,0 +1,256 @@
+{
+  "$defs": {
+    "Condition": {
+      "properties": {
+        "name": {
+          "description": "Condition label (e.g. baseline, augmented).",
+          "title": "Name",
+          "type": "string"
+        },
+        "augmentation": {
+          "type": "string",
+          "default": null,
+          "description": "Path to the context-slice markdown injected for this condition; blank = no augmentation (baseline).",
+          "title": "Augmentation"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Condition",
+      "type": "object"
+    },
+    "IsolationCfg": {
+      "properties": {
+        "nonce_prefix": {
+          "default": true,
+          "description": "Prepend a unique comment line to the system prompt so each run defeats provider prompt-cache reuse.",
+          "title": "Nonce prefix",
+          "type": "boolean"
+        },
+        "shuffle_order": {
+          "default": true,
+          "description": "Randomize condition\u00d7repetition execution order to avoid ordering bias.",
+          "title": "Shuffle order",
+          "type": "boolean"
+        },
+        "user_field_template": {
+          "type": "string",
+          "default": null,
+          "description": "Reserved for v2 (not used in v1).",
+          "title": "User field template"
+        },
+        "api_key_env_list": {
+          "type": "string",
+          "default": null,
+          "description": "Reserved for v2 (not used in v1).",
+          "title": "API key env list"
+        }
+      },
+      "title": "IsolationCfg",
+      "type": "object"
+    },
+    "MetricsCfg": {
+      "properties": {
+        "test_command_patterns": {
+          "description": "Regexes matched against tool commands to count test runs (e.g. 'pytest', 'go test').",
+          "items": {
+            "type": "string"
+          },
+          "title": "Test command patterns",
+          "type": "array"
+        },
+        "shell_tool_names": {
+          "description": "Tool names treated as shell/command execution.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Shell tool names",
+          "type": "array"
+        },
+        "read_tool_names": {
+          "description": "Tool names counted as file reads.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Read tool names",
+          "type": "array"
+        },
+        "search_tool_names": {
+          "description": "Tool names counted as code search (grep/glob/list).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Search tool names",
+          "type": "array"
+        },
+        "command_arg_keys": {
+          "description": "Tool-arg keys whose value holds the shell command (matched against test_command_patterns).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Command arg keys",
+          "type": "array"
+        }
+      },
+      "title": "MetricsCfg",
+      "type": "object"
+    },
+    "OpenCodeCfg": {
+      "properties": {
+        "agent": {
+          "default": "bench",
+          "description": "OpenCode agent profile name to run.",
+          "title": "Agent",
+          "type": "string"
+        },
+        "binary": {
+          "default": "opencode",
+          "description": "OpenCode executable name/path.",
+          "title": "Binary",
+          "type": "string"
+        }
+      },
+      "title": "OpenCodeCfg",
+      "type": "object"
+    },
+    "VerifyCfg": {
+      "properties": {
+        "command": {
+          "type": "string",
+          "default": null,
+          "description": "Build/test command. Leave blank to auto-detect (gradle/maven/pytest).",
+          "title": "Verify command"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Run the build/test verification step after the agent finishes.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "timeout_s": {
+          "default": 300,
+          "description": "Max seconds for the verify command.",
+          "title": "Verify timeout (s)",
+          "type": "integer"
+        }
+      },
+      "title": "VerifyCfg",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "name": {
+      "description": "Experiment name.",
+      "title": "Name",
+      "type": "string"
+    },
+    "fixture_path": {
+      "description": "Working tree the agent edits (the stripped project).",
+      "format": "path",
+      "title": "Fixture path",
+      "type": "string"
+    },
+    "reference_path": {
+      "description": "Ground-truth tree for comparison (the original project).",
+      "format": "path",
+      "title": "Reference path",
+      "type": "string"
+    },
+    "task_prompt": {
+      "description": "Task instructions \u2014 inline text or a path to a .md file.",
+      "title": "Task prompt",
+      "type": "string"
+    },
+    "system_prompt": {
+      "description": "System prompt \u2014 inline text or a path to a .md file.",
+      "title": "System prompt",
+      "type": "string"
+    },
+    "model": {
+      "description": "Model identifier passed to OpenCode (e.g. opencode/deepseek-v4-flash-free).",
+      "title": "Model",
+      "type": "string"
+    },
+    "output_dir": {
+      "description": "Directory where run artefacts are written.",
+      "format": "path",
+      "title": "Output dir",
+      "type": "string"
+    },
+    "conditions": {
+      "description": "Conditions to compare (baseline vs augmented).",
+      "items": {
+        "$ref": "#/$defs/Condition"
+      },
+      "title": "Conditions",
+      "type": "array"
+    },
+    "repetitions": {
+      "default": 3,
+      "description": "Runs per condition.",
+      "minimum": 1,
+      "title": "Repetitions",
+      "type": "integer"
+    },
+    "opencode": {
+      "$ref": "#/$defs/OpenCodeCfg",
+      "description": "OpenCode agent/binary configuration.",
+      "title": "OpenCode"
+    },
+    "timeout_s": {
+      "default": 600,
+      "description": "Max seconds per agent run.",
+      "title": "Run timeout (s)",
+      "type": "integer"
+    },
+    "min_seconds_between_runs": {
+      "default": 0.0,
+      "description": "Throttle between runs to respect provider rate limits (0 = none).",
+      "title": "Min seconds between runs",
+      "type": "number"
+    },
+    "metrics": {
+      "$ref": "#/$defs/MetricsCfg",
+      "description": "Tool-usage metric extraction configuration.",
+      "title": "Metrics"
+    },
+    "verify": {
+      "$ref": "#/$defs/VerifyCfg",
+      "description": "Build/test verification configuration.",
+      "title": "Verify"
+    },
+    "isolation": {
+      "$ref": "#/$defs/IsolationCfg",
+      "description": "Run-isolation configuration (cache busting, ordering).",
+      "title": "Isolation"
+    },
+    "target_file": {
+      "type": "string",
+      "default": null,
+      "description": "File the target method lives in \u2014 optional, for analysis.",
+      "title": "Target file"
+    },
+    "target_methods": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array",
+      "default": null,
+      "description": "Method names under test \u2014 optional, for analysis.",
+      "title": "Target methods"
+    }
+  },
+  "required": [
+    "name",
+    "fixture_path",
+    "reference_path",
+    "task_prompt",
+    "system_prompt",
+    "model",
+    "output_dir",
+    "conditions"
+  ],
+  "title": "Experiment",
+  "type": "object"
+}

@@ -9,13 +9,17 @@ interface Props {
   uiSchema: UiSchema;
   formData: Record<string, unknown>;
   widgets?: Record<string, React.ComponentType<any>>;
+  fields?: Record<string, React.ComponentType<any>>;
+  templates?: Record<string, React.ComponentType<any>>;
+  formContext?: Record<string, unknown>;
   onSave: (data: Record<string, unknown>) => void;
   onFormChange?: (data: Record<string, unknown>, hasErrors: boolean) => void;
   onErrorsChange?: (errors: RJSFValidationError[]) => void;
 }
 
 export default function ExperimentForm({
-  schema, uiSchema, formData, widgets, onSave, onFormChange, onErrorsChange,
+  schema, uiSchema, formData, widgets, fields, templates, formContext,
+  onSave, onFormChange, onErrorsChange,
 }: Props) {
   const [data, setData] = useState<Record<string, unknown>>(formData);
   const errors = useMemo(
@@ -40,6 +44,9 @@ export default function ExperimentForm({
           uiSchema={uiSchema}
           formData={data}
           widgets={widgets}
+          fields={fields}
+          templates={templates}
+          formContext={formContext}
           validator={validator}
           liveValidate
           showErrorList={false}
