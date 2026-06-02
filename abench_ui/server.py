@@ -203,73 +203,95 @@ def create_app(
 
     # ── Runs (read-only artefacts + PATCH success) ───────────────────────────
 
+    def _resolve_runs_dir(name: str, batch: str | None) -> Path:
+        """Resolve <exp>/runs/<exp> for the chosen batch (newest by default,
+        legacy flat layout as a fallback). 404 if it can't be resolved."""
+        root = _exp_dir_for(name) / "runs" / name
+        rd = runs_mod.batch_runs_dir(root, batch)
+        if rd is None:
+            raise HTTPException(404, f"no runs for '{name}'"
+                                + (f" batch '{batch}'" if batch else ""))
+        return rd
+
+    @api.get("/runs/{name}/batches")
+    def _list_batches(name: str):
+        root = _exp_dir_for(name) / "runs" / name
+        return runs_mod.list_batches(root)
+
     @api.get("/runs/{name}")
-    def _list_runs(name: str):
-        runs_dir = _exp_dir_for(name) / "runs" / name
-        return runs_mod.list_runs(runs_dir)
+    def _list_runs(name: str, batch: str | None = None):
+        root = _exp_dir_for(name) / "runs" / name
+        rd = runs_mod.batch_runs_dir(root, batch)
+        if rd is None:
+            # No runs at all (or bad batch). Preserve the historical "empty
+            # list" behaviour only when NO batch was requested and there are
+            # simply no runs yet; an explicit bad batch is a 404.
+            if batch:
+                raise HTTPException(404, f"no runs for '{name}' batch '{batch}'")
+            return []
+        return runs_mod.list_runs(rd)
 
     @api.get("/runs/{name}/summary")
-    def _runs_summary(name: str):
-        runs_dir = _exp_dir_for(name) / "runs" / name
-        if not runs_dir.is_dir():
-            raise HTTPException(404, f"no runs for '{name}'")
-        return report.summary_json(runs_dir)
+    def _runs_summary(name: str, batch: str | None = None):
+        rd = _resolve_runs_dir(name, batch)
+        return report.summary_json(rd)
 
     @api.get("/runs/{name}/{condition}/{rep}/metrics")
-    def _read_metrics(name: str, condition: str, rep: int):
-        runs_dir = _exp_dir_for(name) / "runs" / name
+    def _read_metrics(name: str, condition: str, rep: int, batch: str | None = None):
+        rd = _resolve_runs_dir(name, batch)
         try:
             return json.loads(
-                runs_mod.read_artefact(runs_dir, condition, rep, "metrics.json")
+                runs_mod.read_artefact(rd, condition, rep, "metrics.json")
             )
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
 
     @api.get("/runs/{name}/{condition}/{rep}/trace")
-    def _read_trace(name: str, condition: str, rep: int):
-        runs_dir = _exp_dir_for(name) / "runs" / name
+    def _read_trace(name: str, condition: str, rep: int, batch: str | None = None):
+        rd = _resolve_runs_dir(name, batch)
         try:
             return json.loads(
-                runs_mod.read_artefact(runs_dir, condition, rep, "trace.json")
+                runs_mod.read_artefact(rd, condition, rep, "trace.json")
             )
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
 
     @api.get("/runs/{name}/{condition}/{rep}/patch")
-    def _read_patch(name: str, condition: str, rep: int):
-        runs_dir = _exp_dir_for(name) / "runs" / name
+    def _read_patch(name: str, condition: str, rep: int, batch: str | None = None):
+        rd = _resolve_runs_dir(name, batch)
         try:
             return Response(
-                runs_mod.read_artefact(runs_dir, condition, rep, "changes.patch"),
+                runs_mod.read_artefact(rd, condition, rep, "changes.patch"),
                 media_type="text/plain",
             )
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
 
     @api.get("/runs/{name}/{condition}/{rep}/events")
-    def _read_events(name: str, condition: str, rep: int):
-        runs_dir = _exp_dir_for(name) / "runs" / name
+    def _read_events(name: str, condition: str, rep: int, batch: str | None = None):
+        rd = _resolve_runs_dir(name, batch)
         try:
             return Response(
-                runs_mod.read_artefact(runs_dir, condition, rep, "events.jsonl"),
+                runs_mod.read_artefact(rd, condition, rep, "events.jsonl"),
                 media_type="text/plain",
             )
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
 
     @api.get("/runs/{name}/{condition}/{rep}/verify_log")
-    def _read_verify_log(name: str, condition: str, rep: int):
-        runs_dir = _exp_dir_for(name) / "runs" / name
+    def _read_verify_log(name: str, condition: str, rep: int, batch: str | None = None):
+        rd = _resolve_runs_dir(name, batch)
         try:
             return Response(
-                runs_mod.read_artefact(runs_dir, condition, rep, "verify_output.log"),
+                runs_mod.read_artefact(rd, condition, rep, "verify_output.log"),
                 media_type="text/plain",
             )
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
 
     @api.get("/runs/{name}/{condition}/{rep}/method_comparison")
-    def _method_comparison(name: str, condition: str, rep: int, request: Request):
+    def _method_comparison(name: str, condition: str, rep: int, request: Request,
+                           batch: str | None = None):
         """Compare a named method in the reference vs the agent's post-run output
         of the experiment's target_file.  Requires experiment.target_file to be set."""
         exp_dir = _exp_dir_for(name)
@@ -285,8 +307,10 @@ def create_app(
         method = request.query_params.get("method") or (methods[0] if methods else "")
         # Use the agent's post-run snapshot of target_file if available;
         # fall back to pre-stripped state which will show divergent for unrun experiments.
-        snapshot = exp_dir / "runs" / name / condition / f"rep_{rep}" / "target_after_agent.txt"
-        override = snapshot if snapshot.is_file() else None
+        rd = runs_mod.batch_runs_dir(exp_dir / "runs" / name, batch)
+        snapshot = (rd / condition / f"rep_{rep}" / "target_after_agent.txt"
+                    if rd is not None else None)
+        override = snapshot if snapshot is not None and snapshot.is_file() else None
         return runs_mod.method_comparison(
             reference_dir=reference,
             workdir=exp_dir / "stripped",
@@ -296,11 +320,12 @@ def create_app(
         )
 
     @api.patch("/runs/{name}/{condition}/{rep}")
-    def _patch_run(name: str, condition: str, rep: int, body: _SuccessPatchBody):
-        runs_dir = _exp_dir_for(name) / "runs" / name
+    def _patch_run(name: str, condition: str, rep: int, body: _SuccessPatchBody,
+                   batch: str | None = None):
+        rd = _resolve_runs_dir(name, batch)
         try:
             return runs_mod.patch_success(
-                runs_dir, condition, rep, success=body.success
+                rd, condition, rep, success=body.success
             )
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))

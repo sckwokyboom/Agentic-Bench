@@ -100,6 +100,103 @@ def test_runs_summary_404_when_no_runs(tmp_path: Path):
     assert resp.status_code == 404
 
 
+def _seed_batched_run(root: Path, name: str, batch: str, condition: str, rep: int,
+                      metrics: dict) -> None:
+    """Seed <exp>/runs/<exp>/<batch>/<cond>/rep_N with metrics + trace."""
+    d = root / name / "runs" / name / batch / condition / f"rep_{rep}"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "metrics.json").write_text(json.dumps(metrics))
+    (d / "manifest.json").write_text(json.dumps({"condition": condition, "rep": rep}))
+    (d / "trace.json").write_text(json.dumps({"steps": [], "turns": [], "batch": batch}))
+
+
+def test_batches_endpoint_lists_newest_first(client):
+    c, root = client
+    name = "exp-b"
+    base = {"success": True, "interrupted_reason": None, "n_steps": 1}
+    _seed_batched_run(root, name, "20260101-000000", "baseline", 0, base)
+    _seed_batched_run(root, name, "20260102-000000", "baseline", 0, base)
+    (root / name / "experiment.yaml").write_text("name: exp-b\nfixture_path: ./stripped\n")
+
+    r = c.get(f"/api/runs/{name}/batches")
+    assert r.status_code == 200
+    ids = [b["id"] for b in r.json()]
+    assert ids == ["20260102-000000", "20260101-000000"]
+
+
+def test_batches_endpoint_empty(client):
+    c, root = client
+    (root / "exp-empty").mkdir(parents=True)
+    (root / "exp-empty" / "experiment.yaml").write_text(
+        "name: exp-empty\nfixture_path: ./stripped\n")
+    r = c.get("/api/runs/exp-empty/batches")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_list_runs_resolves_batch(client):
+    c, root = client
+    name = "exp-b2"
+    _seed_batched_run(root, name, "20260101-000000", "baseline", 0,
+                      {"success": True, "interrupted_reason": None, "n_steps": 1})
+    _seed_batched_run(root, name, "20260102-000000", "augmented", 0,
+                      {"success": True, "interrupted_reason": None, "n_steps": 2})
+    (root / name / "experiment.yaml").write_text("name: exp-b2\nfixture_path: ./stripped\n")
+
+    # Default (no batch) → newest batch (2026-01-02 → augmented).
+    items = c.get(f"/api/runs/{name}").json()
+    assert {it["condition"] for it in items} == {"augmented"}
+
+    # Explicit older batch → that batch's runs.
+    items = c.get(f"/api/runs/{name}?batch=20260101-000000").json()
+    assert {it["condition"] for it in items} == {"baseline"}
+
+    # summary respects batch too.
+    summ = c.get(f"/api/runs/{name}/summary?batch=20260101-000000").json()
+    assert summ["total_runs"] == 1
+
+    # trace artefact resolves the chosen batch's run.
+    tr = c.get(f"/api/runs/{name}/baseline/0/trace?batch=20260101-000000")
+    assert tr.status_code == 200
+    assert tr.json()["batch"] == "20260101-000000"
+
+    # bad batch → 404 on each.
+    assert c.get(f"/api/runs/{name}?batch=nope").status_code == 404
+    assert c.get(f"/api/runs/{name}/summary?batch=nope").status_code == 404
+    assert c.get(f"/api/runs/{name}/baseline/0/trace?batch=nope").status_code == 404
+
+
+def test_legacy_flat_layout_still_resolves(client):
+    """Existing flat-layout runs (no batch segment) must still be found via the
+    newest-by-default → legacy fallback."""
+    c, root = client
+    _make_runs(root)  # seeds <exp-a>/runs/<exp-a>/baseline/rep_0 (FLAT)
+    # list resolves
+    items = c.get("/api/runs/exp-a").json()
+    assert any(it["condition"] == "baseline" and it["rep"] == 0 for it in items)
+    # batches surfaces a single 'legacy' batch
+    batches = c.get("/api/runs/exp-a/batches").json()
+    assert [b["id"] for b in batches] == ["legacy"]
+    # explicit ?batch=legacy resolves too
+    items = c.get("/api/runs/exp-a?batch=legacy").json()
+    assert any(it["condition"] == "baseline" for it in items)
+    # metrics artefact via legacy batch
+    m = c.get("/api/runs/exp-a/baseline/0/metrics?batch=legacy")
+    assert m.status_code == 200 and m.json()["n_steps"] == 4
+
+
+def test_patch_success_batch_aware(client):
+    c, root = client
+    name = "exp-pb"
+    _seed_batched_run(root, name, "20260101-000000", "baseline", 0,
+                      {"success": None, "interrupted_reason": None})
+    (root / name / "experiment.yaml").write_text("name: exp-pb\nfixture_path: ./stripped\n")
+    r = c.patch(f"/api/runs/{name}/baseline/0?batch=20260101-000000",
+                json={"success": True})
+    assert r.status_code == 200
+    assert r.json()["success"] is True
+
+
 def test_realshape_trace_and_metrics_flow_through_endpoints(client):
     """End-to-end contract smoke (plan Task 10 Step 3): a finished run whose
     trace.json carries the REAL normalized shape (a tool_call paired with its

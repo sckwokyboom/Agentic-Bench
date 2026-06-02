@@ -19,7 +19,7 @@ from typing import Callable
 
 from abench.config import Experiment
 from abench.opencode_client import RunResult
-from abench.runner import compute_plan, run_experiment
+from abench.runner import compute_plan, default_batch_id, run_experiment
 
 
 class SessionState(str, Enum):
@@ -46,6 +46,7 @@ class _PerRunPublishingClient:
         total_runs: int,
         plan: list,
         position_callback: Callable[[int, str, int], None],
+        batch_id: str,
     ):
         self._inner = inner
         self._publish = publish
@@ -53,6 +54,7 @@ class _PerRunPublishingClient:
         self._total_runs = total_runs
         self._plan = plan
         self._position_callback = position_callback
+        self._batch_id = batch_id
         self._idx: int = 0
 
     def run_task(
@@ -105,6 +107,7 @@ class _PerRunPublishingClient:
         self._publish({
             "type": "run.finished",
             "session_id": self._session_id,
+            "batch_id": self._batch_id,
             "run_idx": run_idx,
             "total_runs": self._total_runs,
             "condition": cond.name,
@@ -131,11 +134,15 @@ class RunSession:
         experiment: Experiment,
         client_factory: Callable[[Experiment], object],
         publish: Callable[[dict], None],
+        batch_id: str | None = None,
     ):
         self.id = id
         self.experiment = experiment
         self._client_factory = client_factory
         self._publish = publish
+        # One batch id per session; reused across every run it writes so the
+        # server/UI can group + replay this batch (Task 1 on-disk layout).
+        self.batch_id = batch_id or default_batch_id()
         self.state = SessionState.PENDING
         self.started_at: float | None = None
         self.ended_at: float | None = None
@@ -182,11 +189,17 @@ class RunSession:
         self.plan = compute_plan(self.experiment)
         self.total_runs = len(self.plan)
 
+        iso = self.experiment.isolation
         self._publish({
             "type": "session.started",
             "session_id": self.id,
+            "batch_id": self.batch_id,
             "total_runs": self.total_runs,
             "conditions": [c.name for c in self.experiment.conditions],
+            "isolation": {
+                "nonce_prefix": iso.nonce_prefix,
+                "shuffle_order": iso.shuffle_order,
+            },
         })
 
         def wrapped_factory(exp: Experiment):
@@ -198,10 +211,12 @@ class RunSession:
                 total_runs=self.total_runs,
                 plan=self.plan,
                 position_callback=self._position_callback,
+                batch_id=self.batch_id,
             )
 
         try:
-            run_experiment(self.experiment, wrapped_factory, _plan=self.plan)
+            run_experiment(self.experiment, wrapped_factory, _plan=self.plan,
+                           batch_id=self.batch_id)
             if self._cancel_flag.is_set():
                 self.state = SessionState.CANCELLED
             else:

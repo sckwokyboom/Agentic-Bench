@@ -48,6 +48,39 @@ def test_run_session_runs_to_completion_and_publishes_envelopes(tmp_path):
     assert "run.finished" in types
     assert types[-1] == "session.finished"
 
+    # session.started carries the batch id + the experiment's isolation config
+    started = published[0]
+    assert started["batch_id"] == session.batch_id
+    assert started["batch_id"]  # non-empty
+    assert started["isolation"] == {"nonce_prefix": False, "shuffle_order": False}
+
+    # run.finished carries the same batch id (Task 3/4 consume it)
+    finished = next(m for m in published if m["type"] == "run.finished")
+    assert finished["batch_id"] == session.batch_id
+
+
+def test_run_session_uses_explicit_batch_id(tmp_path):
+    exp = _make_exp(tmp_path)
+    published: list[dict] = []
+    session = RunSession(
+        id="sess-batch",
+        experiment=exp,
+        client_factory=lambda e: FakeOpenCodeClient(),
+        publish=published.append,
+        batch_id="20260601-120000",
+    )
+    assert session.batch_id == "20260601-120000"
+    session.start()
+    for _ in range(50):
+        if session.state in (SessionState.COMPLETED, SessionState.FAILED):
+            break
+        time.sleep(0.1)
+    assert session.state == SessionState.COMPLETED
+    # The run was written under the explicit batch id.
+    run_dir = exp.output_dir / exp.name / "20260601-120000" / "baseline" / "rep_0"
+    assert (run_dir / "metrics.json").is_file()
+    assert published[0]["batch_id"] == "20260601-120000"
+
 
 def test_run_session_cancel_marks_state(tmp_path):
     """Best-effort cancel — set the flag; the run still wraps up cleanly."""

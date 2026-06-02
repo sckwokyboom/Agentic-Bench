@@ -30,6 +30,9 @@ class SessionEventBuffer:
         self._items.append((event_id, event))
 
     def replay_from(self, last_event_id: int) -> Iterable[dict]:
+        # EXCLUSIVE: the client passes the last event_id it already HAS; replay
+        # returns strictly-newer events so a reconnect never duplicates the
+        # last-seen envelope. (last_event_id=0 → everything, since ids start 1.)
         for eid, ev in self._items:
-            if eid >= last_event_id:
+            if eid > last_event_id:
                 yield ev

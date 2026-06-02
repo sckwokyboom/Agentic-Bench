@@ -12,8 +12,9 @@ def test_buffer_round_robins_after_capacity():
 def test_replay_from_specific_event_id():
     buf = SessionEventBuffer(capacity=10)
     ids = [buf.append({"i": i}) for i in range(5)]
-    # replay from after event 2 → returns events 3, 4
-    out = list(buf.replay_from(ids[2] + 1))
+    # EXCLUSIVE replay: client sends the last id it HAS (event for i=2);
+    # replay returns strictly-newer events i=3, i=4 — no duplicate of i=2.
+    out = list(buf.replay_from(ids[2]))
     assert [e["i"] for e in out] == [3, 4]
 
 
