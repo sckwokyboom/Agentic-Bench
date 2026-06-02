@@ -162,7 +162,7 @@ def create_app(
     @api.get("/experiments/{name}/verify_command")
     def _detect_verify_command(name: str):
         from abench.config import load_experiment
-        from abench.verify import detect_command
+        from abench.verify import detect_verify
 
         exp_dir = _exp_dir_for(name)
         yaml_path = exp_dir / "experiment.yaml"
@@ -170,10 +170,15 @@ def create_app(
             raise HTTPException(404, f"experiment '{name}' not found")
         try:
             exp = load_experiment(yaml_path)
-            command = exp.verify.command or detect_command(exp.fixture_path)
+            if exp.verify.command:
+                return {"command": exp.verify.command,
+                        "system": _verify_system_label(exp.verify.command),
+                        "ambiguous": False, "candidates": []}
+            d = detect_verify(exp.fixture_path)
+            return {"command": d.command, "system": d.system,
+                    "ambiguous": d.ambiguous, "candidates": d.candidates}
         except Exception:
-            command = None
-        return {"command": command, "system": _verify_system_label(command)}
+            return {"command": None, "system": None, "ambiguous": False, "candidates": []}
 
     @api.put("/experiments/{name}")
     async def _write_exp(name: str, request: Request):

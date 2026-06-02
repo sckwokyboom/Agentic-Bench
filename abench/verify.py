@@ -29,20 +29,48 @@ class VerifyResult:
     raw_output: str = ""      # FULL combined stdout+stderr
 
 
-def detect_command(workdir: Path) -> str | None:
-    """Heuristic — return the canonical test command for this project, or None."""
+@dataclass
+class DetectResult:
+    command: str | None
+    system: str | None
+    ambiguous: bool = False
+    candidates: list[str] = field(default_factory=list)
+
+
+def _gradle_command(workdir: Path) -> str:
+    return "./gradlew test" if (workdir / "gradlew").exists() else "gradle test"
+
+
+def _maven_command(workdir: Path) -> str:
+    return "./mvnw test" if (workdir / "mvnw").exists() else "mvn test"
+
+
+def detect_verify(workdir: Path) -> DetectResult:
+    """Detect build system(s). Both Gradle and Maven present (e.g. a Gradle project
+    with a stray root pom.xml — picocli) → prefer Gradle, flag ambiguity."""
     workdir = Path(workdir)
-    if (workdir / "pom.xml").exists():
-        if (workdir / "mvnw").exists():
-            return "./mvnw test"
-        return "mvn test"
-    if (workdir / "build.gradle").exists() or (workdir / "build.gradle.kts").exists():
-        if (workdir / "gradlew").exists():
-            return "./gradlew test"
-        return "gradle test"
-    if (workdir / "pyproject.toml").exists() and (workdir / "tests").is_dir():
-        return "pytest"
-    return None
+    has_gradle = any((workdir / f).exists() for f in
+                     ("build.gradle", "build.gradle.kts", "settings.gradle",
+                      "settings.gradle.kts", "gradlew"))
+    has_maven = (workdir / "pom.xml").exists() or (workdir / "mvnw").exists()
+    has_pytest = (workdir / "pyproject.toml").exists() and (workdir / "tests").is_dir()
+    candidates = ([("gradle") for _ in (1,) if has_gradle]
+                  + ["maven"] * (1 if has_maven else 0)
+                  + ["pytest"] * (1 if has_pytest else 0))
+    if has_gradle and has_maven:
+        return DetectResult(_gradle_command(workdir), "gradle", True, candidates)
+    if has_gradle:
+        return DetectResult(_gradle_command(workdir), "gradle", False, candidates)
+    if has_maven:
+        return DetectResult(_maven_command(workdir), "maven", False, candidates)
+    if has_pytest:
+        return DetectResult("pytest", "pytest", False, candidates)
+    return DetectResult(None, None, False, [])
+
+
+def detect_command(workdir: Path) -> str | None:
+    """Back-compat: the canonical command, or None."""
+    return detect_verify(workdir).command
 
 
 _PARSER_BY_PREFIX: dict[str, Callable[[str], tuple[int, int, list[str]]]] = {

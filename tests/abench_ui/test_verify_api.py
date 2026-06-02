@@ -59,3 +59,24 @@ def test_detect_verify_command_404_when_no_experiment(tmp_path: Path):
     client = TestClient(create_app(experiments_dir=exp_dir))
     resp = client.get("/api/experiments/exp/verify_command")
     assert resp.status_code == 404
+
+
+def test_verify_command_endpoint_reports_ambiguity(tmp_path):
+    from fastapi.testclient import TestClient
+    from abench_ui.server import create_app
+    exp_dir = tmp_path / "experiments"; d = exp_dir / "exp"
+    (d / "fix").mkdir(parents=True)
+    (d / "fix" / "build.gradle").write_text("")
+    (d / "fix" / "gradlew").write_text("")
+    (d / "fix" / "pom.xml").write_text("<project/>")
+    (d / "ref").mkdir(); (d / "prompts").mkdir()
+    (d / "prompts" / "task.md").write_text("t"); (d / "prompts" / "system.md").write_text("s")
+    (d / "experiment.yaml").write_text(
+        "name: exp\nfixture_path: ./fix\nreference_path: ./ref\n"
+        "task_prompt: ./prompts/task.md\nsystem_prompt: ./prompts/system.md\n"
+        "model: m\nrepetitions: 1\noutput_dir: ./runs\n"
+        "conditions:\n  - {name: baseline, augmentation: null}\n")
+    client = TestClient(create_app(experiments_dir=exp_dir))
+    body = client.get("/api/experiments/exp/verify_command").json()
+    assert body["system"] == "gradle" and body["command"] == "./gradlew test"
+    assert body["ambiguous"] is True and set(body["candidates"]) == {"gradle", "maven"}

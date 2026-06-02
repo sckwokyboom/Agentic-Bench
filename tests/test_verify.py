@@ -297,3 +297,36 @@ def test_raw_output_is_full_not_truncated():
     big = "x" * 20000 + "\nTests run: 1, Failures: 0, Errors: 0\n"
     r = _run_classify(stdout=big, returncode=0, command="mvn test")
     assert len(r.raw_output) >= 20000
+
+
+def test_detect_verify_gradle_only(tmp_path):
+    from abench.verify import detect_verify
+    (tmp_path / "build.gradle").write_text("")
+    (tmp_path / "gradlew").write_text("")
+    d = detect_verify(tmp_path)
+    assert d.system == "gradle" and d.command == "./gradlew test" and d.ambiguous is False
+
+
+def test_detect_verify_maven_only(tmp_path):
+    from abench.verify import detect_verify
+    (tmp_path / "pom.xml").write_text("<project/>")
+    d = detect_verify(tmp_path)
+    assert d.system == "maven" and d.command == "mvn test" and d.ambiguous is False
+
+
+def test_detect_verify_picocli_like_prefers_gradle_and_flags_ambiguous(tmp_path):
+    from abench.verify import detect_verify
+    (tmp_path / "build.gradle").write_text("")
+    (tmp_path / "settings.gradle").write_text("")
+    (tmp_path / "gradlew").write_text("")
+    (tmp_path / "pom.xml").write_text("<project/>")
+    d = detect_verify(tmp_path)
+    assert d.system == "gradle" and d.command == "./gradlew test"
+    assert d.ambiguous is True and set(d.candidates) == {"gradle", "maven"}
+
+
+def test_detect_command_shim(tmp_path):
+    from abench.verify import detect_command
+    (tmp_path / "pom.xml").write_text("<project/>")
+    assert detect_command(tmp_path) == "mvn test"
+    assert detect_command(tmp_path / "empty") is None
