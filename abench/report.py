@@ -7,9 +7,10 @@ from pathlib import Path
 import pandas as pd
 
 NUMERIC = [
-    "duration_s", "n_steps", "n_tool_calls", "n_test_runs", "n_reads",
-    "n_searches", "n_files_edited", "diff_lines_added", "diff_lines_removed",
-    "tokens_in", "tokens_out", "cost", "time_to_first_edit_s",
+    "duration_s", "n_steps", "n_tool_calls", "n_test_runs", "n_tests_executed",
+    "n_reads", "n_searches", "n_files_edited", "diff_lines_added", "diff_lines_removed",
+    "tokens_in", "tokens_out", "tokens_reasoning", "cache_read", "cache_write",
+    "cost", "time_to_first_edit_s",
 ]
 
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .diffstat import parse_diffstat
 from .trace_model import StepKind, Trace
+from .verify import _parser_for
 
 
 def _success_from_status(status: str | None) -> bool | None:
@@ -51,6 +52,26 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
             if any(r.search(cmd) for r in test_res):
                 n_test += 1
 
+    # Map tool_call_id → result output, to read each test command's output.
+    result_output: dict[str, str] = {}
+    for s in trace.steps:
+        if s.kind == StepKind.TOOL_RESULT and s.tool_call_id is not None:
+            result_output[s.tool_call_id] = s.output or ""
+
+    n_tests_executed = 0
+    for s in tool_calls:
+        if s.tool_name in cfg.shell_tool_names:
+            cmd = _command_of(s, cfg.command_arg_keys)
+            if any(r.search(cmd) for r in test_res):
+                parser = _parser_for(cmd)
+                out = result_output.get(s.tool_call_id or "", "")
+                if parser is not None and out:
+                    try:
+                        passed, failed, _names = parser(out)
+                        n_tests_executed += passed + failed
+                    except ValueError:
+                        pass
+
     n_reads = sum(1 for s in tool_calls if s.tool_name in cfg.read_tool_names)
     n_searches = sum(1 for s in tool_calls if s.tool_name in cfg.search_tool_names)
 
@@ -77,6 +98,7 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "n_tool_calls": len(tool_calls),
         "tool_calls_by_name": by_name,
         "n_test_runs": n_test,
+        "n_tests_executed": n_tests_executed,
         "n_reads": n_reads,
         "n_searches": n_searches,
         "n_files_edited": n_files,
@@ -84,6 +106,9 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "diff_lines_removed": removed,
         "tokens_in": trace.tokens_in,
         "tokens_out": trace.tokens_out,
+        "tokens_reasoning": trace.tokens_reasoning,
+        "cache_read": trace.cache_read,
+        "cache_write": trace.cache_write,
         "cost": trace.cost,
         "time_to_first_edit_s": ttfe,
         "finished": trace.finished,

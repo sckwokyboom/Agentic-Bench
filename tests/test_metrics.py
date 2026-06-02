@@ -119,3 +119,36 @@ def test_success_from_status_rule():
     assert _success_from_status("error") is None
     assert _success_from_status("skipped") is None
     assert _success_from_status(None) is None
+
+
+def test_n_tests_executed_parses_test_command_output():
+    from abench.metrics import extract, MetricsConfig
+    from abench.trace_model import Step, StepKind, Trace
+    cfg = MetricsConfig(test_command_patterns=["pytest"], shell_tool_names=["bash"],
+                        read_tool_names=["read"], search_tool_names=["grep"],
+                        command_arg_keys=["command"])
+    tr = Trace(steps=[
+        Step(kind=StepKind.TOOL_CALL, tool_name="bash", tool_call_id="c1",
+             tool_args={"command": "pytest -q"}),
+        Step(kind=StepKind.TOOL_RESULT, tool_call_id="c1", output="5 passed, 1 failed in 0.3s"),
+    ])
+    m = extract(tr, "", cfg)
+    assert m["n_test_runs"] == 1
+    assert m["n_tests_executed"] == 6
+    assert m["tokens_reasoning"] is None
+    assert "cache_read" in m and "cache_write" in m
+
+
+def test_n_tests_executed_zero_when_unparseable():
+    from abench.metrics import extract, MetricsConfig
+    from abench.trace_model import Step, StepKind, Trace
+    cfg = MetricsConfig(test_command_patterns=["pytest"], shell_tool_names=["bash"],
+                        read_tool_names=["read"], search_tool_names=["grep"],
+                        command_arg_keys=["command"])
+    tr = Trace(steps=[
+        Step(kind=StepKind.TOOL_CALL, tool_name="bash", tool_call_id="c1",
+             tool_args={"command": "pytest"}),
+        Step(kind=StepKind.TOOL_RESULT, tool_call_id="c1", output="weird output"),
+    ])
+    m = extract(tr, "", cfg)
+    assert m["n_test_runs"] == 1 and m["n_tests_executed"] == 0
