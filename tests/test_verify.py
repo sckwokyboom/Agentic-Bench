@@ -359,7 +359,26 @@ def test_parse_results_xml_maven(tmp_path):
     d = tmp_path / "target/surefire-reports"; d.mkdir(parents=True)
     _write_junit_xml(d / "TEST-x.xml", tests=7, failures=0)
     res = _parse_results_xml(tmp_path, "maven")
-    assert res == (7, 0, []) or (res[0] == 7 and res[1] == 0)
+    assert res == (7, 0, [])
+
+
+def test_parse_results_xml_testsuites_wrapper(tmp_path):
+    """Some tools wrap the suites in a <testsuites> root element; the parser must
+    sum each child suite rather than ignoring the file."""
+    from abench.verify import _parse_results_xml
+    d = tmp_path / "build/test-results/test"; d.mkdir(parents=True)
+    (d / "TEST-wrap.xml").write_text(
+        '<testsuites>'
+        '<testsuite tests="4" failures="0" errors="0" skipped="0"></testsuite>'
+        '<testsuite tests="2" failures="1" errors="0" skipped="0">'
+        '<testcase classname="demo.WrapTest" name="tx"><failure/></testcase>'
+        '</testsuite>'
+        '</testsuites>')
+    res = _parse_results_xml(tmp_path, "gradle")
+    assert res is not None
+    passed, failed, names = res
+    assert passed == 5 and failed == 1
+    assert "demo.WrapTest.tx" in names
 
 
 def test_parse_results_xml_none_when_absent(tmp_path):
@@ -368,12 +387,39 @@ def test_parse_results_xml_none_when_absent(tmp_path):
 
 
 def test_run_verify_gradle_falls_back_to_xml_on_unparseable_stdout(tmp_path):
-    """Modern Gradle: BUILD SUCCESSFUL but no 'N tests completed' line → use XML."""
+    """Modern Gradle: BUILD SUCCESSFUL but no 'N tests completed' line → use XML.
+    The report is written *during* the run (gradle's test task), AFTER run_verify
+    has cleared any stale results — so the side_effect simulates that write."""
+    from unittest import mock
+    from abench.verify import run_verify
+    d = tmp_path / "build/test-results/test"
+    completed = mock.Mock(stdout="BUILD SUCCESSFUL in 2s\n", stderr="", returncode=0)
+
+    def _run(*a, **k):
+        d.mkdir(parents=True, exist_ok=True)
+        _write_junit_xml(d / "TEST-a.xml", tests=3, failures=0)
+        return completed
+
+    with mock.patch("abench.verify.subprocess.run", side_effect=_run):
+        v = run_verify(tmp_path, "gradle test", timeout_s=60)
+    assert v.status == "passed" and v.passed_count == 3 and v.reason == "passed"
+
+
+def test_run_verify_does_not_trust_stale_xml_on_build_failure(tmp_path):
+    """A stale green report from the agent's mid-task `gradle test` must NOT be
+    read as success when the final build fails to compile (and writes no fresh
+    report). run_verify clears the results dir before invoking the build, so the
+    leftover green XML is gone and the failure falls through to build_failed."""
     from unittest import mock
     from abench.verify import run_verify
     d = tmp_path / "build/test-results/test"; d.mkdir(parents=True)
-    _write_junit_xml(d / "TEST-a.xml", tests=3, failures=0)
-    completed = mock.Mock(stdout="BUILD SUCCESSFUL in 2s\n", stderr="", returncode=0)
+    _write_junit_xml(d / "TEST-stale.xml", tests=9, failures=0)  # stale GREEN
+    # Compile failure: non-zero exit, no parseable summary, writes NO new report.
+    completed = mock.Mock(
+        stdout="",
+        stderr="FAILURE: Build failed with an exception.\nerror: cannot find symbol\n",
+        returncode=1)
     with mock.patch("abench.verify.subprocess.run", return_value=completed):
         v = run_verify(tmp_path, "gradle test", timeout_s=60)
-    assert v.status == "passed" and v.passed_count == 3 and v.reason == "passed"
+    assert v.status == "error" and v.reason == "build_failed"
+    assert v.passed_count != 9  # the stale green count must never leak through

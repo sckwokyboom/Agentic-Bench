@@ -1,6 +1,7 @@
 """Post-run verification — runs the project's test suite and parses the result."""
 from __future__ import annotations
 
+import shutil
 import subprocess
 import time
 import xml.etree.ElementTree as _ET
@@ -157,6 +158,22 @@ def _system_of(command: str) -> str | None:
     return None
 
 
+def _clear_results(workdir: Path, system: str) -> None:
+    """Delete stale JUnit XML result dirs BEFORE running verify, so the XML
+    fallback can only ever read results written by THIS invocation. Without
+    this, an agent that ran the tests green mid-task and then broke compilation
+    would leave a stale green report that the fallback would misread as passed."""
+    workdir = Path(workdir)
+    dirs: list[Path] = []
+    if system == "gradle":
+        dirs = list(workdir.glob("**/build/test-results"))
+    elif system == "maven":
+        dirs = (list(workdir.glob("**/target/surefire-reports"))
+                + list(workdir.glob("**/target/failsafe-reports")))
+    for d in dirs:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 _BUILD_MARKERS = (
     "COMPILATION ERROR",
     "BUILD FAILURE",
@@ -197,6 +214,15 @@ def run_verify(workdir: Path, command: str, timeout_s: int) -> VerifyResult:
     started = time.time()
     parts = command.split()
     tool = parts[0] if parts else command
+
+    # Clear any pre-existing JUnit XML results so the fallback below can only
+    # read reports produced by this very invocation (closes a false-pass hole
+    # where stale green reports from an agent's mid-task test run would be
+    # misread as success after a final edit broke compilation).
+    _system = _system_of(command)
+    if _system is not None:
+        _clear_results(workdir, _system)
+
     try:
         completed = subprocess.run(
             command, shell=True, cwd=workdir,
