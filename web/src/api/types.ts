@@ -62,7 +62,28 @@ export interface MetricsJson {
   verify_reason?: string | null;
   verify_message?: string | null;
   isolation_nonce?: string | null;
+  n_tests_executed?: number | null;
+  tokens_reasoning?: number | null;
+  cache_read?: number | null;
+  cache_write?: number | null;
   [key: string]: unknown;
+}
+
+export type StepKind =
+  | "assistant_text" | "reasoning" | "tool_call" | "tool_result" | "file_edit";
+
+export interface Step {
+  kind: StepKind;
+  ts: number | null;
+  turn: number | null;
+  text?: string | null;
+  tool_name?: string | null;
+  tool_args?: Record<string, unknown> | null;
+  tool_call_id?: string | null;
+  output?: string | null;
+  exit_code?: number | null;
+  path?: string | null;
+  patch?: string | null;
 }
 
 export interface TurnInfo {
@@ -84,6 +105,7 @@ export interface FinalDiffSummary {
 }
 
 export interface Trace {
+  steps: Step[];
   turns: TurnInfo[];
   verify_status: VerifyStatus | null;
   verify_command: string | null;
