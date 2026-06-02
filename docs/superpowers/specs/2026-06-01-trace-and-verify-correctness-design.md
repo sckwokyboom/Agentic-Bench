@@ -124,6 +124,54 @@ reads, searches, test runs, files edited, tokens in/out, cost, time-to-first-edi
 with a one-line tooltip of what it means. The verify result (passed/failed/total + which
 failed) stays prominent at top via the existing `VerifyBanner`/`VerifyCard`.
 
+### Metrics enrichment (the comparison signals the user asked for)
+
+The OpenCode data carries more than is currently captured (verified in the fixture:
+`info.tokens = {input, output, reasoning, cache:{read, write}}`). Add these analysis
+signals:
+
+**Backend:**
+- `trace_normalize.normalize`: from `raw_session.info.tokens`, also read `reasoning` and
+  `cache.{read, write}`.
+- `abench/trace_model.py` `Trace`: add trace-level `tokens_reasoning`, `cache_read`,
+  `cache_write` (`int | None`, default None).
+- `abench/metrics.py` `extract`:
+  - emit `tokens_reasoning`, `cache_read`, `cache_write`.
+  - new **`n_tests_executed`** — the actual number of individual tests the AGENT ran (not
+    just invocation count): for each TOOL_CALL in `shell_tool_names` whose command matches
+    a `test_command_patterns`, find its paired TOOL_RESULT (by `tool_call_id`) and run
+    `verify._parser_for(<first token of command>)` on the result `output`; on success add
+    `passed + failed`. Sum across invocations. Unparseable output contributes 0
+    (documented). Keep `n_test_runs` (invocation count) — both are distinct, useful signals
+    ("ran the test command 3×" vs "exercised 142 tests").
+- `abench/report.py` `NUMERIC`: add `tokens_reasoning`, `cache_read`, `cache_write`,
+  `n_tests_executed` so they aggregate in both the CLI `summary.md` and the
+  `/api/runs/{name}/summary` baseline-vs-augmented table. (`tokens_in`/`tokens_out`/`cost`
+  are already in `NUMERIC`.)
+
+**Frontend (aggregate comparison + tooltips):**
+- `MetricsJson`/`ConditionSummary` types: add the new keys.
+- `SUMMARY_METRICS` descriptor: replace `lowerIsBetter: bool` with
+  `direction: "lower" | "higher" | "neutral"`; `SummaryTable` colors the Δ green/red only
+  for `lower`/`higher`, and shows `neutral` deltas uncolored. Add rows:
+  - `tokens_in` ("tokens read", lower=better), `tokens_out` ("tokens generated",
+    lower=better), `tokens_reasoning` ("reasoning tokens", lower) — so "how much more/less
+    the LLM read vs generated" is explicit.
+  - `n_tests_executed` ("tests executed", **neutral** — more isn't inherently better).
+  - `cache_read` ("tokens from prompt cache", **neutral** — informational), `cache_write`
+    (neutral). Tooltip: "Served from the provider's prompt cache. With run isolation
+    (nonce prefix) ON, expect ≈0 — that's intended, so conditions compare fairly."
+  - `cost` ("$ at the provider's rates, from opencode", lower=better). No price table —
+    `info.cost` is opencode's authoritative per-run figure; the token breakdown explains
+    any delta.
+- **Every aggregate/header metric gets a one-line tooltip** of what it means, e.g.
+  `steps`: "distinct model steps (turns) in the ReAct chain — one LLM round-trip each
+  (reasoning + tool calls or final text). Fewer for the same outcome = more efficient."
+  `test runs`: "how many times the agent invoked a test command." `tests executed`: "how
+  many individual tests those runs actually exercised (parsed from output)."
+- TraceView per-run header also shows tokens in/out/reasoning + cache read/write + cost
+  with the same labels/tooltips.
+
 ### Live Run page
 
 Replace the broken raw grouping with `turnsFromRawEvents` (same `UiTurn` model) so the
