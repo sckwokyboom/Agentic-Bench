@@ -15,11 +15,12 @@ interface Props {
   onSave: (data: Record<string, unknown>) => void;
   onFormChange?: (data: Record<string, unknown>, hasErrors: boolean) => void;
   onErrorsChange?: (errors: RJSFValidationError[]) => void;
+  saving?: boolean;
 }
 
 export default function ExperimentForm({
   schema, uiSchema, formData, widgets, fields, templates, formContext,
-  onSave, onFormChange, onErrorsChange,
+  onSave, onFormChange, onErrorsChange, saving,
 }: Props) {
   const [data, setData] = useState<Record<string, unknown>>(formData);
   const errors = useMemo(
@@ -61,9 +62,9 @@ export default function ExperimentForm({
       <Stack direction="row" justifyContent="flex-end">
         <Button
           variant="contained"
-          disabled={hasErrors}
+          disabled={hasErrors || saving}
           onClick={() => onSave(data)}
-        >Save</Button>
+        >{saving ? "Saving…" : "Save"}</Button>
       </Stack>
     </Stack>
   );

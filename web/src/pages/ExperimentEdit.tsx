@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  Stack, Box, Typography, CircularProgress, Alert, Button,
+  Stack, Box, Typography, CircularProgress, Alert, Button, Snackbar,
 } from "@mui/material";
 import type { RJSFValidationError } from "@rjsf/utils";
 import ExperimentForm from "../components/ExperimentForm";
+import SavedExperimentCard from "../components/SavedExperimentCard";
 import ValidationPanel from "../components/ValidationPanel";
 import PlanPanel from "../components/PlanPanel";
 import FixturesPanel from "../components/FixturesPanel";
@@ -35,15 +36,20 @@ export default function ExperimentEdit() {
   const start = useStartRun();
   const [formData, setFormData] = useState<Record<string, unknown> | null>(null);
   const [errors, setErrors] = useState<RJSFValidationError[]>([]);
+  const [saved, setSaved] = useState(false);
+  const [toastOpen, setToastOpen] = useState(false);
 
   useEffect(() => { loadSchema().then(setSchema); }, []);
   useEffect(() => { if (exp.data && formData === null) setFormData(exp.data); }, [exp.data, formData]);
 
   const summary = list.data?.find((e) => e.name === name);
+  const canRun = errors.length === 0 && Boolean(summary?.has_fixture);
 
   async function handleSave(data: Record<string, unknown>) {
     if (!name) return;
     await save.mutateAsync({ name, body: data });
+    setSaved(true);
+    setToastOpen(true);
   }
 
   async function handleRun() {
@@ -72,18 +78,35 @@ export default function ExperimentEdit() {
             Run
           </Button>
         </Stack>
-        <ExperimentForm
-          schema={schema as never}
-          uiSchema={uiSchema}
-          formData={formData}
-          widgets={customWidgets}
-          fields={customFields}
-          templates={customTemplates}
-          formContext={{ detectedVerify: detected.data }}
-          onErrorsChange={setErrors}
-          onFormChange={(f) => setFormData(f)}
-          onSave={handleSave}
-        />
+        {save.isError && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Failed to save: {(save.error as Error)?.message ?? "unknown error"}
+          </Alert>
+        )}
+        {saved ? (
+          <SavedExperimentCard
+            name={name ?? ""}
+            formData={formData}
+            canRun={canRun}
+            running={start.isPending}
+            onRun={handleRun}
+            onEdit={() => setSaved(false)}
+          />
+        ) : (
+          <ExperimentForm
+            schema={schema as never}
+            uiSchema={uiSchema}
+            formData={formData}
+            widgets={customWidgets}
+            fields={customFields}
+            templates={customTemplates}
+            formContext={{ detectedVerify: detected.data }}
+            saving={save.isPending}
+            onErrorsChange={setErrors}
+            onFormChange={(f) => { setFormData(f); setSaved(false); }}
+            onSave={handleSave}
+          />
+        )}
       </Box>
       <Box sx={{ width: 320, position: "sticky", top: 0, alignSelf: "flex-start" }}>
         <Stack spacing={2}>
@@ -102,6 +125,16 @@ export default function ExperimentEdit() {
           {name && <PreviousRunsPanel name={name} />}
         </Stack>
       </Box>
+      <Snackbar
+        open={toastOpen}
+        autoHideDuration={4000}
+        onClose={() => setToastOpen(false)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="success" variant="filled" onClose={() => setToastOpen(false)}>
+          Configuration saved ✓
+        </Alert>
+      </Snackbar>
     </Stack>
   );
 }
