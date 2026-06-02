@@ -1,5 +1,5 @@
 import {
-  Table, TableHead, TableBody, TableRow, TableCell, Typography, Box,
+  Table, TableHead, TableBody, TableRow, TableCell, Typography, Box, Tooltip,
 } from "@mui/material";
 import { selectable } from "../theme";
 import { SUMMARY_METRICS } from "../lib/metricLabels";
@@ -61,11 +61,16 @@ export default function SummaryTable({ summary }: Props) {
           </TableRow>
           {SUMMARY_METRICS.map((m) => {
             const delta = summary.deltas[m.key];
-            const good = delta != null && (m.lowerIsBetter ? delta < 0 : delta > 0);
-            const bad = delta != null && delta !== 0 && !good;
+            const good = delta != null && delta !== 0 &&
+              (m.direction === "lower" ? delta < 0 : m.direction === "higher" ? delta > 0 : false);
+            const bad = delta != null && delta !== 0 && m.direction !== "neutral" && !good;
             return (
               <TableRow key={m.key} hover>
-                <TableCell>{m.label}</TableCell>
+                <TableCell>
+                  {m.help
+                    ? <Tooltip title={m.help}><span>{m.label}</span></Tooltip>
+                    : m.label}
+                </TableCell>
                 {conditions.map((c) => (
                   <TableCell key={c.name} align="right" sx={selectable}>
                     {fmt(c.metrics[m.key]?.mean)}
