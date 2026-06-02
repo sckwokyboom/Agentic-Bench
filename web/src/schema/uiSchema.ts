@@ -27,6 +27,15 @@ export const uiSchema: UiSchema = {
       augmentation: { "ui:widget": "AugmentationWidget" },
     },
   },
+  // String-array metric knobs: keep the array's human title+description (from the
+  // schema), but drop the redundant per-item "<name>-0 *" row labels.
+  metrics: {
+    test_command_patterns: { items: { "ui:options": { label: false } } },
+    shell_tool_names: { items: { "ui:options": { label: false } } },
+    read_tool_names: { items: { "ui:options": { label: false } } },
+    search_tool_names: { items: { "ui:options": { label: false } } },
+    command_arg_keys: { items: { "ui:options": { label: false } } },
+  },
   // System prompt + user message can be long → multiline.
   system_prompt: { "ui:widget": "textarea", "ui:options": { rows: 10 } },
   user_message: { "ui:widget": "textarea", "ui:options": { rows: 6 } },
