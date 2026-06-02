@@ -38,7 +38,7 @@ export default function AggregateStatsBar({ metrics: m }: Props) {
       <Stat label="tests run" value={String(num(m.n_tests_executed) ?? "—")} help={HELP["tests run"]} />
       <Stat label="tokens" value={`${formatTokens(num(m.tokens_in))} in / ${formatTokens(num(m.tokens_out))} out`} help={HELP.tokens} />
       <Stat label="cache" value={`${formatTokens(num(m.cache_read))} r / ${formatTokens(num(m.cache_write))} w`} help={HELP.cache} />
-      <Stat label="cost" value={`$${(num(m.cost) ?? 0).toFixed(4)}`} help={HELP.cost} />
+      <Stat label="cost" value={num(m.cost) != null ? `$${num(m.cost)!.toFixed(4)}` : "—"} help={HELP.cost} />
     </Stack>
   );
 }
