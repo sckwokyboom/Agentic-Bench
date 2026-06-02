@@ -46,6 +46,7 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
                     kind=StepKind.TOOL_CALL,
                     ts=time.get("start", 0) / 1000.0,
                     turn=turn,
+                    message_id=message_id,
                     tool_name=part.get("tool"),
                     tool_args=state.get("input"),
                     tool_call_id=part.get("callID"),
@@ -56,6 +57,7 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
                     kind=StepKind.TOOL_RESULT,
                     ts=time.get("end", 0) / 1000.0,
                     turn=turn,
+                    message_id=message_id,
                     tool_call_id=part.get("callID"),
                     output=state.get("output"),
                     exit_code=metadata.get("exit"),
@@ -69,6 +71,7 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
                     kind=StepKind.ASSISTANT_TEXT,
                     ts=time.get("start", 0) / 1000.0,
                     turn=turn,
+                    message_id=message_id,
                     text=part.get("text"),
                 )
             )
@@ -79,6 +82,7 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
                     kind=StepKind.REASONING,
                     ts=None,
                     turn=turn,
+                    message_id=message_id,
                     text=part.get("text"),
                 )
             )
@@ -89,6 +93,7 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
                     kind=StepKind.FILE_EDIT,
                     ts=None,
                     turn=turn,
+                    message_id=message_id,
                     path=part.get("path"),
                     patch=part.get("patch"),
                 )

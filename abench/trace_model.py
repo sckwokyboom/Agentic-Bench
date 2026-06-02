@@ -17,6 +17,7 @@ class Step:
     kind: StepKind
     ts: float | None = None
     turn: int | None = None
+    message_id: str | None = None
     text: str | None = None
     tool_name: str | None = None
     tool_args: dict | None = None

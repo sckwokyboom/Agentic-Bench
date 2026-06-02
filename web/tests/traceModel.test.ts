@@ -25,6 +25,36 @@ test("turnsFromTrace groups steps by turn, pairs tool call+result, joins TurnInf
   expect(turns[0]!.tokensIn).toBe(100);
 });
 
+test("turnsFromTrace joins TurnInfo by message_id, not array index (turn without step-finish)", () => {
+  const stepsNoFinish: Step[] = [
+    { kind: "reasoning", ts: 1, turn: 0, message_id: "MA", text: "a" },   // turn 0, NO step-finish
+    { kind: "assistant_text", ts: 2, turn: 1, message_id: "MB", text: "b" }, // turn 1
+  ];
+  const turns = [
+    { message_id: "MB", reason: "stop", tokens_in: 99, tokens_out: 9, tokens_reasoning: 0, cost: 0.002, started_at: 2, ended_at: 3 },
+  ];
+  const ui = turnsFromTrace({ steps: stepsNoFinish, turns } as any);
+  const a = ui.find((t) => t.messageId === "MA")!;
+  const b = ui.find((t) => t.messageId === "MB")!;
+  expect(a.tokensIn).toBeNull();   // MUST NOT inherit MB's tokens
+  expect(b.tokensIn).toBe(99);
+});
+
+test("turnsFromRawEvents coalesces repeated parts by id (running → completed)", () => {
+  const raw = [
+    { part: { type: "tool", id: "prt_1", messageID: "M0", tool: "bash", callID: "c1",
+              state: { status: "running", input: { command: "go test ./..." } } } },
+    { part: { type: "tool", id: "prt_1", messageID: "M0", tool: "bash", callID: "c1",
+              state: { status: "completed", input: { command: "go test ./..." },
+                       output: "ok", metadata: { exit: 0 } } } },
+  ];
+  const turns = turnsFromRawEvents(raw);
+  expect(turns).toHaveLength(1);
+  const tools = turns[0]!.parts.filter((p) => p.kind === "tool");
+  expect(tools).toHaveLength(1);                 // not 2
+  expect(tools[0]).toMatchObject({ ok: true, output: "ok" });  // finalized state wins
+});
+
 test("turnsFromRawEvents maps the REAL opencode shape", () => {
   const raw = [
     { part: { type: "reasoning", messageID: "M0", text: "thinking" } },

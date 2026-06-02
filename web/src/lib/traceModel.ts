@@ -37,6 +37,8 @@ export function turnsFromTrace(trace: Pick<Trace, "steps" | "turns">): UiTurn[] 
   for (const s of trace.steps) {
     if (s.turn == null) continue;
     const t = ensure(s.turn);
+    // First non-null message_id wins, so each UiTurn knows its messageId.
+    t.messageId = t.messageId ?? s.message_id ?? null;
     if (s.kind === "reasoning") t.parts.push({ kind: "reasoning", text: s.text ?? "" });
     else if (s.kind === "assistant_text") t.parts.push({ kind: "text", text: s.text ?? "" });
     else if (s.kind === "file_edit") t.parts.push({ kind: "edit", path: s.path ?? "", patch: s.patch ?? "" });
@@ -51,9 +53,8 @@ export function turnsFromTrace(trace: Pick<Trace, "steps" | "turns">): UiTurn[] 
       });
     }
   }
-  trace.turns.forEach((ti, idx) => {
-    const t = ensure(idx);
-    t.messageId = ti.message_id ?? null;
+
+  const fillStats = (t: UiTurn, ti: Trace["turns"][number]) => {
     t.reason = ti.reason ?? null;
     t.tokensIn = ti.tokens_in ?? null;
     t.tokensOut = ti.tokens_out ?? null;
@@ -61,7 +62,33 @@ export function turnsFromTrace(trace: Pick<Trace, "steps" | "turns">): UiTurn[] 
     t.cost = ti.cost ?? null;
     t.durationS = (ti.started_at != null && ti.ended_at != null)
       ? ti.ended_at - ti.started_at : null;
-  });
+  };
+
+  // Join TurnInfo by message_id when steps carry one (real traces); fall back to
+  // array-index join for synthetic/legacy data whose steps lack message_id.
+  const useMid = trace.steps.some((s) => s.turn != null && s.message_id);
+  if (useMid) {
+    const byMid = new Map<string, UiTurn>();
+    for (const t of byTurn.values()) if (t.messageId) byMid.set(t.messageId, t);
+    for (const ti of trace.turns) {
+      const mid = ti.message_id ?? null;
+      let t = mid != null ? byMid.get(mid) : undefined;
+      if (!t) {
+        // step-finish for a message with no steps — rare. Append a new turn.
+        t = emptyTurn(byTurn.size);
+        t.messageId = mid;
+        byTurn.set(t.index, t);
+        if (mid != null) byMid.set(mid, t);
+      }
+      fillStats(t, ti);
+    }
+  } else {
+    trace.turns.forEach((ti, idx) => {
+      const t = ensure(idx);
+      t.messageId = ti.message_id ?? null;
+      fillStats(t, ti);
+    });
+  }
   return [...byTurn.values()].sort((a, b) => a.index - b.index);
 }
 
@@ -69,9 +96,16 @@ export function turnsFromTrace(trace: Pick<Trace, "steps" | "turns">): UiTurn[] 
 export function turnsFromRawEvents(rawEvents: any[]): UiTurn[] {
   const order: string[] = [];
   const byId = new Map<string, UiTurn>();
+  // Per-turn map of part id → index into t.parts, so a re-emitted part id
+  // (e.g. a tool going running → completed) replaces its earlier partial
+  // instead of pushing a duplicate. Id-less parts are never coalesced.
+  const partIdxById = new Map<string, Map<string, number>>();
   const ensure = (mid: string) => {
     let t = byId.get(mid);
-    if (!t) { t = emptyTurn(order.length); t.messageId = mid; byId.set(mid, t); order.push(mid); }
+    if (!t) {
+      t = emptyTurn(order.length); t.messageId = mid;
+      byId.set(mid, t); order.push(mid); partIdxById.set(mid, new Map());
+    }
     return t;
   };
   for (const ev of rawEvents) {
@@ -79,15 +113,26 @@ export function turnsFromRawEvents(rawEvents: any[]): UiTurn[] {
     const mid = p.messageID;
     if (!mid) continue;
     const t = ensure(mid);
-    if (p.type === "reasoning") t.parts.push({ kind: "reasoning", text: String(p.text ?? "") });
-    else if (p.type === "text") t.parts.push({ kind: "text", text: String(p.text ?? "") });
-    else if (p.type === "patch") t.parts.push({ kind: "edit", path: String(p.path ?? ""), patch: String(p.patch ?? "") });
+    // Last-write-wins by part id; absent id → always push.
+    const idMap = partIdxById.get(mid)!;
+    const pid: string | undefined = p.id ? String(p.id) : undefined;
+    const place = (part: UiPart) => {
+      if (pid && idMap.has(pid)) {
+        t.parts[idMap.get(pid)!] = part;
+      } else {
+        if (pid) idMap.set(pid, t.parts.length);
+        t.parts.push(part);
+      }
+    };
+    if (p.type === "reasoning") place({ kind: "reasoning", text: String(p.text ?? "") });
+    else if (p.type === "text") place({ kind: "text", text: String(p.text ?? "") });
+    else if (p.type === "patch") place({ kind: "edit", path: String(p.path ?? ""), patch: String(p.patch ?? "") });
     else if (p.type === "tool") {
       const st = p.state ?? {};
       const exitRaw = st.metadata?.exit;
       const exitCode = typeof exitRaw === "number" ? exitRaw : null;
       const ok = st.status === "error" ? false : exitCode == null ? (st.status === "completed" ? true : null) : exitCode === 0;
-      t.parts.push({
+      place({
         kind: "tool", name: String(p.tool ?? "?"), args: st.input ?? {},
         output: st.output != null ? String(st.output) : null, exitCode, ok,
       });

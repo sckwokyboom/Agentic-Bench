@@ -76,6 +76,7 @@ export interface Step {
   kind: StepKind;
   ts: number | null;
   turn: number | null;
+  message_id?: string | null;
   text?: string | null;
   tool_name?: string | null;
   tool_args?: Record<string, unknown> | null;

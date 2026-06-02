@@ -133,6 +133,24 @@ def test_normalize_populates_turns_from_step_finish():
     assert all(t.message_id for t in trace.turns)
 
 
+def test_steps_carry_message_id():
+    """Every produced Step must carry the messageID of the part it came from,
+    so the frontend can join TurnInfo by message_id rather than array index."""
+    from abench.trace_normalize import normalize
+    raw = [
+        {"part": {"type": "reasoning", "messageID": "M0", "text": "t"}},
+        {"part": {"type": "tool", "messageID": "M0", "tool": "read", "callID": "c1",
+                  "state": {"status": "completed", "input": {"path": "a"}, "output": "o",
+                            "metadata": {"exit": 0}, "time": {"start": 0, "end": 1000}}}},
+        {"part": {"type": "patch", "messageID": "M0", "path": "a", "patch": "p"}},
+        {"part": {"type": "text", "messageID": "M1", "text": "done",
+                  "time": {"start": 2000}}},
+    ]
+    tr = normalize(raw, None)
+    assert all(s.message_id is not None for s in tr.steps)
+    assert {s.message_id for s in tr.steps} == {"M0", "M1"}
+
+
 def test_normalize_captures_reasoning_and_cache_tokens():
     from abench.trace_normalize import normalize
     session = {"info": {"tokens": {"input": 100, "output": 20, "reasoning": 5,
