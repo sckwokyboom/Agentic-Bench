@@ -1,4 +1,5 @@
 import { Stack, Typography, LinearProgress, Box, Chip } from "@mui/material";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import VerifyChip from "./VerifyChip";
 import IsolationChip from "./IsolationChip";
 import type { VerifyStatus } from "../api/types";
@@ -15,6 +16,8 @@ interface Props {
   currentCommand?: string | null;
   isolation: { nonce: boolean; shuffle: boolean };
   baselineStatus?: VerifyStatus | null;
+  // Live aggregate of service/proxy errors summed across run.finished envelopes.
+  serviceErrors?: number;
 }
 
 export default function ProgressHeader(props: Props) {
@@ -37,6 +40,14 @@ export default function ProgressHeader(props: Props) {
         <Chip size="small" label={`${props.done} done`} color="success" variant="outlined" />
         <Chip size="small" label={`${props.running} running`} color="info" variant="outlined" />
         <Chip size="small" label={`${props.pending} pending`} variant="outlined" />
+        {(props.serviceErrors ?? 0) > 0 && (
+          <Chip
+            size="small"
+            icon={<ErrorOutlineIcon />}
+            label={`${props.serviceErrors} errors`}
+            color="error"
+          />
+        )}
         <Box sx={{ flex: 1 }} />
         <VerifyChip
           status={verifyStatus}

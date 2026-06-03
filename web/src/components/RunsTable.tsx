@@ -1,8 +1,9 @@
 import {
-  Table, TableHead, TableBody, TableRow, TableCell, Typography, Box,
+  Table, TableHead, TableBody, TableRow, TableCell, Typography, Box, Tooltip, Stack,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import VerifyStatusChip from "./VerifyStatusChip";
 import { selectable } from "../theme";
 import type { RunSummary } from "../api/types";
@@ -44,7 +45,16 @@ export default function RunsTable({ rows, onOpen }: Props) {
               onClick={() => onOpen(r.condition, r.rep)}
               sx={{ cursor: "pointer" }}
             >
-              <TableCell>{r.condition}</TableCell>
+              <TableCell>
+                <Stack direction="row" alignItems="center" spacing={0.5}>
+                  <span>{r.condition}</span>
+                  {(r.n_service_errors ?? 0) > 0 && (
+                    <Tooltip title={`${r.n_service_errors} service/proxy error${r.n_service_errors === 1 ? "" : "s"} during this run`}>
+                      <ErrorOutlineIcon color="error" fontSize="small" />
+                    </Tooltip>
+                  )}
+                </Stack>
+              </TableCell>
               <TableCell align="right">{r.rep}</TableCell>
               <TableCell><VerifyStatusChip status={r.verify_status} /></TableCell>
               <TableCell>

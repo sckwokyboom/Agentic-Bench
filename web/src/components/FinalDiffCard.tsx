@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Card, CardContent, Stack, Typography, Button, Box } from "@mui/material";
+import {
+  Card, CardContent, Stack, Typography, Button, Box, Alert, AlertTitle,
+} from "@mui/material";
 import { usePatch } from "../api/queries";
 import { parsePatch, type PatchFile } from "../lib/parsePatch";
 
@@ -8,6 +10,10 @@ interface Props {
   condition: string;
   rep: number;
   batch?: string;
+  // Explicit signal from metrics (`made_source_changes`). When false we warn
+  // rather than show an empty card, even if a (non-source) patch slipped in.
+  // Undefined → fall back to "is the patch empty?".
+  madeSourceChanges?: boolean;
 }
 
 function HunkLine({ line }: { line: string }) {
@@ -23,18 +29,24 @@ function HunkLine({ line }: { line: string }) {
   );
 }
 
-export default function FinalDiffCard({ name, condition, rep, batch }: Props) {
+export default function FinalDiffCard({
+  name, condition, rep, batch, madeSourceChanges,
+}: Props) {
   const patch = usePatch(name, condition, rep, batch);
   const batchQs = batch ? `?batch=${encodeURIComponent(batch)}` : "";
   const [expanded, setExpanded] = useState(false);
   if (patch.isLoading) return null;
-  if (!patch.data || patch.data.length === 0) {
+  // No source changes when metrics say so explicitly, or (lacking that signal)
+  // when the patch is empty. Surface a prominent warning so a silent 42/42 on
+  // an untouched project is impossible to miss.
+  const noChanges = madeSourceChanges === false || !patch.data || patch.data.length === 0;
+  if (noChanges) {
     return (
-      <Card variant="outlined">
-        <CardContent>
-          <Typography variant="subtitle2">Final diff — no changes</Typography>
-        </CardContent>
-      </Card>
+      <Alert severity="warning">
+        <AlertTitle>No source changes</AlertTitle>
+        The agent did not edit any files. Verify results below reflect the
+        unmodified project.
+      </Alert>
     );
   }
   const files: PatchFile[] = parsePatch(patch.data);

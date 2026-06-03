@@ -23,6 +23,7 @@ export default function Run() {
     let condition: string | null = null;
     let rep: number | null = null;
     let verifyPassed = 0, verifyFailed = 0, verifyTotal = 0;
+    let serviceErrors = 0;
     let firstFinishedCond: string | null = null;
     let firstFinishedRep: number | null = null;
     let sessionFinished = false;
@@ -45,6 +46,7 @@ export default function Run() {
         runIdx = e.run_idx; condition = e.condition; rep = e.rep; running += 1;
       } else if (e.type === "run.finished") {
         running = Math.max(0, running - 1); done += 1;
+        serviceErrors += e.n_service_errors ?? 0;
         if (e.verify?.status === "passed") {
           verifyPassed += e.verify.passed_count ?? 0;
           verifyTotal += (e.verify.passed_count ?? 0) + (e.verify.failed_count ?? 0);
@@ -63,6 +65,7 @@ export default function Run() {
     return {
       totalRuns, done, running, pending, runIdx, condition, rep,
       verify: { passed: verifyPassed, failed: verifyFailed, total: verifyTotal },
+      serviceErrors,
       sessionFinished, firstFinishedCond, firstFinishedRep, isolationOn, batchId,
     };
   }, [ws.envelopes]);
@@ -119,6 +122,7 @@ export default function Run() {
         pending={derived.pending}
         verifyCounts={derived.verify}
         isolation={derived.isolationOn}
+        serviceErrors={derived.serviceErrors}
       />
       {derived.sessionFinished && experimentName === null && (
         <Typography color="warning.main">

@@ -45,6 +45,10 @@ export interface RunFinished {
   verify: VerifySummary;
   // Added in the batches feature; optional-safe (see SessionStarted).
   batch_id?: string;
+  // Validity signals (Tasks A/B); optional-safe for replay/tests.
+  n_service_errors?: number;
+  made_source_changes?: boolean;
+  verify_insensitive?: boolean;
 }
 
 export interface SessionError {

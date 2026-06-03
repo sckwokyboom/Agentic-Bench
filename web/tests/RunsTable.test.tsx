@@ -25,3 +25,17 @@ test("empty-state when no runs", () => {
   render(<RunsTable rows={[]} onOpen={() => {}} />);
   expect(screen.getByText(/no runs/i)).toBeInTheDocument();
 });
+
+test("shows a service-errors indicator for rows with n_service_errors > 0", () => {
+  const erroring: RunSummary[] = [
+    { ...rows[0]!, condition: "augmented", n_service_errors: 3 },
+  ];
+  const { container } = render(<RunsTable rows={erroring} onOpen={() => {}} />);
+  // A red ErrorOutline icon flags the run; the count is exposed in its tooltip.
+  expect(container.querySelector('[data-testid="ErrorOutlineIcon"]')).not.toBeNull();
+});
+
+test("no service-errors indicator when n_service_errors is 0/absent", () => {
+  const { container } = render(<RunsTable rows={rows} onOpen={() => {}} />);
+  expect(container.querySelector('[data-testid="ErrorOutlineIcon"]')).toBeNull();
+});

@@ -3,10 +3,12 @@ import { Stack, Typography, CircularProgress, Alert, Box } from "@mui/material";
 import { useTrace, useEvents, useRuns, useMetrics } from "../api/queries";
 import { turnsFromTrace } from "../lib/traceModel";
 import VerdictBanner from "../components/VerdictBanner";
+import ValiditySignals from "../components/ValiditySignals";
 import AggregateStatsBar from "../components/AggregateStatsBar";
 import TurnCard from "../components/TurnCard";
 import VerifyCard from "../components/VerifyCard";
 import FinalDiffCard from "../components/FinalDiffCard";
+import RunLogToggle from "../components/RunLogToggle";
 import MethodComparisonCard from "../components/MethodComparisonCard";
 import MetricsDrawer from "../components/MetricsDrawer";
 import TraceRunSwitcher from "../components/TraceRunSwitcher";
@@ -31,6 +33,16 @@ export default function TraceView() {
   const rawByMsg = (mid: string | null) =>
     (events.data ?? []).filter((e: any) => e?.part?.messageID === mid);
 
+  // Validity signals: metrics is the authoritative source for counts/flags;
+  // trace carries the human-readable service-error messages. `made_source_changes`
+  // lives only on metrics — fall back to the trace's diff summary otherwise.
+  const m = metrics.data;
+  const nServiceErrors = m?.n_service_errors ?? trace.data.n_service_errors ?? 0;
+  const verifyInsensitive = m?.verify_insensitive ?? trace.data.verify_insensitive ?? false;
+  const interruptedReason = m?.interrupted_reason ?? null;
+  const madeSourceChanges = m?.made_source_changes
+    ?? ((trace.data.final_diff_summary?.files.length ?? 0) > 0);
+
   return (
     <Stack direction="row" spacing={3} sx={{ maxWidth: 1280, mx: "auto", alignItems: "flex-start" }}>
       <Box sx={{ position: "sticky", top: 0, alignSelf: "flex-start", flexShrink: 0 }}>
@@ -45,6 +57,12 @@ export default function TraceView() {
 
       <Stack spacing={2} sx={{ flex: 1, minWidth: 0 }}>
         <Typography variant="h5">{name} / {condition} / rep {repN}</Typography>
+        <ValiditySignals
+          nServiceErrors={nServiceErrors}
+          interruptedReason={interruptedReason}
+          serviceErrorMessages={trace.data.service_error_messages}
+          verifyInsensitive={verifyInsensitive}
+        />
         <VerdictBanner trace={trace.data} />
         {trace.data.verify_baseline_unknown && (
           <Alert severity="warning">
@@ -57,8 +75,12 @@ export default function TraceView() {
           <TurnCard key={t.messageId ?? t.index} turn={t} index={t.index} rawEvents={rawByMsg(t.messageId)} />
         ))}
         <VerifyCard trace={trace.data} name={name!} condition={condition!} rep={repN} batch={batch} />
-        <FinalDiffCard name={name!} condition={condition!} rep={repN} batch={batch} />
+        <FinalDiffCard
+          name={name!} condition={condition!} rep={repN} batch={batch}
+          madeSourceChanges={madeSourceChanges}
+        />
         <MethodComparisonCard name={name!} condition={condition!} rep={repN} batch={batch} />
+        <RunLogToggle name={name!} condition={condition!} rep={repN} batch={batch} />
         <MetricsDrawer name={name!} condition={condition!} rep={repN} batch={batch} />
       </Stack>
     </Stack>

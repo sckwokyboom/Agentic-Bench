@@ -14,6 +14,7 @@ import { ApiError } from "../api/client";
 import type { RunBatch } from "../api/types";
 import SummaryTable from "../components/SummaryTable";
 import RunsTable from "../components/RunsTable";
+import ValiditySignals from "../components/ValiditySignals";
 
 // Batch ids are "YYYYMMDD-HHMMSS" UTC timestamps (or the literal "legacy").
 // Format lightly for display but keep the raw id as the option value.
@@ -76,6 +77,10 @@ export default function ExperimentResults() {
   const batchQs = batch ? `?batch=${encodeURIComponent(batch)}` : "";
   const showSelector = batchList.length > 0;
 
+  // Insensitive verify is a property of the task, so a single flagged run taints
+  // the whole batch's pass/fail counts — surface the banner if any row is set.
+  const anyInsensitive = (runs.data ?? []).some((r) => r.verify_insensitive);
+
   return (
     <Stack spacing={3} sx={{ maxWidth: 1100, mx: "auto" }}>
       <Stack direction="row" alignItems="center" spacing={2}>
@@ -107,6 +112,8 @@ export default function ExperimentResults() {
           Edit
         </Button>
       </Stack>
+
+      {anyInsensitive && <ValiditySignals verifyInsensitive />}
 
       <Box>
         <Typography variant="subtitle2" gutterBottom>Aggregate (baseline vs augmented)</Typography>

@@ -5,7 +5,7 @@ import { act } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { mswServer } from "./setup";
 import {
-  useBatches, useTrace, useRunsSummary, useStartReverify,
+  useBatches, useTrace, useRunsSummary, useStartReverify, useRunLog,
 } from "../src/api/queries";
 import type { RunBatch } from "../src/api/types";
 
@@ -102,6 +102,38 @@ describe("useRunsSummary with batch", () => {
     );
     await waitFor(() => expect(result.current.data).toBeDefined());
     expect(seenBatch).toBe("20260601-090000");
+  });
+});
+
+describe("useRunLog", () => {
+  it("requests /api/runs/<n>/<c>/<r>/run_log?batch=<b> when enabled", async () => {
+    let seenUrl: string | null = null;
+    mswServer.use(
+      http.get("/api/runs/exp/baseline/0/run_log", ({ request }) => {
+        seenUrl = request.url;
+        return new HttpResponse("run log text", {
+          headers: { "content-type": "text/plain" },
+        });
+      }),
+    );
+    const { result } = renderHook(
+      () => useRunLog("exp", "baseline", 0, true, "20260602-120000"),
+      { wrapper: wrapper() },
+    );
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data).toBe("run log text");
+    const u = new URL(seenUrl!);
+    expect(u.pathname).toBe("/api/runs/exp/baseline/0/run_log");
+    expect(u.searchParams.get("batch")).toBe("20260602-120000");
+  });
+
+  it("does not fetch while disabled (lazy on expand)", async () => {
+    const { result } = renderHook(
+      () => useRunLog("exp", "baseline", 0, false),
+      { wrapper: wrapper() },
+    );
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(result.current.data).toBeUndefined();
   });
 });
 

@@ -48,3 +48,37 @@ describe("ProgressHeader verify badge", () => {
     expect(screen.queryByText(/failing/)).toBeNull();
   });
 });
+
+describe("ProgressHeader service-errors chip", () => {
+  it("renders a red 'N errors' chip when serviceErrors > 0", () => {
+    render(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 4, failed: 0, total: 4 }}
+        serviceErrors={2}
+      />,
+    );
+    expect(screen.getByText(/2 errors/i)).toBeInTheDocument();
+  });
+
+  it("renders no errors chip when serviceErrors is 0", () => {
+    render(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 4, failed: 0, total: 4 }}
+        serviceErrors={0}
+      />,
+    );
+    expect(screen.queryByText(/errors/i)).toBeNull();
+  });
+
+  it("renders no errors chip when serviceErrors is undefined", () => {
+    render(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 4, failed: 0, total: 4 }}
+      />,
+    );
+    expect(screen.queryByText(/errors/i)).toBeNull();
+  });
+});

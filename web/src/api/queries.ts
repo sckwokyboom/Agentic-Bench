@@ -29,6 +29,8 @@ export const qk = {
     ["methodCmp", name, condition, rep, method, b(batch)] as const,
   verifyLog: (name: string, condition: string, rep: number, batch?: string) =>
     ["verifyLog", name, condition, rep, b(batch)] as const,
+  runLog: (name: string, condition: string, rep: number, batch?: string) =>
+    ["runLog", name, condition, rep, b(batch)] as const,
   detectedVerify: (name: string) => ["detectedVerify", name] as const,
   verifyJob: (id: string) => ["verifyJob", id] as const,
   providers: ["providers"] as const,
@@ -147,6 +149,16 @@ export const useVerifyLog = (
     enabled,
     queryFn: () =>
       apiGet<string>(withBatch(`/api/runs/${name}/${condition}/${rep}/verify_log`, batch)),
+  });
+
+export const useRunLog = (
+  name: string, condition: string, rep: number, enabled: boolean, batch?: string,
+) =>
+  useQuery({
+    queryKey: qk.runLog(name, condition, rep, batch),
+    enabled,
+    queryFn: () =>
+      apiGet<string>(withBatch(`/api/runs/${name}/${condition}/${rep}/run_log`, batch)),
   });
 
 export const useDetectedVerify = (name: string | undefined) =>

@@ -79,4 +79,40 @@ describe("ExperimentResults batch selector", () => {
 
     await waitFor(() => expect(summaryBatches).toContain(OLDER));
   });
+
+  it("shows a verify-insensitivity banner when any run is insensitive", async () => {
+    mswServer.use(
+      http.get("/api/runs/exp/batches", () => HttpResponse.json([
+        { id: NEWEST, total_runs: 4, valid_runs: 4, success_rate: 1 },
+      ])),
+      http.get("/api/runs/exp/summary", () => HttpResponse.json(emptySummary())),
+      http.get("/api/runs/exp", () => HttpResponse.json([
+        { condition: "baseline", rep: 0, finished: true, interrupted_reason: null,
+          verify_status: "passed", success: true, started_at: "2026-06-02T10:00:00",
+          duration_s: 10, n_steps: 1, n_tool_calls: 1, n_test_runs: 1, cost: 0.01,
+          verify_insensitive: true },
+      ])),
+    );
+    render(wrap());
+    await waitFor(() =>
+      expect(screen.getByText(/Verify can't distinguish agent work/i)).toBeInTheDocument());
+  });
+
+  it("does not show the insensitivity banner when no run is insensitive", async () => {
+    mswServer.use(
+      http.get("/api/runs/exp/batches", () => HttpResponse.json([
+        { id: NEWEST, total_runs: 4, valid_runs: 4, success_rate: 1 },
+      ])),
+      http.get("/api/runs/exp/summary", () => HttpResponse.json(emptySummary())),
+      http.get("/api/runs/exp", () => HttpResponse.json([
+        { condition: "baseline", rep: 0, finished: true, interrupted_reason: null,
+          verify_status: "passed", success: true, started_at: "2026-06-02T10:00:00",
+          duration_s: 10, n_steps: 1, n_tool_calls: 1, n_test_runs: 1, cost: 0.01 },
+      ])),
+    );
+    render(wrap());
+    // Wait for the row to land, then assert the banner is absent.
+    await waitFor(() => expect(screen.getByText("baseline")).toBeInTheDocument());
+    expect(screen.queryByText(/Verify can't distinguish agent work/i)).toBeNull();
+  });
 });

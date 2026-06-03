@@ -29,6 +29,13 @@ export interface RunSummary {
   n_tool_calls: number | null;
   n_test_runs: number | null;
   cost: number | null;
+  // Validity signals (Tasks A/B): surfaced so the table/results can flag runs
+  // that scored without doing meaningful work (proxy errors, no edits, an
+  // insensitive verify).
+  n_service_errors?: number;
+  n_rate_limits?: number;
+  made_source_changes?: boolean;
+  verify_insensitive?: boolean;
 }
 
 export interface ConditionSummary {
@@ -73,6 +80,11 @@ export interface MetricsJson {
   tokens_reasoning?: number | null;
   cache_read?: number | null;
   cache_write?: number | null;
+  // Validity signals (Tasks A/B).
+  n_service_errors?: number;
+  n_rate_limits?: number;
+  made_source_changes?: boolean;
+  verify_insensitive?: boolean;
   [key: string]: unknown;
 }
 
@@ -126,6 +138,11 @@ export interface Trace {
   verify_message?: string | null;
   isolation_nonce: string | null;
   final_diff_summary: FinalDiffSummary | null;
+  // Validity signals (Tasks A/B). `made_source_changes` is a metrics-only field;
+  // for the trace, derive "no edits" from final_diff_summary.files.length.
+  n_service_errors?: number;
+  verify_insensitive?: boolean;
+  service_error_messages?: string[];
   [key: string]: unknown;
 }
 
