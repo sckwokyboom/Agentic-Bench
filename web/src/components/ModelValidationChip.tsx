@@ -3,6 +3,7 @@ import { Stack, TextField, Chip, Button, Box, Typography, Autocomplete, createFi
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import AddLinkIcon from "@mui/icons-material/AddLink";
 import { useValidateModel, useModelCatalog } from "../api/queries";
 import type { ValidateModelResp, ModelCatalogEntry } from "../api/types";
@@ -111,6 +112,10 @@ export default function ModelValidationChip({ value, onChange, label = "Model", 
           {result.status === "model_not_found" && (
             <Chip size="small" color="warning" icon={<WarningAmberIcon />} label="not in catalog" />
           )}
+          {result.status === "unverified" && (
+            <Chip size="small" variant="outlined" color="info"
+                  icon={<HelpOutlineIcon />} label="couldn't verify" />
+          )}
           {result.status === "malformed" && (
             <Chip size="small" color="warning" icon={<WarningAmberIcon />}
                   label="malformed (expected provider/model)" />
@@ -128,6 +133,12 @@ export default function ModelValidationChip({ value, onChange, label = "Model", 
             </>
           )}
         </Stack>
+      )}
+      {(result?.status === "unverified" || result?.status === "model_not_found") && (
+        <Typography variant="caption" color="text.secondary">
+          Advisory only — this doesn't block running. Pick a suggestion or run as-is
+          if the id is correct for your endpoint.
+        </Typography>
       )}
       {result?.suggestions && result.suggestions.length > 0 && (
         <Box>

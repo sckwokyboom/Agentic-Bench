@@ -37,10 +37,28 @@ test("shows 'not in catalog' + a warning icon for 'model_not_found' with suggest
     HttpResponse.json({ status: "model_not_found", provider: "openrouter", suggestions: ["openrouter/foo-bar"] })));
   const { container } = render(wrap(<ModelValidationChip value="openrouter/foo-baz" onChange={() => {}} />));
   await waitFor(() =>
-    expect(screen.getByText(/not in catalog/i)).toBeInTheDocument(),
+    expect(screen.getByText("not in catalog")).toBeInTheDocument(),
   );
   expect(container.querySelector('[data-testid="WarningAmberIcon"]')).not.toBeNull();
   expect(screen.getByText("openrouter/foo-bar")).toBeInTheDocument();
+  // model_not_found is advisory too — the caption clarifies it doesn't block running.
+  expect(screen.getByText(/advisory only/i)).toBeInTheDocument();
+});
+
+test("shows a neutral 'couldn't verify' chip + advisory caption for 'unverified' (no error/warning)", async () => {
+  mswServer.use(http.post("/api/validate/model", () =>
+    HttpResponse.json({ status: "unverified", provider: "deepseek", suggestions: [] })));
+  const { container } = render(wrap(<ModelValidationChip value="deepseek/deepseek-chat" onChange={() => {}} />));
+  await waitFor(() =>
+    expect(screen.getByText(/couldn.?t verify/i)).toBeInTheDocument(),
+  );
+  // Neutral, not a scary false negative.
+  expect(screen.queryByText("not in catalog")).toBeNull();
+  expect(container.querySelector('[data-testid="WarningAmberIcon"]')).toBeNull();
+  expect(container.querySelector('[data-testid="CancelIcon"]')).toBeNull();
+  expect(container.querySelector('[data-testid="HelpOutlineIcon"]')).not.toBeNull();
+  // Advisory caption is present.
+  expect(screen.getByText(/advisory only/i)).toBeInTheDocument();
 });
 
 test("shows 'no key' + a fail icon + Add API key for 'no_credentials'", async () => {

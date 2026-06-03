@@ -1,11 +1,19 @@
 """Validate model availability without any chat-completion calls.
 
+The check is ADVISORY: it never gates Save/Run. It must also be robust to the
+`opencode` CLI being missing, slow, or unable to reach the model registry
+(proxy/network blocked is common in users' envs) — in those cases we report
+`unverified` ("couldn't determine") instead of a misleading `model_not_found`.
+
 Sequence:
-    1. `opencode providers list` (TTL 30s) → set of configured providers.
-    2. If provider not configured → status=no_credentials, return.
-    3. `opencode models <provider>` (TTL 5min) → catalog.
-    4. If model id in catalog → status=ok.
-    5. Else → status=model_not_found + difflib suggestions.
+    1. `opencode providers list` (TTL 30s) → set of configured providers, or
+       None if the CLI couldn't be reached.
+    2. providers is None                  → status=unverified.
+    3. provider not configured            → status=no_credentials.
+    4. `opencode models <provider>` (TTL 5min) → catalog, or None on failure.
+    5. catalog is None                    → status=unverified.
+    6. model id in catalog                → status=ok.
+    7. else                               → status=model_not_found + difflib.
 """
 from __future__ import annotations
 
@@ -16,7 +24,7 @@ from typing import Literal
 
 from cachetools import TTLCache, cached
 
-Status = Literal["ok", "no_credentials", "model_not_found", "malformed"]
+Status = Literal["ok", "no_credentials", "model_not_found", "malformed", "unverified"]
 
 
 @dataclass
@@ -39,13 +47,19 @@ def clear_caches() -> None:
 
 
 @cached(_PROVIDERS_CACHE)
-def _providers() -> set[str]:
-    result = subprocess.run(
-        ["opencode", "providers", "list"],
-        capture_output=True, text=True, timeout=15,
-    )
+def _providers() -> set[str] | None:
+    """Set of configured providers, or None if the CLI couldn't be queried
+    (missing binary, timeout, OS error, or a non-zero exit). None means
+    "couldn't determine" — distinct from an empty set (genuinely none)."""
+    try:
+        result = subprocess.run(
+            ["opencode", "providers", "list"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
     if result.returncode != 0:
-        return set()
+        return None
     out: set[str] = set()
     for raw in result.stdout.splitlines():
         line = raw.strip()
@@ -59,21 +73,30 @@ def _providers() -> set[str]:
 
 
 @cached(_MODELS_CACHE)
-def _models(provider: str) -> list[str]:
-    result = subprocess.run(
-        ["opencode", "models", provider],
-        capture_output=True, text=True, timeout=15,
-    )
+def _models(provider: str) -> list[str] | None:
+    """Model ids for a provider, or None if the catalog couldn't be fetched
+    (missing binary, timeout, OS error, or non-zero exit). None means
+    "couldn't determine" — distinct from an empty list."""
+    try:
+        result = subprocess.run(
+            ["opencode", "models", provider],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
     if result.returncode != 0:
-        return []
+        return None
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 def list_model_catalog() -> list[dict]:
-    """[{provider, id}] for every model of every configured provider (cached)."""
+    """[{provider, id}] for every model of every configured provider (cached).
+
+    Tolerant of an unreachable CLI: Nones from `_providers`/`_models` are
+    treated as empty so this never raises."""
     out: list[dict] = []
-    for p in sorted(_providers()):
-        for m in _models(p):
+    for p in sorted(_providers() or set()):
+        for m in (_models(p) or []):
             out.append({"provider": p, "id": m})
     return out
 
@@ -86,14 +109,22 @@ def validate_model(model: str) -> ValidationResult:
     if not provider:
         return ValidationResult(status="malformed")
 
-    if provider not in _providers():
+    provs = _providers()
+    if provs is None:
+        # Couldn't reach opencode to list providers — advisory, don't scare.
+        return ValidationResult(status="unverified", provider=provider)
+    if provider not in provs:
         return ValidationResult(status="no_credentials", provider=provider)
 
     catalog = _models(provider)
+    if catalog is None:
+        # Provider is configured but the catalog couldn't be fetched.
+        return ValidationResult(status="unverified", provider=provider)
     if model in catalog:
         return ValidationResult(status="ok", provider=provider)
 
-    # close-match suggestions on the *full* id
+    # close-match suggestions on the *full* id — only meaningful now that the
+    # catalog was genuinely fetched.
     sugg = difflib.get_close_matches(model, catalog, n=3, cutoff=0.6)
     return ValidationResult(
         status="model_not_found", provider=provider, suggestions=sugg,

@@ -159,7 +159,8 @@ export interface ValidateModelResp {
   //   no_credentials → provider has no API key in auth.json
   //   model_not_found→ provider configured but model id not in catalog
   //   malformed      → model id missing provider/ prefix
-  status: "ok" | "no_credentials" | "model_not_found" | "malformed";
+  //   unverified     → couldn't reach the opencode CLI/registry to check
+  status: "ok" | "no_credentials" | "model_not_found" | "malformed" | "unverified";
   provider: string | null;
   suggestions: string[];
 }
