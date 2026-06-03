@@ -74,7 +74,15 @@ export default function ModelValidationChip({ value, onChange, label = "Model", 
           )
         }
         inputValue={draft}
-        onInputChange={(_, v) => { setDraft(v); onChange(v); }}
+        onInputChange={(_, v, reason) => {
+          // Selecting the sentinel ("Add custom endpoint…", label "") makes MUI
+          // fire a reset-to-empty — that must NOT wipe an existing model value.
+          // A real option's reset sets v to its (non-empty) id; user clearing is
+          // reason "clear". So only this exact case is the sentinel reset.
+          if (reason === "reset" && v === "") return;
+          setDraft(v);
+          onChange(v);
+        }}
         onChange={(_, v) => {
           // Selecting the sentinel opens the dialog; it must NOT set the model.
           if (v != null && typeof v !== "string" && isAddCustom(v)) {

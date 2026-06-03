@@ -133,6 +133,22 @@ test("selecting the add-custom option opens the dialog without changing the mode
   expect(input).toHaveValue("");
 });
 
+test("selecting add-custom does NOT clear an existing model value", async () => {
+  mswServer.use(http.post("/api/validate/model", () =>
+    HttpResponse.json({ status: "ok", provider: "openrouter", suggestions: [] })));
+  const seen: string[] = [];
+  const user = userEvent.setup();
+  render(wrap(<ModelValidationChip value="openrouter/moonshotai/kimi-k2" onChange={(v) => seen.push(v)} />));
+  const input = await screen.findByRole("combobox");
+  await user.click(input);
+  await user.click(await screen.findByText(/add custom openai endpoint/i));
+  expect(await screen.findByLabelText(/provider id/i)).toBeInTheDocument();
+  // The pre-existing model must be preserved (the sentinel's empty-label reset
+  // must not wipe it), and onChange must never be called with "".
+  expect(seen).not.toContain("");
+  expect(input).toHaveValue("openrouter/moonshotai/kimi-k2");
+});
+
 test("filling the dialog + Add calls onAddCustomEndpoint with {id, baseUrl, model, apiKey}", async () => {
   mswServer.use(http.post("/api/validate/model", () =>
     HttpResponse.json({ status: "ok", provider: "openrouter", suggestions: [] })));
