@@ -1,5 +1,6 @@
 import type { WidgetProps } from "@rjsf/utils";
 import ModelValidationChip from "../components/ModelValidationChip";
+import type { CustomEndpointInput } from "../components/CustomEndpointDialog";
 import TargetMethodsChips from "../components/TargetMethodsChips";
 import AugmentationField from "../components/AugmentationField";
 
@@ -9,6 +10,10 @@ export function ModelValidationWidget(props: WidgetProps) {
       value={(props.value as string) ?? ""}
       onChange={(v) => props.onChange(v)}
       label={props.label}
+      onAddCustomEndpoint={
+        (props.formContext as { onAddCustomEndpoint?: (i: CustomEndpointInput) => void })
+          ?.onAddCustomEndpoint
+      }
     />
   );
 }

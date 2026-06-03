@@ -89,3 +89,68 @@ test("freeSolo: typing a custom provider/model still calls onChange with that va
   // The free-typed custom id (not in the catalog) was forwarded via onChange.
   expect(seen.some((v) => v === "kimi/kimi-k2.6")).toBe(true);
 });
+
+test("the '+ Add custom OpenAI endpoint' option is always present in the dropdown", async () => {
+  mswServer.use(http.post("/api/validate/model", () =>
+    HttpResponse.json({ status: "ok", provider: "openrouter", suggestions: [] })));
+  const user = userEvent.setup();
+  render(wrap(<ModelValidationChip value="" onChange={() => {}} />));
+  const input = await screen.findByRole("combobox");
+  await user.click(input);
+  // Catalog is non-empty, yet the add-custom action is present.
+  await waitFor(() =>
+    expect(screen.getByText("openrouter/x")).toBeInTheDocument(),
+  );
+  expect(screen.getByText(/add custom openai endpoint/i)).toBeInTheDocument();
+});
+
+test("the add-custom option stays present even when the typed filter matches no catalog entry", async () => {
+  mswServer.use(http.post("/api/validate/model", () =>
+    HttpResponse.json({ status: "model_not_found", provider: "zzz", suggestions: [] })));
+  const user = userEvent.setup();
+  render(wrap(<ModelValidationChip value="" onChange={() => {}} />));
+  const input = await screen.findByRole("combobox");
+  await user.type(input, "zzz-no-such-model");
+  // No catalog entry matches, but the add-custom action remains.
+  expect(screen.getByText(/add custom openai endpoint/i)).toBeInTheDocument();
+});
+
+test("selecting the add-custom option opens the dialog without changing the model value", async () => {
+  mswServer.use(http.post("/api/validate/model", () =>
+    HttpResponse.json({ status: "ok", provider: "openrouter", suggestions: [] })));
+  const seen: string[] = [];
+  const user = userEvent.setup();
+  render(wrap(<ModelValidationChip value="" onChange={(v) => seen.push(v)} />));
+  const input = await screen.findByRole("combobox");
+  await user.click(input);
+  await user.click(await screen.findByText(/add custom openai endpoint/i));
+  // Dialog fields are visible.
+  expect(await screen.findByLabelText(/provider id/i)).toBeInTheDocument();
+  expect(screen.getByLabelText(/base url/i)).toBeInTheDocument();
+  expect(screen.getByLabelText(/model name/i)).toBeInTheDocument();
+  // The model value was NOT changed to the sentinel.
+  expect(seen.every((v) => v !== "__add_custom_endpoint__")).toBe(true);
+  expect(input).toHaveValue("");
+});
+
+test("filling the dialog + Add calls onAddCustomEndpoint with {id, baseUrl, model, apiKey}", async () => {
+  mswServer.use(http.post("/api/validate/model", () =>
+    HttpResponse.json({ status: "ok", provider: "openrouter", suggestions: [] })));
+  const onAdd = vi.fn();
+  const user = userEvent.setup();
+  render(wrap(<ModelValidationChip value="" onChange={() => {}} onAddCustomEndpoint={onAdd} />));
+  const input = await screen.findByRole("combobox");
+  await user.click(input);
+  await user.click(await screen.findByText(/add custom openai endpoint/i));
+  await user.type(await screen.findByLabelText(/provider id/i), "myllm");
+  await user.type(screen.getByLabelText(/base url/i), "http://10.0.0.5:8000/v1");
+  await user.type(screen.getByLabelText(/model name/i), "my-model");
+  await user.type(screen.getByLabelText(/api key/i), "sk-secret");
+  await user.click(screen.getByRole("button", { name: /^add$/i }));
+  expect(onAdd).toHaveBeenCalledWith({
+    id: "myllm",
+    baseUrl: "http://10.0.0.5:8000/v1",
+    model: "my-model",
+    apiKey: "sk-secret",
+  });
+});
