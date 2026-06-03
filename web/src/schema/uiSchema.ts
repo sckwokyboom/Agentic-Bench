@@ -37,6 +37,15 @@ export const uiSchema: UiSchema = {
     search_tool_names: { items: { "ui:options": { label: false } } },
     command_arg_keys: { items: { "ui:options": { label: false } } },
   },
+  // opencode: custom providers (OpenAI-compatible endpoints) + small_model override.
+  // Drop the redundant per-item row labels on each provider's `models` string-array.
+  opencode: {
+    providers: {
+      items: {
+        models: { items: { "ui:options": { label: false } } },
+      },
+    },
+  },
   // System prompt can be long → multiline.
   system_prompt: { "ui:widget": "textarea", "ui:options": { rows: 10 } },
   // VerifyField owns the entire verify object rendering (build-system dropdown,
