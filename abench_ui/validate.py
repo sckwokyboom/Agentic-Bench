@@ -30,6 +30,14 @@ _PROVIDERS_CACHE: TTLCache = TTLCache(maxsize=1, ttl=30)
 _MODELS_CACHE: TTLCache = TTLCache(maxsize=16, ttl=300)
 
 
+def clear_caches() -> None:
+    """Drop the providers + models TTL caches so the next validate() re-queries
+    the opencode CLI. Called right after a credential write so a freshly-added
+    key takes effect immediately instead of after the TTL expires."""
+    _PROVIDERS_CACHE.clear()
+    _MODELS_CACHE.clear()
+
+
 @cached(_PROVIDERS_CACHE)
 def _providers() -> set[str]:
     result = subprocess.run(

@@ -170,6 +170,7 @@ class OpenCodeClient(Protocol):
         timeout_s: int,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
+        cancel_event: "threading.Event | None" = None,
     ) -> RunResult:
         ...
 
@@ -214,6 +215,7 @@ class RealOpenCodeClient:
         timeout_s: int,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
+        cancel_event: "threading.Event | None" = None,
     ) -> RunResult:
         def emit(line: str) -> None:
             """Send a harness/opencode line to stderr AND, if provided, to the
@@ -301,16 +303,32 @@ class RealOpenCodeClient:
         stderr_drainer = threading.Thread(target=_drain_stderr, daemon=True)
         stderr_drainer.start()
 
-        # Wait up to timeout_s for the process to finish.
-        try:
-            proc.wait(timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            interrupted_reason = "timeout"
+        # Wait up to timeout_s for the process to finish, polling so a
+        # cancel_event can kill the subprocess promptly (cooperative cancel).
+        deadline = started_at + timeout_s
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                proc.kill()
+                interrupted_reason = "cancelled"
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                proc.kill()
+                interrupted_reason = "timeout"
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
             try:
-                proc.wait(timeout=10)
+                proc.wait(timeout=min(0.5, remaining))
+                break  # finished naturally
             except subprocess.TimeoutExpired:
-                pass
+                continue
 
         reader.join(timeout=10)
         stderr_drainer.join(timeout=10)

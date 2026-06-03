@@ -6,6 +6,7 @@ import hashlib
 import json
 import random
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime as _datetime, timezone
@@ -63,6 +64,7 @@ def run_experiment(
     client_factory: ClientFactory,
     _plan: list[tuple["Condition", int]] | None = None,
     batch_id: str | None = None,
+    cancel_event: "threading.Event | None" = None,
 ) -> Path:
     if batch_id is None:
         batch_id = default_batch_id()
@@ -89,11 +91,14 @@ def run_experiment(
     )
 
     for idx, (cond, rep) in enumerate(plan, start=1):
+        if cancel_event is not None and cancel_event.is_set():
+            _log("[abench] cancelled — skipping remaining runs")
+            break
         _log(
             f"[abench] ───── run {idx}/{total}: condition={cond.name} rep={rep} ─────"
         )
         t_run = time.time()
-        _run_one(exp, cond, rep, root, client, mcfg)
+        _run_one(exp, cond, rep, root, client, mcfg, cancel_event=cancel_event)
         _log(f"[abench] run {idx}/{total} done in {time.time() - t_run:.1f}s")
         if exp.min_seconds_between_runs:
             _log(f"[abench] cooldown {exp.min_seconds_between_runs}s")
@@ -103,7 +108,8 @@ def run_experiment(
 
 
 def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
-             client: OpenCodeClient, mcfg: MetricsConfig) -> None:
+             client: OpenCodeClient, mcfg: MetricsConfig,
+             cancel_event: "threading.Event | None" = None) -> None:
     rundir = root / cond.name / f"rep_{rep}"
     rundir.mkdir(parents=True, exist_ok=True)
 
@@ -163,6 +169,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                 timeout_s=exp.timeout_s,
                 on_event=on_event,
                 log_sink=log_sink,
+                cancel_event=cancel_event,
             )
         finally:
             events_file.close()

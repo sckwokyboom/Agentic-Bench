@@ -22,6 +22,7 @@ class WSPublishingClient:
         timeout_s: int,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
+        cancel_event=None,
     ) -> RunResult:
         def on_event_relay(event: dict) -> None:
             self._publish(event)
@@ -29,5 +30,5 @@ class WSPublishingClient:
         return self._inner.run_task(
             workdir=workdir, system_prompt=system_prompt, model=model,
             user_message=user_message, timeout_s=timeout_s, on_event=on_event_relay,
-            log_sink=log_sink,
+            log_sink=log_sink, cancel_event=cancel_event,
         )

@@ -1,7 +1,10 @@
+import threading
 import time
 from pathlib import Path
 
 from abench.config import Condition, Experiment, IsolationCfg, MetricsCfg, OpenCodeCfg, VerifyCfg
+from abench.opencode_client import RunResult
+from abench.trace_model import Trace
 from abench_ui.run_session import RunSession, SessionState
 from tests.fakes import FakeOpenCodeClient
 
@@ -53,6 +56,8 @@ def test_run_session_runs_to_completion_and_publishes_envelopes(tmp_path):
     assert started["batch_id"] == session.batch_id
     assert started["batch_id"]  # non-empty
     assert started["isolation"] == {"nonce_prefix": False, "shuffle_order": False}
+    # session.started carries the experiment's model so the live run can show it
+    assert started["model"] == exp.model
 
     # run.finished carries the same batch id (Task 3/4 consume it)
     finished = next(m for m in published if m["type"] == "run.finished")
@@ -100,6 +105,44 @@ def test_run_session_cancel_marks_state(tmp_path):
     assert session.state in (SessionState.COMPLETED, SessionState.CANCELLED)
 
 
+class _BlockUntilCancelClient:
+    """A client whose run_task blocks until the cancel_event is set, then
+    returns a cancelled trace. Proves the cancel Event is threaded all the way
+    down to run_task and unblocks the run."""
+
+    def __init__(self, started: threading.Event):
+        self._started = started
+
+    def run_task(self, *, workdir, system_prompt, model, user_message,
+                 timeout_s, on_event, log_sink=None, cancel_event=None):
+        self._started.set()
+        while not (cancel_event is not None and cancel_event.is_set()):
+            time.sleep(0.01)
+        return RunResult(
+            trace=Trace(interrupted_reason="cancelled", finished=False),
+        )
+
+
+def test_run_session_cancel_unblocks_run_and_sets_cancelled(tmp_path):
+    """Cancel must reach run_task (via the cancel Event) and unblock the run,
+    leaving the session CANCELLED — not a no-op."""
+    exp = _make_exp(tmp_path)
+    started = threading.Event()
+    session = RunSession(
+        id="sess-cancel-real",
+        experiment=exp,
+        client_factory=lambda e: _BlockUntilCancelClient(started),
+        publish=lambda _ev: None,
+    )
+    session.start()
+    assert started.wait(timeout=5), "run_task never started"
+    session.cancel()
+    session._thread.join(timeout=5)
+    assert session._thread is not None
+    assert not session._thread.is_alive(), "run thread did not finish after cancel"
+    assert session.state == SessionState.CANCELLED
+
+
 def test_run_session_error_publishes_session_error(tmp_path):
     """If the experiment raises, state is FAILED and session.error is published."""
     exp = _make_exp(tmp_path)
@@ -130,7 +173,7 @@ class _ValidityClient:
     validity fields."""
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None):
+                 timeout_s, on_event, log_sink=None, cancel_event=None):
         from pathlib import Path as _Path
 
         from abench.opencode_client import RunResult

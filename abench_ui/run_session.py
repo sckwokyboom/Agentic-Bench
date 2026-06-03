@@ -67,6 +67,7 @@ class _PerRunPublishingClient:
         timeout_s: int,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
+        cancel_event: "threading.Event | None" = None,
     ) -> RunResult:
         cond, rep = self._plan[self._idx]
         self._idx += 1
@@ -103,6 +104,7 @@ class _PerRunPublishingClient:
             timeout_s=timeout_s,
             on_event=on_event_relay,
             log_sink=log_sink,
+            cancel_event=cancel_event,
         )
 
         tr = result.trace
@@ -183,8 +185,9 @@ class RunSession:
         self._thread.start()
 
     def cancel(self) -> None:
-        """Cooperative best-effort cancel. Sets the cancel flag; v1 does not
-        hard-kill the running opencode subprocess."""
+        """Cooperative cancel. Sets the cancel Event, which is threaded down to
+        the running opencode subprocess (killed promptly) and checked before
+        each remaining run so the loop breaks."""
         self._cancel_flag.set()
 
     def _position_callback(self, idx: int, condition: str, rep: int) -> None:
@@ -207,6 +210,7 @@ class RunSession:
             "type": "session.started",
             "session_id": self.id,
             "batch_id": self.batch_id,
+            "model": self.experiment.model,
             "total_runs": self.total_runs,
             "conditions": [c.name for c in self.experiment.conditions],
             "isolation": {
@@ -229,7 +233,7 @@ class RunSession:
 
         try:
             run_experiment(self.experiment, wrapped_factory, _plan=self.plan,
-                           batch_id=self.batch_id)
+                           batch_id=self.batch_id, cancel_event=self._cancel_flag)
             if self._cancel_flag.is_set():
                 self.state = SessionState.CANCELLED
             else:

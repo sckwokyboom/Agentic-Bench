@@ -1,5 +1,6 @@
 # tests/test_runner.py
 import json
+import threading
 from pathlib import Path
 
 from abench.config import Condition, Experiment, MetricsCfg, OpenCodeCfg
@@ -61,7 +62,7 @@ class _ServiceErrorClient:
     raw events (429 + 503), and writes a line through log_sink."""
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None):
+                 timeout_s, on_event, log_sink=None, cancel_event=None):
         from abench.opencode_client import _count_service_errors
         from abench.opencode_client import RunResult
         from abench.trace_model import Trace
@@ -110,6 +111,60 @@ def test_run_one_writes_run_log_and_error_metrics(tmp_path):
     assert metrics["n_rate_limits"] == 0
     # FakeOpenCodeClient writes GENERATED.txt → real source change
     assert metrics["made_source_changes"] is True
+
+
+class _CancelAfterFirstClient(FakeOpenCodeClient):
+    """Fake client that sets a cancel_event after its first run_task call, so
+    the runner's pre-run cancel check breaks the loop before the second run."""
+
+    def __init__(self, cancel_event: threading.Event):
+        self._cancel_event = cancel_event
+        self._calls = 0
+
+    def run_task(self, *, workdir, system_prompt, model, user_message,
+                 timeout_s, on_event, log_sink=None, cancel_event=None):
+        self._calls += 1
+        result = super().run_task(
+            workdir=workdir, system_prompt=system_prompt, model=model,
+            user_message=user_message, timeout_s=timeout_s,
+            on_event=on_event, log_sink=log_sink,
+        )
+        # Trip the cancel flag after the first run completes.
+        self._cancel_event.set()
+        return result
+
+
+def test_run_experiment_breaks_loop_on_cancel(tmp_path):
+    """With a 2-run plan, cancelling after the first run must stop the loop so
+    the second run's dir is never created."""
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    (fixture / "a.py").write_text("def f():\n    ...\n")
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    exp = Experiment(
+        name="cancel-exp",
+        fixture_path=fixture,
+        reference_path=reference,
+        task_prompt="t", system_prompt="s", model="fake/model",
+        output_dir=tmp_path / "runs",
+        repetitions=2,
+        conditions=[Condition(name="baseline", augmentation=None)],
+        opencode=OpenCodeCfg(),
+        metrics=MetricsCfg(),
+    )
+    # Disable shuffle so the plan order (rep_0 then rep_1) is deterministic.
+    exp.isolation.shuffle_order = False
+    cancel_event = threading.Event()
+    root = run_experiment(
+        exp,
+        lambda e: _CancelAfterFirstClient(cancel_event),
+        batch_id="20260601-000000",
+        cancel_event=cancel_event,
+    )
+    assert (root / "baseline" / "rep_0").is_dir()
+    # The second run must have been skipped — its dir is never created.
+    assert not (root / "baseline" / "rep_1").exists()
 
 
 def test_run_experiment_writes_isolation_nonce_to_trace(tmp_path):

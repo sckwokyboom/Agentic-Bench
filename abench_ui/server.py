@@ -365,6 +365,9 @@ def create_app(
     @api.post("/providers/{provider}/credentials")
     def _creds(provider: str, body: _CredentialsBody):
         prov_mod.write_credentials(provider, body.api_key)
+        # Invalidate the validate caches so the new key takes effect immediately
+        # (otherwise the model chip keeps showing "no key" for up to the TTL).
+        validate_mod.clear_caches()
         return {"ok": True}
 
     # ── Session management (POST /runs + GET/DELETE /sessions) ───────────────
