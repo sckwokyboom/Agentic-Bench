@@ -38,6 +38,16 @@ test("shows reason, message, build system; opens the log dialog", async () => {
   expect(await screen.findByText(/BUILD FAILURE/)).toBeInTheDocument();
 });
 
+test("does not crash when verify_failed_names is missing (partial trace)", () => {
+  const partial = { ...base, verify_status: "passed", verify_passed_count: 42 } as Trace;
+  delete (partial as Record<string, unknown>).verify_failed_names;
+  const { container } = render(
+    wrap(<VerifyCard trace={partial} name="exp" condition="baseline" rep={0} />),
+  );
+  // Renders the card instead of throwing (the field defaults to []).
+  expect(container.firstChild).not.toBeNull();
+});
+
 test("renders nothing when verify_status is null", () => {
   const { container } = render(
     wrap(<VerifyCard trace={{ ...base, verify_status: null }} name="exp" condition="baseline" rep={0} />),

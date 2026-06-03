@@ -53,6 +53,8 @@ export default function VerifyCard({ trace, name, condition, rep, batch }: Props
   const passed = trace.verify_passed_count ?? 0;
   const failed = trace.verify_failed_count ?? 0;
   const total = passed + failed;
+  // Defensive: a re-verified / partial / hand-seeded trace may omit this list.
+  const failedNames = trace.verify_failed_names ?? [];
   const toneColor: "success" | "error" | "warning" =
     status === "passed" ? "success" : status === "failed" ? "error" : "warning";
   const headline = trace.verify_message || status;
@@ -85,7 +87,7 @@ export default function VerifyCard({ trace, name, condition, rep, batch }: Props
           {trace.verify_duration_s != null && <> · {trace.verify_duration_s.toFixed(1)}s</>}
         </Typography>
 
-        {trace.verify_failed_names.length > 0 && (
+        {failedNames.length > 0 && (
           <>
             <Button
               size="small"
@@ -97,11 +99,11 @@ export default function VerifyCard({ trace, name, condition, rep, batch }: Props
                 />
               }
             >
-              {open ? "hide failing" : `show ${trace.verify_failed_names.length} failing`}
+              {open ? "hide failing" : `show ${failedNames.length} failing`}
             </Button>
             <Collapse in={open}>
               <Box sx={{ mt: 1, fontFamily: "monospace", fontSize: 12, ...selectable }}>
-                {trace.verify_failed_names.map((n) => (
+                {failedNames.map((n) => (
                   <Typography key={n} variant="body2" color="error">— {n}</Typography>
                 ))}
               </Box>
