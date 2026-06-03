@@ -4,16 +4,20 @@ import {
   Stack, Box, Typography, CircularProgress, Alert, Button, Snackbar,
 } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import AddLinkIcon from "@mui/icons-material/AddLink";
 import type { RJSFValidationError } from "@rjsf/utils";
 import ExperimentForm from "../components/ExperimentForm";
 import SavedExperimentCard from "../components/SavedExperimentCard";
+import CustomEndpointDialog, { type CustomEndpointInput } from "../components/CustomEndpointDialog";
 import ValidationPanel from "../components/ValidationPanel";
 import PlanPanel from "../components/PlanPanel";
 import FixturesPanel from "../components/FixturesPanel";
 import PreviousRunsPanel from "../components/PreviousRunsPanel";
 import {
   useExperiment, useExperiments, useSaveExperiment, useStartRun, useDetectedVerify,
+  useWriteProviderCredentials,
 } from "../api/queries";
+import { applyCustomEndpoint } from "../lib/customEndpoint";
 import { loadSchema, type JsonSchema } from "../api/schemaCache";
 import { uiSchema } from "../schema/uiSchema";
 import {
@@ -39,10 +43,13 @@ export default function ExperimentEdit() {
   const list = useExperiments();
   const save = useSaveExperiment();
   const start = useStartRun();
+  const writeCreds = useWriteProviderCredentials();
   const [formData, setFormData] = useState<Record<string, unknown> | null>(null);
   const [errors, setErrors] = useState<RJSFValidationError[]>([]);
   const [saved, setSaved] = useState(false);
   const [toastOpen, setToastOpen] = useState(false);
+  const [epOpen, setEpOpen] = useState(false);
+  const [formKey, setFormKey] = useState(0);
 
   useEffect(() => { loadSchema().then(setSchema); }, []);
   useEffect(() => { if (exp.data && formData === null) setFormData(exp.data); }, [exp.data, formData]);
@@ -61,6 +68,22 @@ export default function ExperimentEdit() {
     if (!name) return;
     const { session_id } = await start.mutateAsync(name);
     navigate(`/runs/sessions/${session_id}`, { state: { experimentName: name } });
+  }
+
+  async function handleAddEndpoint({ id, baseUrl, model, apiKey }: CustomEndpointInput) {
+    const next = applyCustomEndpoint(formData ?? {}, { id, baseUrl, model });
+    setFormData(next);
+    setSaved(false);
+    setFormKey((k) => k + 1); // remount ExperimentForm so it re-initializes from next
+    if (apiKey) {
+      // Best-effort: the key lands only in opencode auth.json, never in formData.
+      try {
+        await writeCreds.mutateAsync({ provider: id, api_key: apiKey });
+      } catch (e) {
+        console.warn("Failed to write provider credentials; wiring kept anyway.", e);
+      }
+    }
+    setEpOpen(false);
   }
 
   // Error guard MUST come first: on a fetch error TanStack Query leaves
@@ -88,6 +111,18 @@ export default function ExperimentEdit() {
             Failed to save: {(save.error as Error)?.message ?? "unknown error"}
           </Alert>
         )}
+        <Box sx={{ mb: 2 }}>
+          <Button
+            size="small"
+            startIcon={<AddLinkIcon />}
+            onClick={() => setEpOpen(true)}
+          >
+            Add custom OpenAI endpoint
+          </Button>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Point the experiment at any OpenAI-compatible URL (e.g. OpenRouter or a self-hosted IP:port).
+          </Typography>
+        </Box>
         {saved ? (
           <SavedExperimentCard
             name={name ?? ""}
@@ -99,6 +134,7 @@ export default function ExperimentEdit() {
           />
         ) : (
           <ExperimentForm
+            key={formKey}
             schema={schema as never}
             uiSchema={uiSchema}
             formData={formData}
@@ -112,6 +148,11 @@ export default function ExperimentEdit() {
             onSave={handleSave}
           />
         )}
+        <CustomEndpointDialog
+          open={epOpen}
+          onClose={() => setEpOpen(false)}
+          onAdd={handleAddEndpoint}
+        />
       </Box>
       <Box sx={{ width: 320, position: "sticky", top: 0, alignSelf: "flex-start" }}>
         <Stack spacing={2}>
