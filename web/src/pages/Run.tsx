@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { Stack, Box, Button, Typography } from "@mui/material";
+import { Stack, Box, Button, Typography, Chip } from "@mui/material";
 import { useRunSession } from "../ws/useRunSession";
 import ProgressHeader from "../components/ProgressHeader";
 import RunSidebar from "../components/RunSidebar";
@@ -32,6 +32,7 @@ export default function Run() {
     // may omit it) — fall back to on/on only when truly absent.
     let isolationOn = { nonce: true, shuffle: true };
     let batchId: string | null = null;
+    let model: string | null = null;
     for (const e of ws.envelopes) {
       if (e.type === "session.started") {
         totalRuns = e.total_runs;
@@ -42,6 +43,7 @@ export default function Run() {
           };
         }
         if (e.batch_id !== undefined) batchId = e.batch_id;
+        if (e.model !== undefined) model = e.model;
       } else if (e.type === "run.started") {
         runIdx = e.run_idx; condition = e.condition; rep = e.rep; running += 1;
       } else if (e.type === "run.finished") {
@@ -66,7 +68,7 @@ export default function Run() {
       totalRuns, done, running, pending, runIdx, condition, rep,
       verify: { passed: verifyPassed, failed: verifyFailed, total: verifyTotal },
       serviceErrors,
-      sessionFinished, firstFinishedCond, firstFinishedRep, isolationOn, batchId,
+      sessionFinished, firstFinishedCond, firstFinishedRep, isolationOn, batchId, model,
     };
   }, [ws.envelopes]);
 
@@ -104,13 +106,20 @@ export default function Run() {
 
   return (
     <Stack spacing={2} sx={{ height: "100%" }}>
-      <Stack direction="row" alignItems="center" spacing={2}>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>Live run · {sid}</Typography>
+      <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap">
+        <Typography variant="h5">
+          Live run{experimentName ? ` · ${experimentName}` : ""}
+        </Typography>
+        {derived.model && (
+          <Chip size="small" color="primary" variant="outlined" label={`model: ${derived.model}`} />
+        )}
+        <Typography variant="caption" color="text.secondary">{sid}</Typography>
+        <Box sx={{ flexGrow: 1 }} />
         <Button
           color="warning" variant="outlined"
           disabled={!sid || derived.sessionFinished || cancel.isPending}
           onClick={() => sid && cancel.mutateAsync(sid)}
-        >Cancel</Button>
+        >{cancel.isPending ? "Cancelling…" : derived.sessionFinished ? "Finished" : "Cancel"}</Button>
       </Stack>
       <ProgressHeader
         runIdx={derived.runIdx}

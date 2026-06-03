@@ -10,6 +10,7 @@ export interface SessionStarted {
   // are kept optional so existing constructors (tests/replay) compile unchanged.
   batch_id?: string;
   isolation?: { nonce_prefix: boolean; shuffle_order: boolean };
+  model?: string;
 }
 
 export interface RunStarted {
