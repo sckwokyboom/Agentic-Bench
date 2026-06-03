@@ -57,6 +57,9 @@ def list_runs(root_runs_dir: Path) -> list[dict]:
                 "n_tool_calls": m.get("n_tool_calls"),
                 "n_test_runs": m.get("n_test_runs"),
                 "cost": m.get("cost"),
+                "n_service_errors": m.get("n_service_errors", 0),
+                "made_source_changes": m.get("made_source_changes", False),
+                "verify_insensitive": m.get("verify_insensitive", False),
                 "started_at": _mtime_iso(m_path),
             })
     return items

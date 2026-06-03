@@ -197,6 +197,60 @@ def test_patch_success_batch_aware(client):
     assert r.json()["success"] is True
 
 
+def test_run_log_endpoint_batch_aware(client):
+    """GET .../run_log returns the run.log text (200) and 404 when absent."""
+    c, root = client
+    name = "exp-rl"
+    _seed_batched_run(root, name, "20260101-000000", "baseline", 0,
+                      {"success": None, "interrupted_reason": None})
+    (root / name / "experiment.yaml").write_text(
+        "name: exp-rl\nfixture_path: ./stripped\n")
+    rd = root / name / "runs" / name / "20260101-000000" / "baseline" / "rep_0"
+    (rd / "run.log").write_text("[abench] starting task\n[abench] done\n")
+
+    r = c.get(f"/api/runs/{name}/baseline/0/run_log?batch=20260101-000000")
+    assert r.status_code == 200
+    assert "[abench] starting task" in r.text
+
+    # absent file → 404
+    r = c.get(f"/api/runs/{name}/augmented/0/run_log?batch=20260101-000000")
+    assert r.status_code == 404
+
+
+def test_list_runs_surfaces_new_validity_fields(client):
+    """list_runs items include n_service_errors / made_source_changes /
+    verify_insensitive / interrupted_reason from metrics.json (defaults when
+    absent)."""
+    c, root = client
+    name = "exp-vf"
+    _seed_batched_run(root, name, "20260101-000000", "baseline", 0, {
+        "success": None, "interrupted_reason": "rate_limited",
+        "n_service_errors": 3, "made_source_changes": True,
+        "verify_insensitive": True,
+    })
+    # a second run with the fields absent → defaults.
+    _seed_batched_run(root, name, "20260101-000000", "augmented", 0, {
+        "success": None, "interrupted_reason": None,
+    })
+    (root / name / "experiment.yaml").write_text(
+        "name: exp-vf\nfixture_path: ./stripped\n")
+
+    items = c.get(f"/api/runs/{name}?batch=20260101-000000").json()
+    by_cond = {it["condition"]: it for it in items}
+
+    base = by_cond["baseline"]
+    assert base["n_service_errors"] == 3
+    assert base["made_source_changes"] is True
+    assert base["verify_insensitive"] is True
+    assert base["interrupted_reason"] == "rate_limited"
+
+    aug = by_cond["augmented"]
+    assert aug["n_service_errors"] == 0
+    assert aug["made_source_changes"] is False
+    assert aug["verify_insensitive"] is False
+    assert aug["interrupted_reason"] is None
+
+
 def test_realshape_trace_and_metrics_flow_through_endpoints(client):
     """End-to-end contract smoke (plan Task 10 Step 3): a finished run whose
     trace.json carries the REAL normalized shape (a tool_call paired with its

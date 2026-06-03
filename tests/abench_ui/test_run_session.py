@@ -124,6 +124,67 @@ def test_run_session_error_publishes_session_error(tmp_path):
     assert types[-1] == "session.finished"
 
 
+class _ValidityClient:
+    """Stub client whose trace carries service errors + a non-empty
+    final_diff_summary, so the run.finished envelope can surface the new
+    validity fields."""
+
+    def run_task(self, *, workdir, system_prompt, model, user_message,
+                 timeout_s, on_event, log_sink=None):
+        from pathlib import Path as _Path
+
+        from abench.opencode_client import RunResult
+        from abench.trace_model import (
+            FileChange,
+            FinalDiffSummary,
+            Step,
+            StepKind,
+            Trace,
+        )
+
+        if log_sink is not None:
+            log_sink("[stub] starting task")
+        on_event({"type": "message.start"})
+        (_Path(workdir) / "a.py").write_text("x = 2\n")  # mutate the fixture
+        trace = Trace(
+            started_at=0.0, ended_at=1.0, finished=True,
+            n_service_errors=2, n_rate_limits=1, verify_insensitive=True,
+            steps=[Step(kind=StepKind.FILE_EDIT, ts=1.0, turn=0,
+                        path="a.py", patch="+x = 2")],
+        )
+        # The runner overwrites final_diff_summary from the real patch, but set
+        # one here too so the trace is self-describing if read directly.
+        trace.final_diff_summary = FinalDiffSummary(
+            files=[FileChange(path="a.py", added=1, removed=1)],
+            total_added=1, total_removed=1,
+        )
+        return RunResult(trace=trace, raw_session={"stub": True})
+
+
+def test_run_finished_envelope_surfaces_validity_fields(tmp_path):
+    """run.finished carries n_service_errors + made_source_changes
+    (the latter derived from the trace's final_diff_summary)."""
+    exp = _make_exp(tmp_path)
+    published: list[dict] = []
+    session = RunSession(
+        id="sess-validity",
+        experiment=exp,
+        client_factory=lambda e: _ValidityClient(),
+        publish=published.append,
+    )
+    session.start()
+    for _ in range(50):
+        if session.state in (SessionState.COMPLETED, SessionState.FAILED):
+            break
+        time.sleep(0.1)
+    assert session.state == SessionState.COMPLETED
+
+    finished = next(m for m in published if m["type"] == "run.finished")
+    assert finished["n_service_errors"] == 2
+    assert finished["made_source_changes"] is True
+    assert finished["verify_insensitive"] is True
+
+
 def test_run_session_properties(tmp_path):
     """started_at / ended_at are set correctly."""
     exp = _make_exp(tmp_path)

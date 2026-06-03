@@ -290,6 +290,17 @@ def create_app(
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
 
+    @api.get("/runs/{name}/{condition}/{rep}/run_log")
+    def _read_run_log(name: str, condition: str, rep: int, batch: str | None = None):
+        rd = _resolve_runs_dir(name, batch)
+        try:
+            return Response(
+                runs_mod.read_artefact(rd, condition, rep, "run.log"),
+                media_type="text/plain",
+            )
+        except runs_mod.RunNotFound as exc:
+            raise HTTPException(404, str(exc))
+
     @api.get("/runs/{name}/{condition}/{rep}/method_comparison")
     def _method_comparison(name: str, condition: str, rep: int, request: Request,
                            batch: str | None = None):

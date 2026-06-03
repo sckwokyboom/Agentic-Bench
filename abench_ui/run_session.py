@@ -106,6 +106,14 @@ class _PerRunPublishingClient:
         )
 
         tr = result.trace
+        # `made_source_changes` mirrors the metrics semantics (non-empty patch);
+        # the runner has already populated tr.final_diff_summary from the real
+        # diff by the time run_task returns, so read the files list off the
+        # trace — the reliable source available here without re-reading
+        # metrics.json. n_service_errors / verify_insensitive come straight off
+        # the trace too.
+        fds = tr.final_diff_summary
+        made_source_changes = bool(fds is not None and fds.files)
         self._publish({
             "type": "run.finished",
             "session_id": self._session_id,
@@ -116,6 +124,9 @@ class _PerRunPublishingClient:
             "rep": rep,
             "finished": tr.finished,
             "interrupted_reason": tr.interrupted_reason,
+            "n_service_errors": tr.n_service_errors,
+            "made_source_changes": made_source_changes,
+            "verify_insensitive": tr.verify_insensitive,
             "verify": {
                 "status": tr.verify_status,
                 "passed_count": tr.verify_passed_count,
