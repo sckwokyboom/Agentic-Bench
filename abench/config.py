@@ -85,9 +85,9 @@ class OpenCodeCfg(BaseModel):
         default=None,
         title="Small model override",
         description=(
-            "Override opencode's helper model (titles/summaries). Default uses "
-            "opencode's free native model; set this if you have no opencode-native "
-            "access, e.g. 'kimi/kimi-k2.6' or 'openrouter/...'."
+            "opencode's helper model (titles/summaries). Defaults to the run's "
+            "main model, so the bench uses one provider; set this only if you "
+            "want a cheaper/faster helper, e.g. 'openrouter/...'."
         ),
     )
     providers: list[ProviderCfg] = Field(

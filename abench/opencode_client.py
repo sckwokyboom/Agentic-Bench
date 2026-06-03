@@ -122,7 +122,6 @@ def build_opencode_config(
     cfg: OpenCodeCfg,
     model: str,
     system_prompt: str,
-    small_model_default: str,
 ) -> dict:
     """Build the workdir-local ``opencode.json`` payload.
 
@@ -130,8 +129,14 @@ def build_opencode_config(
     are NEVER inlined: a provider's API key is referenced as ``{env:NAME}`` (or
     left to opencode's auth.json) — :class:`~abench.config.ProviderCfg` has no
     field that could carry a raw key.
+
+    ``small_model`` defaults to the run's main ``model`` (so the bench talks to
+    the SAME provider that the operator's interactive opencode uses) — NOT to an
+    opencode-native model, which would inject a second gateway/domain that a
+    corporate proxy may forbid even when the main model works. Override via
+    ``OpenCodeCfg.small_model`` to use a cheaper helper.
     """
-    small = cfg.small_model or small_model_default
+    small = cfg.small_model or model
     config: dict = {
         "$schema": "https://opencode.ai/config.json",
         "model": model,
@@ -182,9 +187,11 @@ class RealOpenCodeClient:
     ---------------------------------------------------------------------------
     Before each run, a file ``opencode.json`` is written into *workdir*.  It
     defines a custom named agent (``cfg.agent``) whose ``prompt`` key carries
-    the caller-supplied *system_prompt*, and pins both ``model`` and
-    ``small_model`` (to the free opencode-native model) so the harness is
-    self-sufficient regardless of the user's global config.
+    the caller-supplied *system_prompt*, pins ``model``, and defaults
+    ``small_model`` to that SAME model (overridable via ``OpenCodeCfg``) so the
+    bench uses one provider — the one the operator's interactive opencode
+    already reaches — instead of injecting an opencode-native gateway a
+    corporate proxy may forbid.
 
     Probe evidence (run during Task 13):
         $ mkdir /tmp/oc-probe2
@@ -196,8 +203,6 @@ class RealOpenCodeClient:
     The workdir-local config is merged; the named agent appears.  Approach A works.
     ---------------------------------------------------------------------------
     """
-
-    _SMALL_MODEL_FREE = "opencode/mimo-v2.5-free"
 
     def __init__(self, cfg: OpenCodeCfg, timeout_s: int = 600) -> None:
         self._cfg = cfg
@@ -231,7 +236,7 @@ class RealOpenCodeClient:
         # ── Approach A: write workdir-local config ────────────────────────
         workdir_path = Path(workdir)
         config_data = build_opencode_config(
-            self._cfg, model, system_prompt, self._SMALL_MODEL_FREE
+            self._cfg, model, system_prompt
         )
         (workdir_path / "opencode.json").write_text(
             json.dumps(config_data, indent=2), encoding="utf-8"
