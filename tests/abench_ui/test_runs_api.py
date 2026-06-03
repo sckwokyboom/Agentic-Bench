@@ -166,6 +166,24 @@ def test_list_runs_resolves_batch(client):
     assert c.get(f"/api/runs/{name}/baseline/0/trace?batch=nope").status_code == 404
 
 
+def test_in_progress_batch_returns_empty_not_404(client):
+    """A live run creates the batch dir before any rep finishes (e.g. during
+    baseline verify). Polling /api/runs?batch=<that id> must return 200 [] — not
+    404 — so the live page's poll doesn't flood 404s while the run is starting."""
+    c, root = client
+    name = "exp-ip"
+    (root / name).mkdir(parents=True)
+    (root / name / "experiment.yaml").write_text("name: exp-ip\nfixture_path: ./stripped\n")
+    # batch dir exists, but no <cond>/rep_*/ yet (run just started)
+    (root / name / "runs" / name / "20260603-135405").mkdir(parents=True)
+
+    r = c.get(f"/api/runs/{name}?batch=20260603-135405")
+    assert r.status_code == 200
+    assert r.json() == []
+    # genuinely-unknown batch still 404s
+    assert c.get(f"/api/runs/{name}?batch=nope").status_code == 404
+
+
 def test_legacy_flat_layout_still_resolves(client):
     """Existing flat-layout runs (no batch segment) must still be found via the
     newest-by-default → legacy fallback."""

@@ -74,3 +74,15 @@ def test_list_batches_empty(tmp_path: Path):
     assert list_batches(root) == []
     assert batch_runs_dir(root, None) is None
     assert batch_runs_dir(root, "legacy") is None
+
+
+def test_explicit_in_progress_batch_resolves_without_runs(tmp_path: Path):
+    """A just-created batch dir (live run, before the first rep wrote artefacts —
+    e.g. during baseline verify) must resolve so the runs endpoint returns []
+    rather than 404. A genuinely-unknown id still resolves to None (→ 404)."""
+    root = tmp_path / "runs" / "exp"
+    inprog = root / "20260603-135405"
+    inprog.mkdir(parents=True)
+    (inprog / "experiment.resolved.yaml").write_text("name: exp\n")  # no cond/rep yet
+    assert batch_runs_dir(root, "20260603-135405") == inprog
+    assert batch_runs_dir(root, "nope-not-a-dir") is None

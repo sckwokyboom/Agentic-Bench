@@ -94,9 +94,30 @@ def batch_runs_dir(exp_runs_root: Path, batch: str | None) -> Path | None:
     'legacy' -> the flat root.
     Otherwise <root>/<batch>.
 
-    Returns None if the resolved dir doesn't exist / has no runs.
+    An EXPLICIT batch id resolves to its directory if that directory EXISTS,
+    even when it has no completed runs yet (an in-progress run, before the first
+    rep wrote artefacts — e.g. during baseline verify). This lets the runs
+    endpoint return an empty list (200) for an in-progress batch instead of 404,
+    which otherwise floods the logs while a live run is starting.
+
+    Returns None only when the dir genuinely doesn't exist (bad id), or — for
+    the newest/legacy default — when there are no runs at all.
     """
     root = Path(exp_runs_root)
+
+    # ── Explicit batch id ────────────────────────────────────────────────
+    if batch and batch != "legacy":
+        # Path-traversal guard: a batch id must resolve to a direct child of root.
+        target = (root / batch).resolve()
+        try:
+            if target.parent != root.resolve():
+                return None
+        except OSError:
+            return None
+        # Resolve if the directory exists — even if it has no rep dirs yet.
+        return (root / batch) if (root / batch).is_dir() else None
+
+    # ── None/'' (newest) or 'legacy' ─────────────────────────────────────
     batches = list_batches(root)
     if not batches:
         return None
@@ -106,19 +127,7 @@ def batch_runs_dir(exp_runs_root: Path, batch: str | None) -> Path | None:
         top = batches[0]["id"]
         return root if top == "legacy" else root / top
 
-    if batch == "legacy":
-        # Only valid if the root actually has a flat layout.
-        if any(b["id"] == "legacy" for b in batches):
-            return root
-        return None
-
-    # Path-traversal guard: a batch id must resolve to a direct child of root.
-    target = (root / batch).resolve()
-    try:
-        if target.parent != root.resolve():
-            return None
-    except OSError:
-        return None
-    if any(b["id"] == batch for b in batches):
-        return root / batch
+    # batch == "legacy" — only valid if the root actually has a flat layout.
+    if any(b["id"] == "legacy" for b in batches):
+        return root
     return None
