@@ -118,6 +118,41 @@ def _count_service_errors(raw_events: list[dict]) -> tuple[int, int, list[str]]:
     return n_service_errors, n_rate_limits, messages
 
 
+def build_opencode_config(
+    cfg: OpenCodeCfg,
+    model: str,
+    system_prompt: str,
+    small_model_default: str,
+) -> dict:
+    """Build the workdir-local ``opencode.json`` payload.
+
+    Pure (no I/O) so it can be unit-tested without spawning opencode. Secrets
+    are NEVER inlined: a provider's API key is referenced as ``{env:NAME}`` (or
+    left to opencode's auth.json) — :class:`~abench.config.ProviderCfg` has no
+    field that could carry a raw key.
+    """
+    small = cfg.small_model or small_model_default
+    config: dict = {
+        "$schema": "https://opencode.ai/config.json",
+        "model": model,
+        "small_model": small,
+        "agent": {cfg.agent: {"prompt": system_prompt, "model": model}},
+    }
+    if cfg.providers:
+        prov: dict = {}
+        for p in cfg.providers:
+            block: dict = {"npm": p.npm, "models": {m: {} for m in p.models}}
+            if p.name:
+                block["name"] = p.name
+            options: dict = {"baseURL": p.base_url}
+            if p.api_key_env:
+                options["apiKey"] = "{env:" + p.api_key_env + "}"
+            block["options"] = options
+            prov[p.id] = block
+        config["provider"] = prov
+    return config
+
+
 @dataclass
 class RunResult:
     trace: Trace
@@ -193,17 +228,9 @@ class RealOpenCodeClient:
 
         # ── Approach A: write workdir-local config ────────────────────────
         workdir_path = Path(workdir)
-        config_data = {
-            "$schema": "https://opencode.ai/config.json",
-            "model": model,
-            "small_model": self._SMALL_MODEL_FREE,
-            "agent": {
-                self._cfg.agent: {
-                    "prompt": system_prompt,
-                    "model": model,
-                }
-            },
-        }
+        config_data = build_opencode_config(
+            self._cfg, model, system_prompt, self._SMALL_MODEL_FREE
+        )
         (workdir_path / "opencode.json").write_text(
             json.dumps(config_data, indent=2), encoding="utf-8"
         )

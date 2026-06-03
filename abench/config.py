@@ -30,6 +30,46 @@ class Condition(BaseModel):
     )
 
 
+class ProviderCfg(BaseModel):
+    id: str = Field(
+        title="Provider id",
+        description=(
+            "Model prefix for this provider, e.g. 'kimi' → Model 'kimi/kimi-k2.6'. "
+            "Add its API key via the Model field's 'Add API key' button (stored in "
+            "opencode auth.json), or set an env var below."
+        ),
+    )
+    base_url: str = Field(
+        title="Base URL",
+        description="OpenAI-compatible endpoint, e.g. https://host/v1",
+    )
+    models: list[str] = Field(
+        default_factory=list,
+        title="Model ids",
+        description="Model ids this endpoint serves, e.g. kimi-k2.6.",
+    )
+    npm: str = Field(
+        default="@ai-sdk/openai-compatible",
+        title="SDK package",
+        description=(
+            "opencode provider SDK; the default works for any OpenAI-compatible API."
+        ),
+    )
+    name: str | None = Field(
+        default=None,
+        title="Display name",
+        description="Optional human label.",
+    )
+    api_key_env: str | None = Field(
+        default=None,
+        title="API key env var",
+        description=(
+            "Optional: read the key from this environment variable (rendered as "
+            "{env:NAME}) instead of opencode auth.json."
+        ),
+    )
+
+
 class OpenCodeCfg(BaseModel):
     agent: str = Field(
         default="bench",
@@ -40,6 +80,23 @@ class OpenCodeCfg(BaseModel):
         default="opencode",
         title="Binary",
         description="OpenCode executable name/path.",
+    )
+    small_model: str | None = Field(
+        default=None,
+        title="Small model override",
+        description=(
+            "Override opencode's helper model (titles/summaries). Default uses "
+            "opencode's free native model; set this if you have no opencode-native "
+            "access, e.g. 'kimi/kimi-k2.6' or 'openrouter/...'."
+        ),
+    )
+    providers: list[ProviderCfg] = Field(
+        default_factory=list,
+        title="Custom providers",
+        description=(
+            "Register OpenAI-compatible / custom endpoints so you can use "
+            "'<id>/<model>' in Model."
+        ),
     )
 
 

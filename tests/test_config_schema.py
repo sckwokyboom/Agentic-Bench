@@ -15,3 +15,16 @@ def test_json_schema_carries_titles_and_descriptions():
     iso = defs["IsolationCfg"]["properties"]
     assert iso["nonce_prefix"].get("description")
     assert iso["shuffle_order"].get("description")
+
+
+def test_json_schema_exposes_custom_providers_and_small_model():
+    s = Experiment.model_json_schema()
+    defs = s.get("$defs", {})
+    assert "ProviderCfg" in defs
+    prov = defs["ProviderCfg"]["properties"]
+    assert prov["id"].get("description")
+    assert prov["base_url"].get("description")
+    assert prov["api_key_env"].get("description")
+    oc = defs["OpenCodeCfg"]["properties"]
+    assert oc["small_model"].get("description")
+    assert oc["providers"].get("description")
