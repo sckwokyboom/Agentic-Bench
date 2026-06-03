@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Stack, TextField, Chip, Button, Box, Typography } from "@mui/material";
+import { Stack, TextField, Chip, Button, Box, Typography, Autocomplete } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import { useValidateModel } from "../api/queries";
-import type { ValidateModelResp } from "../api/types";
+import { useValidateModel, useModelCatalog } from "../api/queries";
+import type { ValidateModelResp, ModelCatalogEntry } from "../api/types";
 import AddApiKeyDialog from "./AddApiKeyDialog";
 
 interface Props {
@@ -20,6 +20,8 @@ export default function ModelValidationChip({ value, onChange, label = "Model" }
   const [result, setResult] = useState<ValidateModelResp | null>(null);
   const [dlgOpen, setDlgOpen] = useState(false);
   const mut = useValidateModel();
+  const catalog = useModelCatalog();
+  const options: ModelCatalogEntry[] = catalog.data ?? [];
 
   useEffect(() => { setDraft(value); }, [value]);
 
@@ -34,12 +36,28 @@ export default function ModelValidationChip({ value, onChange, label = "Model" }
 
   return (
     <Stack spacing={1}>
-      <TextField
-        label={label}
-        size="small"
-        value={draft}
-        onChange={(e) => { setDraft(e.target.value); onChange(e.target.value); }}
+      <Autocomplete<ModelCatalogEntry, false, false, true>
+        freeSolo
         fullWidth
+        options={options}
+        getOptionLabel={(o) => (typeof o === "string" ? o : o.id)}
+        groupBy={(o) => (typeof o === "string" ? "" : o.provider)}
+        inputValue={draft}
+        onInputChange={(_, v) => { setDraft(v); onChange(v); }}
+        onChange={(_, v) => {
+          const id = v == null ? "" : typeof v === "string" ? v : v.id;
+          setDraft(id);
+          onChange(id);
+        }}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            label={label}
+            size="small"
+            placeholder="provider/model — e.g. openrouter/moonshotai/kimi-k2 or kimi/kimi-k2.6"
+            helperText="Type provider/model. Pick from configured providers or type a custom endpoint id; use ‘Add API key’ if it shows ‘no key’."
+          />
+        )}
       />
       {result && (
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">

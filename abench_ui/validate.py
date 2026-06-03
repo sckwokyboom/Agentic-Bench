@@ -61,6 +61,15 @@ def _models(provider: str) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
+def list_model_catalog() -> list[dict]:
+    """[{provider, id}] for every model of every configured provider (cached)."""
+    out: list[dict] = []
+    for p in sorted(_providers()):
+        for m in _models(p):
+            out.append({"provider": p, "id": m})
+    return out
+
+
 def validate_model(model: str) -> ValidationResult:
     if "/" not in model:
         return ValidationResult(status="malformed")

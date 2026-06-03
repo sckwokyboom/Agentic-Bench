@@ -192,6 +192,8 @@ export interface ReverifyJob {
 
 export interface ProviderEntry { id: string; configured: boolean; }
 
+export interface ModelCatalogEntry { provider: string; id: string }
+
 export interface SessionState {
   state: "pending" | "running" | "completed" | "cancelled" | "failed";
   started_at: number | null;

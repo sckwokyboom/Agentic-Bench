@@ -33,6 +33,7 @@ from . import providers as prov_mod
 from . import runs as runs_mod
 from .run_session import RunSession, SessionState
 from .schema import experiment_json_schema
+from . import validate as validate_mod
 from .validate import validate_model
 from .ws_buffer import SessionEventBuffer
 
@@ -348,6 +349,14 @@ def create_app(
     def _validate(body: _ValidateModelBody):
         r = validate_model(body.model)
         return {"status": r.status, "provider": r.provider, "suggestions": r.suggestions}
+
+    @api.get("/models")
+    def _models_catalog():
+        # Degrade gracefully: opencode CLI may be absent. Never 500.
+        try:
+            return validate_mod.list_model_catalog()
+        except Exception:  # noqa: BLE001
+            return []
 
     @api.get("/providers")
     def _providers():

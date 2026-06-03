@@ -20,11 +20,15 @@ import {
   ModelValidationWidget, TargetMethodsWidget, AugmentationWidget,
 } from "../schema/widgets";
 import RootObjectFieldTemplate from "../schema/RootObjectFieldTemplate";
+import DescriptionFieldTemplate from "../schema/DescriptionFieldTemplate";
 import VerifyField from "../components/VerifyField";
 
 const customWidgets = { ModelValidationWidget, TargetMethodsWidget, AugmentationWidget };
 const customFields = { VerifyField };
-const customTemplates = { ObjectFieldTemplate: RootObjectFieldTemplate };
+const customTemplates = {
+  ObjectFieldTemplate: RootObjectFieldTemplate,
+  DescriptionFieldTemplate,
+};
 
 export default function ExperimentEdit() {
   const { name } = useParams<{ name: string }>();

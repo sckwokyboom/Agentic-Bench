@@ -231,6 +231,13 @@ export const useProviders = () =>
     queryFn: () => apiGet<t.ProviderEntry[]>(`/api/providers`),
   });
 
+export const useModelCatalog = () =>
+  useQuery({
+    queryKey: ["modelCatalog"],
+    queryFn: () => apiGet<t.ModelCatalogEntry[]>("/api/models"),
+    staleTime: 5 * 60_000,
+  });
+
 export function useWriteProviderCredentials() {
   const qc = useQueryClient();
   return useMutation({
