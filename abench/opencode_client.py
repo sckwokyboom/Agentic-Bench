@@ -69,6 +69,55 @@ def _summarize_event(event: dict) -> str | None:
     return None
 
 
+def _error_payload(ev: dict) -> dict | None:
+    """Return the error payload of an event if it is a service/proxy error,
+    else None. Recognises both top-level (``type == "error"``) and part-level
+    (``part.type == "error"``) error events."""
+    if ev.get("type") == "error":
+        payload = ev.get("error") or ev.get("part") or {}
+        return payload if isinstance(payload, dict) else {}
+    part = ev.get("part")
+    if isinstance(part, dict) and part.get("type") == "error":
+        payload = part.get("error") or part
+        return payload if isinstance(payload, dict) else {}
+    return None
+
+
+def _status_of(payload: dict) -> object | None:
+    """Extract the HTTP-ish status from an error payload. First key that is
+    *present* (not first truthy) wins, so a literal 0 beats a missing field."""
+    for key in ("statusCode", "status", "code"):
+        if payload.get(key) is not None:
+            return payload.get(key)
+    return None
+
+
+def _is_rate_limit(status: object | None) -> bool:
+    return status == 429 or str(status) == "429"
+
+
+def _count_service_errors(raw_events: list[dict]) -> tuple[int, int, list[str]]:
+    """Count service/proxy errors across opencode events.
+
+    Returns ``(n_service_errors, n_rate_limits, messages)`` where ``messages``
+    holds up to 5 short (~160 char) summaries of the offending events.
+    """
+    n_service_errors = 0
+    n_rate_limits = 0
+    messages: list[str] = []
+    for ev in raw_events:
+        payload = _error_payload(ev)
+        if payload is None:
+            continue
+        n_service_errors += 1
+        if _is_rate_limit(_status_of(payload)):
+            n_rate_limits += 1
+        if len(messages) < 5:
+            blob = ev.get("error") or ev.get("part") or ev
+            messages.append(_truncate(json.dumps(blob, default=str), 160))
+    return n_service_errors, n_rate_limits, messages
+
+
 @dataclass
 class RunResult:
     trace: Trace
@@ -85,6 +134,7 @@ class OpenCodeClient(Protocol):
         user_message: str,
         timeout_s: int,
         on_event: Callable[[dict], None],
+        log_sink: Callable[[str], None] | None = None,
     ) -> RunResult:
         ...
 
@@ -128,7 +178,15 @@ class RealOpenCodeClient:
         user_message: str,
         timeout_s: int,
         on_event: Callable[[dict], None],
+        log_sink: Callable[[str], None] | None = None,
     ) -> RunResult:
+        def emit(line: str) -> None:
+            """Send a harness/opencode line to stderr AND, if provided, to the
+            per-run log sink (so rundir/run.log captures the full picture)."""
+            _log(line)
+            if log_sink is not None:
+                log_sink(line)
+
         # ── Approach A: write workdir-local config ────────────────────────
         workdir_path = Path(workdir)
         config_data = {
@@ -161,7 +219,7 @@ class RealOpenCodeClient:
             user_message,
         ]
 
-        _log(f"[abench] $ {' '.join(cmd[:6])} … (cwd={workdir})")
+        emit(f"[abench] $ {' '.join(cmd[:6])} … (cwd={workdir})")
 
         proc = subprocess.Popen(
             cmd,
@@ -203,7 +261,7 @@ class RealOpenCodeClient:
                 for raw in proc.stderr:
                     text = raw.decode("utf-8", errors="replace").rstrip()
                     if text:
-                        _log(f"  [opencode] {text}")
+                        emit(f"  [opencode] {text}")
             except Exception:
                 pass
 
@@ -229,27 +287,21 @@ class RealOpenCodeClient:
         ended_at = time.time()
         returncode = proc.returncode
 
+        # ── Count service/proxy errors (rate limits, 5xx, etc.) ───────────
+        n_service_errors, n_rate_limits, service_error_messages = (
+            _count_service_errors(raw_events)
+        )
+
         # ── Detect interrupted_reason ─────────────────────────────────────
-        if interrupted_reason is None:
-            # Check for rate-limit error (HTTP 429) in any event.
-            for ev in raw_events:
-                if ev.get("type") == "error":
-                    error_payload = ev.get("error") or ev.get("part", {})
-                    status = None
-                    if isinstance(error_payload, dict):
-                        # First key that is *present*, not first that is truthy:
-                        # a literal 0 should win over a missing field, even
-                        # though HTTP codes are never 0 in practice.
-                        for key in ("statusCode", "status", "code"):
-                            if error_payload.get(key) is not None:
-                                status = error_payload.get(key)
-                                break
-                    if status == 429 or str(status) == "429":
-                        interrupted_reason = "rate_limit"
-                        break
+        if interrupted_reason is None and n_rate_limits > 0:
+            interrupted_reason = "rate_limit"
 
         if interrupted_reason is None and returncode != 0:
             interrupted_reason = "error"
+
+        emit(f"[abench] opencode returncode={returncode} "
+             f"interrupted={interrupted_reason} "
+             f"service_errors={n_service_errors} rate_limits={n_rate_limits}")
 
         # ── Session export ────────────────────────────────────────────────
         session_id: str | None = None
@@ -291,5 +343,8 @@ class RealOpenCodeClient:
         trace.ended_at = ended_at
         trace.finished = interrupted_reason is None
         trace.interrupted_reason = interrupted_reason
+        trace.n_service_errors = n_service_errors
+        trace.n_rate_limits = n_rate_limits
+        trace.service_error_messages = service_error_messages
 
         return RunResult(trace=trace, raw_session=raw_session)

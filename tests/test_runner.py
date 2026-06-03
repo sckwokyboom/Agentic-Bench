@@ -56,6 +56,62 @@ def test_run_experiment_writes_all_artifacts(tmp_path):
     assert "SLICE" not in base["user_message"]
 
 
+class _ServiceErrorClient:
+    """Fake client whose returned trace carries service errors counted from
+    raw events (429 + 503), and writes a line through log_sink."""
+
+    def run_task(self, *, workdir, system_prompt, model, user_message,
+                 timeout_s, on_event, log_sink=None):
+        from abench.opencode_client import _count_service_errors
+        from abench.opencode_client import RunResult
+        from abench.trace_model import Trace
+        raw_events = [
+            {"type": "error", "error": {"statusCode": 429, "message": "rate limited"}},
+            {"type": "error", "error": {"statusCode": 503, "message": "unavailable"}},
+        ]
+        if log_sink is not None:
+            log_sink("[fake] simulated service errors")
+        n_err, n_rl, msgs = _count_service_errors(raw_events)
+        trace = Trace(started_at=0.0, ended_at=1.0, finished=False,
+                      interrupted_reason="rate_limit",
+                      n_service_errors=n_err, n_rate_limits=n_rl,
+                      service_error_messages=msgs)
+        return RunResult(trace=trace, raw_session=None)
+
+
+def test_run_one_propagates_service_error_counters(tmp_path):
+    exp = _experiment(tmp_path)
+    root = run_experiment(exp, lambda e: _ServiceErrorClient())
+    rundir = root / "baseline" / "rep_0"
+    trace = json.loads((rundir / "trace.json").read_text())
+    assert trace["n_service_errors"] >= 2
+    assert trace["n_rate_limits"] == 1
+    metrics = json.loads((rundir / "metrics.json").read_text())
+    assert metrics["n_service_errors"] >= 2
+    assert metrics["n_rate_limits"] == 1
+    # This client makes no source edits → made_source_changes False
+    assert metrics["made_source_changes"] is False
+    # run.log captured the sink line
+    assert "simulated service errors" in (rundir / "run.log").read_text()
+
+
+def test_run_one_writes_run_log_and_error_metrics(tmp_path):
+    exp = _experiment(tmp_path)
+    root = run_experiment(exp, lambda e: FakeOpenCodeClient())
+    rundir = root / "baseline" / "rep_0"
+    # run.log written and non-empty (header + at least the fake's line)
+    log = (rundir / "run.log").read_text()
+    assert log.strip() != ""
+    assert "# condition: baseline" in log
+    assert "# model: fake/model" in log
+    # metrics carry the new counters + boolean
+    metrics = json.loads((rundir / "metrics.json").read_text())
+    assert metrics["n_service_errors"] == 0
+    assert metrics["n_rate_limits"] == 0
+    # FakeOpenCodeClient writes GENERATED.txt → real source change
+    assert metrics["made_source_changes"] is True
+
+
 def test_run_experiment_writes_isolation_nonce_to_trace(tmp_path):
     """When isolation.nonce_prefix is on (default), each trace records its UUID."""
     exp = _experiment(tmp_path)  # existing helper; default isolation = both on

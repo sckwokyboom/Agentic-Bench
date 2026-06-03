@@ -58,6 +58,24 @@ def test_trace_with_turn_info_and_verify_and_diff_roundtrips():
     assert restored.isolation_nonce == "abc123def456"
 
 
+def test_trace_service_error_and_sensitivity_fields_roundtrip():
+    trace = Trace(
+        finished=False,
+        interrupted_reason="rate_limit",
+        n_service_errors=3,
+        n_rate_limits=1,
+        service_error_messages=["429 too many requests", "503 unavailable"],
+        verify_insensitive=True,
+    )
+    blob = json.dumps(trace.to_dict())
+    restored = trace_from_dict(json.loads(blob))
+    assert restored == trace
+    assert restored.n_service_errors == 3
+    assert restored.n_rate_limits == 1
+    assert restored.service_error_messages == ["429 too many requests", "503 unavailable"]
+    assert restored.verify_insensitive is True
+
+
 def test_trace_roundtrips_through_json():
     trace = Trace(
         started_at=100.0,

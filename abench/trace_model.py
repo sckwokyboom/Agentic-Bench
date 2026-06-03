@@ -79,6 +79,12 @@ class Trace:
     verify_failed_count: int | None = None
     verify_failed_names: list[str] = field(default_factory=list)
     verify_baseline_unknown: bool = False
+    verify_insensitive: bool = False
+
+    # Service/proxy errors surfaced by opencode (rate limits, 5xx, etc.).
+    n_service_errors: int = 0
+    n_rate_limits: int = 0
+    service_error_messages: list[str] = field(default_factory=list)
 
     final_diff_summary: FinalDiffSummary | None = None
 

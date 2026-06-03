@@ -122,6 +122,10 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "verify_reason": trace.verify_reason,
         "verify_message": trace.verify_message,
         "verify_baseline_unknown": trace.verify_baseline_unknown,
+        "verify_insensitive": trace.verify_insensitive,
+        "n_service_errors": trace.n_service_errors,
+        "n_rate_limits": trace.n_rate_limits,
+        "made_source_changes": bool(patch_text.strip()),
         "isolation_nonce": trace.isolation_nonce,
         "success": success,
     }

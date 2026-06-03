@@ -110,6 +110,32 @@ def test_metrics_include_verify_reason_and_message():
     assert m["success"] is None
 
 
+def test_metrics_include_service_error_counters_and_source_changes():
+    cfg = _cfg()
+    tr = Trace(
+        finished=False,
+        interrupted_reason="rate_limit",
+        n_service_errors=3,
+        n_rate_limits=1,
+        verify_insensitive=True,
+    )
+    # Non-empty patch → made_source_changes True
+    m = extract(tr, "diff --git a/a.py b/a.py\n+x\n", cfg)
+    assert m["n_service_errors"] == 3
+    assert m["n_rate_limits"] == 1
+    assert m["made_source_changes"] is True
+    assert m["verify_insensitive"] is True
+
+
+def test_metrics_made_source_changes_false_on_empty_patch():
+    cfg = _cfg()
+    m = extract(Trace(), "   \n", cfg)
+    assert m["made_source_changes"] is False
+    assert m["n_service_errors"] == 0
+    assert m["n_rate_limits"] == 0
+    assert m["verify_insensitive"] is False
+
+
 from abench.metrics import _success_from_status
 
 

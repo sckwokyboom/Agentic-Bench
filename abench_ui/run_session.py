@@ -66,6 +66,7 @@ class _PerRunPublishingClient:
         user_message: str,
         timeout_s: int,
         on_event: Callable[[dict], None],
+        log_sink: Callable[[str], None] | None = None,
     ) -> RunResult:
         cond, rep = self._plan[self._idx]
         self._idx += 1
@@ -101,6 +102,7 @@ class _PerRunPublishingClient:
             user_message=user_message,
             timeout_s=timeout_s,
             on_event=on_event_relay,
+            log_sink=log_sink,
         )
 
         tr = result.trace

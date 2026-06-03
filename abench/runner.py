@@ -128,6 +128,24 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             events_file.write(json.dumps(event) + "\n")
             events_file.flush()
 
+        # Per-run log: captures opencode stderr + harness lines for THIS run.
+        logf = (rundir / "run.log").open("w")
+        # Header: known facts before the run. The verify command may not be
+        # resolved yet (autodetect happens post-run), so include if configured.
+        logf.write(
+            f"# condition: {cond.name}\n"
+            f"# rep: {rep}\n"
+            f"# model: {exp.model}\n"
+            f"# verify_command: {exp.verify.command or '(autodetect)'}\n"
+            f"# fixture_sha: {sha}\n"
+            "\n"
+        )
+        logf.flush()
+
+        def log_sink(line: str) -> None:
+            logf.write(line + "\n")
+            logf.flush()
+
         try:
             result = client.run_task(
                 workdir=str(workdir),
@@ -136,9 +154,11 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                 user_message=user_message,
                 timeout_s=exp.timeout_s,
                 on_event=on_event,
+                log_sink=log_sink,
             )
         finally:
             events_file.close()
+            logf.close()
 
         # Record isolation nonce on the trace
         if nonce is not None:
@@ -184,13 +204,17 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     result.trace.verify_reason = "unparseable"
                     result.trace.verify_message = f"verify raised unexpectedly: {exc!r}"
 
-            # Check baseline cache and propagate unknown flag
+            # Check baseline cache and propagate sensitivity flags.
             baseline_cache = exp.fixture_path.parent / ".verify-baseline.json"
             if baseline_cache.is_file():
                 try:
                     baseline = json.loads(baseline_cache.read_text())
                     if baseline.get("status") != "passed":
                         result.trace.verify_baseline_unknown = True
+                    # Stripped fixture already passes the same tests → pass/fail
+                    # cannot reflect agent work.
+                    result.trace.verify_insensitive = (
+                        baseline.get("fixture_status") == "passed")
                 except Exception:
                     pass
 
@@ -263,37 +287,85 @@ def _per_file_diffstat(patch: str) -> list[tuple[str, int, int]]:
 
 
 def _maybe_run_baseline_verify(exp: Experiment, cache_path: Path) -> None:
-    """Best-effort baseline verify; caches result in cache_path."""
+    """Best-effort baseline verify; caches result in cache_path.
+
+    Verifies BOTH:
+      * a fresh copy of ``reference_path`` (the gold solution should PASS) —
+        cached as ``status``/``reference_sha`` (back-compat keys), and
+      * a fresh copy of the STRIPPED ``fixture_path`` (the starting point the
+        agent receives). If the stripped fixture already PASSES the same tests
+        the runner runs, then per-run pass/fail cannot reflect agent work —
+        cached as ``fixture_status``/``fixture_sha`` and surfaced per-run as
+        ``verify_insensitive``.
+
+    Each side re-runs only when its dir sha mismatches the cache. Best-effort:
+    any error skips that side (and the function) without raising.
+    """
     ref_sha = _dir_sha(exp.reference_path)
+    fix_sha = _dir_sha(exp.fixture_path)
+    cached: dict = {}
     if cache_path.is_file():
         try:
             cached = json.loads(cache_path.read_text())
-            if cached.get("reference_sha") == ref_sha:
-                return
+        except Exception:
+            cached = {}
+        # Both sides current → nothing to do.
+        if (cached.get("reference_sha") == ref_sha
+                and cached.get("fixture_sha") == fix_sha):
+            return
+
+    record = dict(cached)
+
+    def _verify_dir(src: Path):
+        """Verify a fresh copy of src; return the VerifyResult or None."""
+        try:
+            workdir, _sha = fx.create_workdir(src)
+        except Exception:
+            return None
+        try:
+            command = exp.verify.command or _detect_verify(workdir)
+            if command is None:
+                return None
+            return run_verify(workdir, command, exp.verify.timeout_s)
+        except Exception:
+            return None
+        finally:
+            fx.cleanup(workdir)
+
+    # ── Reference side (gold solution) ────────────────────────────────────
+    if cached.get("reference_sha") != ref_sha:
+        v = _verify_dir(exp.reference_path)
+        if v is not None:
+            record.update({
+                "command": exp.verify.command or v.command,
+                "reference_sha": ref_sha,
+                "status": v.status, "reason": v.reason, "message": v.message,
+                "passed_count": v.passed_count, "failed_count": v.failed_count,
+            })
+            try:
+                write_verify_log(cache_path.parent, v)
+                (cache_path.parent / "verify_output.log").rename(
+                    cache_path.parent / ".verify-baseline-output.log")
+            except Exception:
+                pass
+
+    # ── Fixture side (stripped starting point) ────────────────────────────
+    if cached.get("fixture_sha") != fix_sha:
+        v = _verify_dir(exp.fixture_path)
+        if v is not None:
+            record.update({
+                "fixture_sha": fix_sha,
+                "fixture_status": v.status,
+                "fixture_reason": v.reason,
+                "fixture_passed_count": v.passed_count,
+                "fixture_failed_count": v.failed_count,
+            })
+
+    if record:
+        try:
+            cache_path.write_text(json.dumps(record))
         except Exception:
             pass
-    # Run verify on a fresh copy of reference_path (best-effort; skip on any error)
-    try:
-        workdir, _sha = fx.create_workdir(exp.reference_path)
-    except Exception:
-        return
-    try:
-        command = exp.verify.command or _detect_verify(workdir)
-        if command is None:
-            return
-        v = run_verify(workdir, command, exp.verify.timeout_s)
-        cache_path.write_text(json.dumps({
-            "command": command, "reference_sha": ref_sha,
-            "status": v.status, "reason": v.reason, "message": v.message,
-            "passed_count": v.passed_count, "failed_count": v.failed_count,
-        }))
-        write_verify_log(cache_path.parent, v)
-        (cache_path.parent / "verify_output.log").rename(
-            cache_path.parent / ".verify-baseline-output.log")
-    except Exception:
-        pass
-    finally:
-        fx.cleanup(workdir)
 
 
 def _dir_sha(path: Path) -> str:

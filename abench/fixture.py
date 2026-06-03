@@ -9,6 +9,10 @@ from pathlib import Path
 # Ephemeral identity passed per-command; does NOT touch user/global git config.
 _GIT_ID = ["-c", "user.name=abench", "-c", "user.email=abench@local"]
 
+# Artifacts opencode writes INTO the workdir (workdir-local config + state).
+# They must never pollute the agent's "final source diff".
+OPENCODE_ARTIFACTS = ("opencode.json", ".opencode")
+
 
 def _copy_tree(src: Path, dst: Path) -> None:
     # Try APFS copy-on-write clone (fast, cheap on macOS); fall back to shutil.
@@ -51,9 +55,22 @@ def create_workdir(fixture_path: Path, parent: Path | None = None) -> tuple[Path
 def diff_workdir(workdir: Path) -> str:
     workdir = Path(workdir)
     subprocess.run(["git", "add", "-A"], cwd=workdir, check=True)
-    result = subprocess.run(["git", "diff", "--cached", "HEAD"], cwd=workdir,
-                            capture_output=True, text=True, check=True)
+    # Exclude opencode's own artifacts via pathspecs (each its own argv element)
+    # so the returned diff is ONLY real source changes the agent made.
+    result = subprocess.run(
+        ["git", "diff", "--cached", "HEAD", "--",
+         ".",
+         ":(exclude)opencode.json",
+         ":(exclude).opencode",
+         ":(exclude).opencode/**"],
+        cwd=workdir, capture_output=True, text=True, check=True,
+    )
     return result.stdout
+
+
+def made_source_changes(workdir: Path) -> bool:
+    """True iff the agent changed real source (excludes opencode artifacts)."""
+    return bool(diff_workdir(workdir).strip())
 
 
 def cleanup(workdir: Path) -> None:

@@ -11,6 +11,7 @@ NUMERIC = [
     "n_reads", "n_searches", "n_files_edited", "diff_lines_added", "diff_lines_removed",
     "tokens_in", "tokens_out", "tokens_reasoning", "cache_read", "cache_write",
     "cost", "time_to_first_edit_s",
+    "n_service_errors", "n_rate_limits",
 ]
 
 
