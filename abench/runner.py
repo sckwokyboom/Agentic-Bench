@@ -113,21 +113,15 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
     rundir = root / cond.name / f"rep_{rep}"
     rundir.mkdir(parents=True, exist_ok=True)
 
-    workdir, sha = fx.create_workdir(exp.fixture_path)
+    # Initialized before the try so the finally is safe even if the first
+    # create_workdir (inside the retry loop) raises.
+    workdir: Path | None = None
     try:
-        # ── Isolation: nonce-prefix in system_prompt ──────────────────
-        nonce: str | None = None
-        system_prompt_eff = exp.system_prompt
-        if exp.isolation.nonce_prefix:
-            nonce = uuid.uuid4().hex
-            system_prompt_eff = (
-                f"# abench-run: {nonce}\n"
-                f"# fixture: {sha}\n"
-                f"{exp.system_prompt}"
-            )
-
         user_message = compose(exp.task_prompt, cond.augmentation)
 
+        # events.jsonl + run.log are opened ONCE and reused across retry
+        # attempts: events.jsonl accumulates every attempt's raw events, while
+        # trace.json (written after the loop) reflects the FINAL attempt.
         events_file = (rundir / "events.jsonl").open("w")
 
         def on_event(event: dict) -> None:
@@ -147,7 +141,6 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                 f"# rep: {rep}\n"
                 f"# model: {exp.model}\n"
                 f"# verify_command: {exp.verify.command or '(autodetect)'}\n"
-                f"# fixture_sha: {sha}\n"
                 "\n"
             )
             logf.flush()
@@ -160,17 +153,66 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             logf.write(line + "\n")
             logf.flush()
 
+        # ── Retry-with-backoff loop ───────────────────────────────────
+        # Each attempt gets a FRESH workdir (→ new sha → new nonce header).
+        # We retry ONLY when the run ended rate-limited (429) and retries
+        # remain and we haven't been cancelled.
+        nonce: str | None = None
+        system_prompt_eff = exp.system_prompt
+        sha = ""
+        result = None
         try:
-            result = client.run_task(
-                workdir=str(workdir),
-                system_prompt=system_prompt_eff,
-                model=exp.model,
-                user_message=user_message,
-                timeout_s=exp.timeout_s,
-                on_event=on_event,
-                log_sink=log_sink,
-                cancel_event=cancel_event,
-            )
+            for attempt in range(1, exp.rate_limit_retries + 2):
+                workdir, sha = fx.create_workdir(exp.fixture_path)
+
+                # Isolation: nonce-prefix in system_prompt (rebuilt per attempt).
+                nonce = None
+                system_prompt_eff = exp.system_prompt
+                if exp.isolation.nonce_prefix:
+                    nonce = uuid.uuid4().hex
+                    system_prompt_eff = (
+                        f"# abench-run: {nonce}\n"
+                        f"# fixture: {sha}\n"
+                        f"{exp.system_prompt}"
+                    )
+
+                result = client.run_task(
+                    workdir=str(workdir),
+                    system_prompt=system_prompt_eff,
+                    model=exp.model,
+                    user_message=user_message,
+                    timeout_s=exp.timeout_s,
+                    on_event=on_event,
+                    log_sink=log_sink,
+                    cancel_event=cancel_event,
+                )
+
+                rate_limited = result.trace.interrupted_reason == "rate_limit"
+                cancelled = cancel_event is not None and cancel_event.is_set()
+
+                if rate_limited and attempt <= exp.rate_limit_retries and not cancelled:
+                    backoff = min(
+                        exp.rate_limit_backoff_s * (2 ** (attempt - 1)), 120.0
+                    )
+                    msg = (
+                        f"[abench] rate-limited (429) — retry "
+                        f"{attempt}/{exp.rate_limit_retries} after {backoff:.0f}s"
+                    )
+                    _log(msg)
+                    log_sink(msg)
+                    fx.cleanup(workdir)
+                    workdir = None
+                    # Cancellable backoff: sleep in ≤0.5s steps, breaking early
+                    # if a cancel is requested.
+                    slept = 0.0
+                    while slept < backoff:
+                        if cancel_event is not None and cancel_event.is_set():
+                            break
+                        step = min(0.5, backoff - slept)
+                        time.sleep(step)
+                        slept += step
+                    continue
+                break
         finally:
             events_file.close()
             if logf is not None:
@@ -267,7 +309,10 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             "user_message": user_message,
         }, indent=2))
     finally:
-        fx.cleanup(workdir)
+        # Intermediate retried workdirs are cleaned in the loop and set to
+        # None; only the final (or a never-created) workdir remains here.
+        if workdir is not None:
+            fx.cleanup(workdir)
 
 
 def _diff_header_path(line: str) -> str | None:

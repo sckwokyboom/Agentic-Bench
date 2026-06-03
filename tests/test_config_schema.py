@@ -7,6 +7,8 @@ def test_json_schema_carries_titles_and_descriptions():
     props = s["properties"]
     assert props["repetitions"].get("description")
     assert props["target_file"].get("description")
+    assert props["rate_limit_retries"].get("description")
+    assert props["rate_limit_backoff_s"].get("description")
     metrics = defs["MetricsCfg"]["properties"]
     assert metrics["test_command_patterns"].get("description")
     assert metrics["command_arg_keys"].get("description")

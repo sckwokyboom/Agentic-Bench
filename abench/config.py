@@ -238,6 +238,21 @@ class Experiment(BaseModel):
         title="Min seconds between runs",
         description="Throttle between runs to respect provider rate limits (0 = none).",
     )
+    rate_limit_retries: int = Field(
+        default=3,
+        ge=0,
+        title="Rate-limit retries",
+        description=(
+            "Retry a run this many times when the provider returns 429 (rate "
+            "limit), with exponential backoff. 0 disables."
+        ),
+    )
+    rate_limit_backoff_s: float = Field(
+        default=10.0,
+        ge=0,
+        title="Rate-limit backoff (s)",
+        description="Base backoff before a 429 retry; doubles each attempt (capped at 120s).",
+    )
     metrics: MetricsCfg = Field(
         default_factory=MetricsCfg,
         title="Metrics",
