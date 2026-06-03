@@ -172,3 +172,19 @@ def test_per_file_diffstat_handles_paths_with_spaces():
     )
     out = _per_file_diffstat(patch)
     assert out == [("has spaces/foo.py", 1, 0)]
+
+
+def test_per_file_diffstat_handles_git_quoted_unicode_path():
+    """git quotes non-ASCII paths: 'diff --git "a/naïve.txt" "b/naïve.txt"'.
+    The file must still be counted (else a real edit looks like no change)."""
+    from abench.runner import _per_file_diffstat
+    patch = (
+        'diff --git "a/na\\303\\257ve.txt" "b/na\\303\\257ve.txt"\n'
+        '--- "a/na\\303\\257ve.txt"\n'
+        '+++ "b/na\\303\\257ve.txt"\n'
+        "+added line\n"
+    )
+    out = _per_file_diffstat(patch)
+    assert len(out) == 1
+    assert out[0][1] == 1 and out[0][2] == 0  # +1/-0 counted
+    assert out[0][0]  # a non-empty path captured

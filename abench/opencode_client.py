@@ -182,10 +182,14 @@ class RealOpenCodeClient:
     ) -> RunResult:
         def emit(line: str) -> None:
             """Send a harness/opencode line to stderr AND, if provided, to the
-            per-run log sink (so rundir/run.log captures the full picture)."""
+            per-run log sink (so rundir/run.log captures the full picture).
+            A log-write failure (e.g. disk full) must never crash the run."""
             _log(line)
             if log_sink is not None:
-                log_sink(line)
+                try:
+                    log_sink(line)
+                except Exception:
+                    pass
 
         # ── Approach A: write workdir-local config ────────────────────────
         workdir_path = Path(workdir)

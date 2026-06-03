@@ -41,7 +41,7 @@ export default function TraceView() {
   const verifyInsensitive = m?.verify_insensitive ?? trace.data.verify_insensitive ?? false;
   const interruptedReason = m?.interrupted_reason ?? null;
   const madeSourceChanges = m?.made_source_changes
-    ?? ((trace.data.final_diff_summary?.files.length ?? 0) > 0);
+    ?? ((trace.data.final_diff_summary?.files?.length ?? 0) > 0);
 
   return (
     <Stack direction="row" spacing={3} sx={{ maxWidth: 1280, mx: "auto", alignItems: "flex-start" }}>

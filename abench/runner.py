@@ -129,20 +129,28 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             events_file.flush()
 
         # Per-run log: captures opencode stderr + harness lines for THIS run.
-        logf = (rundir / "run.log").open("w")
-        # Header: known facts before the run. The verify command may not be
-        # resolved yet (autodetect happens post-run), so include if configured.
-        logf.write(
-            f"# condition: {cond.name}\n"
-            f"# rep: {rep}\n"
-            f"# model: {exp.model}\n"
-            f"# verify_command: {exp.verify.command or '(autodetect)'}\n"
-            f"# fixture_sha: {sha}\n"
-            "\n"
-        )
-        logf.flush()
+        # Best-effort — a logging failure (e.g. disk full) must never crash the
+        # run, so on any open/write error we fall back to a no-op sink.
+        logf = None
+        try:
+            logf = (rundir / "run.log").open("w")
+            # Header: known facts before the run. The verify command may not be
+            # resolved yet (autodetect happens post-run), so include if configured.
+            logf.write(
+                f"# condition: {cond.name}\n"
+                f"# rep: {rep}\n"
+                f"# model: {exp.model}\n"
+                f"# verify_command: {exp.verify.command or '(autodetect)'}\n"
+                f"# fixture_sha: {sha}\n"
+                "\n"
+            )
+            logf.flush()
+        except Exception:
+            logf = None
 
         def log_sink(line: str) -> None:
+            if logf is None:
+                return
             logf.write(line + "\n")
             logf.flush()
 
@@ -158,7 +166,8 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             )
         finally:
             events_file.close()
-            logf.close()
+            if logf is not None:
+                logf.close()
 
         # Record isolation nonce on the trace
         if nonce is not None:
@@ -254,6 +263,21 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
         fx.cleanup(workdir)
 
 
+def _diff_header_path(line: str) -> str | None:
+    """Extract the 'a/<path>' file from a 'diff --git …' header. Handles git's
+    quoting of paths with special/non-ASCII chars, e.g.
+    'diff --git "a/naïve.txt" "b/naïve.txt"' — without this such an edit would
+    be missed and a real change would look like "no source changes"."""
+    rest = line[len("diff --git "):]
+    if rest.startswith('"'):
+        end = rest.find('"', 1)
+        token = rest[1:end] if end != -1 else rest[1:]
+    else:
+        sep = rest.rfind(" b/")
+        token = rest[:sep] if sep != -1 else rest.split(" ", 1)[0]
+    return token[2:] if token.startswith("a/") else (token or None)
+
+
 def _per_file_diffstat(patch: str) -> list[tuple[str, int, int]]:
     """Return [(path, added, removed)] from a unified git diff."""
     files: list[tuple[str, int, int]] = []
@@ -261,19 +285,10 @@ def _per_file_diffstat(patch: str) -> list[tuple[str, int, int]]:
     added = 0
     removed = 0
     for line in patch.splitlines():
-        if line.startswith("diff --git a/"):
+        if line.startswith("diff --git "):
             if current is not None:
                 files.append((current, added, removed))
-            # "diff --git a/<path> b/<path>"
-            prefix = "diff --git a/"
-            rest = line[len(prefix):]
-            sep = rest.rfind(" b/")
-            if sep != -1:
-                current = rest[:sep]
-            else:
-                # Fallback for malformed headers
-                parts = line.split()
-                current = parts[2][2:] if len(parts) >= 4 else None
+            current = _diff_header_path(line)
             added = removed = 0
         elif line.startswith("+++ ") or line.startswith("--- "):
             continue
