@@ -50,6 +50,8 @@ export interface RunFinished {
   n_service_errors?: number;
   made_source_changes?: boolean;
   verify_insensitive?: boolean;
+  // Wall-clock seconds the agent ran for this rep; drives the live ETA.
+  duration_s?: number | null;
 }
 
 export interface RunPhase {

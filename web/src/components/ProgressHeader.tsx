@@ -1,7 +1,9 @@
 import { Stack, Typography, LinearProgress, Box, Chip } from "@mui/material";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import ScheduleIcon from "@mui/icons-material/Schedule";
 import VerifyChip from "./VerifyChip";
 import IsolationChip from "./IsolationChip";
+import { formatEta } from "../lib/eta";
 import type { VerifyStatus } from "../api/types";
 
 interface Props {
@@ -18,6 +20,8 @@ interface Props {
   baselineStatus?: VerifyStatus | null;
   // Live aggregate of service/proxy errors summed across run.finished envelopes.
   serviceErrors?: number;
+  // Estimated remaining seconds (null until enough finished runs to estimate).
+  etaSeconds?: number | null;
 }
 
 export default function ProgressHeader(props: Props) {
@@ -40,6 +44,14 @@ export default function ProgressHeader(props: Props) {
         <Chip size="small" label={`${props.done} done`} color="success" variant="outlined" />
         <Chip size="small" label={`${props.running} running`} color="info" variant="outlined" />
         <Chip size="small" label={`${props.pending} pending`} variant="outlined" />
+        {props.etaSeconds != null && props.etaSeconds > 0 && (
+          <Chip
+            size="small"
+            variant="outlined"
+            icon={<ScheduleIcon />}
+            label={`${formatEta(props.etaSeconds)} left (est.)`}
+          />
+        )}
         {(props.serviceErrors ?? 0) > 0 && (
           <Chip
             size="small"

@@ -82,3 +82,27 @@ describe("ProgressHeader service-errors chip", () => {
     expect(screen.queryByText(/errors/i)).toBeNull();
   });
 });
+
+describe("ProgressHeader ETA chip", () => {
+  it("renders an estimated-time-left chip when etaSeconds is positive", () => {
+    render(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 0, failed: 0, total: 0 }}
+        etaSeconds={360}
+      />,
+    );
+    expect(screen.getByText(/~6m left \(est\.\)/i)).toBeInTheDocument();
+  });
+
+  it("renders no ETA chip when etaSeconds is null", () => {
+    render(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 0, failed: 0, total: 0 }}
+        etaSeconds={null}
+      />,
+    );
+    expect(screen.queryByText(/left \(est\.\)/i)).toBeNull();
+  });
+});

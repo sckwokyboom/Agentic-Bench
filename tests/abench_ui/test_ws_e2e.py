@@ -94,6 +94,31 @@ def test_envelopes_carry_condition_and_rep(tmp_path):
         assert m["condition"] == "baseline"
 
 
+def test_run_finished_carries_duration(tmp_path):
+    """run.finished includes duration_s (agent wall-clock seconds) so the UI can
+    estimate remaining time. The fake trace runs 0.0→3.0s → duration_s == 3.0."""
+    _scaffold_minimal_exp(tmp_path)
+    from tests.fakes import FakeOpenCodeClient
+    app = create_app(
+        experiments_dir=tmp_path,
+        client_factory_override=lambda e: FakeOpenCodeClient(),
+    )
+    client = TestClient(app)
+    sid = client.post("/api/runs", json={"experiment_name": "exp-ws"}).json()[
+        "session_id"]
+
+    finished = None
+    with client.websocket_connect(f"/ws/sessions/{sid}") as ws:
+        while True:
+            msg = ws.receive_json(mode="text")
+            if msg["type"] == "run.finished":
+                finished = msg
+            if msg["type"] == "session.finished":
+                break
+    assert finished is not None
+    assert finished["duration_s"] == 3.0
+
+
 def test_ws_unknown_session_sends_error_then_closes(tmp_path):
     """An unknown/expired session (e.g. after a server restart) must get an
     explicit session.error envelope + a close, so the client shows a message and

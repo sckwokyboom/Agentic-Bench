@@ -131,6 +131,13 @@ class _PerRunPublishingClient:
             "n_service_errors": tr.n_service_errors,
             "made_source_changes": made_source_changes,
             "verify_insensitive": tr.verify_insensitive,
+            # Wall-clock seconds the agent actually ran (spawn→exit; excludes any
+            # 429 backoff, which happens between attempts). Drives the live ETA.
+            "duration_s": (
+                tr.ended_at - tr.started_at
+                if tr.ended_at is not None and tr.started_at is not None
+                else None
+            ),
             "verify": {
                 "status": tr.verify_status,
                 "passed_count": tr.verify_passed_count,
