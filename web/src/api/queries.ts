@@ -152,25 +152,36 @@ export const useVerifyLog = (
       apiGet<string>(withBatch(`/api/runs/${name}/${condition}/${rep}/verify_log`, batch)),
   });
 
-// Cap the run.log the viewer pulls + renders: a verbose build log can be many
-// MB and rendering it all freezes the browser. We fetch only the tail; the full
-// log stays available via runLogUrl() (download).
+// Two per-run logs: "readable" (run.log — stages, tool/llm one-liners, results)
+// is the default; "full" (debug.log — readable lines + opencode's verbose
+// stderr) is opt-in. Cap what the viewer pulls + renders: a verbose log can be
+// many MB and rendering it all freezes the browser. We fetch only the tail; the
+// full file stays available via logUrl() (download).
 export const RUN_LOG_TAIL_CHARS = 200_000;
 
-export function runLogUrl(
-  name: string, condition: string, rep: number, batch?: string,
+export type LogKind = "readable" | "full";
+const LOG_ENDPOINT: Record<LogKind, string> = {
+  readable: "run_log",
+  full: "debug_log",
+};
+
+export function logUrl(
+  name: string, condition: string, rep: number, kind: LogKind, batch?: string,
 ): string {
-  return withBatch(`/api/runs/${name}/${condition}/${rep}/run_log`, batch);
+  return withBatch(
+    `/api/runs/${name}/${condition}/${rep}/${LOG_ENDPOINT[kind]}`, batch);
 }
 
 export const useRunLog = (
-  name: string, condition: string, rep: number, enabled: boolean, batch?: string,
+  name: string, condition: string, rep: number, enabled: boolean,
+  batch?: string, kind: LogKind = "readable",
 ) =>
   useQuery({
-    queryKey: qk.runLog(name, condition, rep, batch),
+    queryKey: [...qk.runLog(name, condition, rep, batch), kind],
     enabled,
     queryFn: () => {
-      const base = `/api/runs/${name}/${condition}/${rep}/run_log?tail_bytes=${RUN_LOG_TAIL_CHARS}`;
+      const ep = LOG_ENDPOINT[kind];
+      const base = `/api/runs/${name}/${condition}/${rep}/${ep}?tail_bytes=${RUN_LOG_TAIL_CHARS}`;
       const url = batch ? `${base}&batch=${encodeURIComponent(batch)}` : base;
       return apiGet<string>(url);
     },

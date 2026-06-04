@@ -30,6 +30,21 @@ describe("RunLogToggle", () => {
     expect(hits).toBe(1);
   });
 
+  it("switches between the readable and full (debug) logs", async () => {
+    mswServer.use(
+      http.get("/api/runs/exp/baseline/0/run_log", () =>
+        new HttpResponse("READABLE LINES", { headers: { "content-type": "text/plain" } })),
+      http.get("/api/runs/exp/baseline/0/debug_log", () =>
+        new HttpResponse("FULL FIREHOSE", { headers: { "content-type": "text/plain" } })),
+    );
+    renderWith(<RunLogToggle name="exp" condition="baseline" rep={0} />);
+    await userEvent.click(screen.getByRole("button", { name: /show run log/i }));
+    await waitFor(() => expect(screen.getByText("READABLE LINES")).toBeInTheDocument());
+    // Switch to the full (debug) view → fetches the debug_log endpoint.
+    await userEvent.click(screen.getByRole("button", { name: /full \(debug\)/i }));
+    await waitFor(() => expect(screen.getByText("FULL FIREHOSE")).toBeInTheDocument());
+  });
+
   it("shows a graceful 'no log' message on 404", async () => {
     mswServer.use(
       http.get("/api/runs/exp/baseline/1/run_log", () =>

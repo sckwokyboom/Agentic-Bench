@@ -291,16 +291,15 @@ def create_app(
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
 
-    @api.get("/runs/{name}/{condition}/{rep}/run_log")
-    def _read_run_log(name: str, condition: str, rep: int,
-                      batch: str | None = None, tail_bytes: int | None = None):
-        """Raw run.log. With ?tail_bytes=N, return only the last N chars (from a
-        line boundary) prefixed with a truncation notice — run.log can be many MB
-        for a verbose build, and rendering all of it freezes the browser. Omit
+    def _serve_log(name: str, condition: str, rep: int, filename: str,
+                   batch: str | None, tail_bytes: int | None):
+        """Serve a per-run log file as text. With ?tail_bytes=N return only the
+        last N chars (from a line boundary) prefixed with a truncation notice —
+        logs can be many MB and rendering all of it freezes the browser. Omit
         tail_bytes (or 0) for the full log (download)."""
         rd = _resolve_runs_dir(name, batch)
         try:
-            text = runs_mod.read_artefact(rd, condition, rep, "run.log")
+            text = runs_mod.read_artefact(rd, condition, rep, filename)
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
         if tail_bytes and tail_bytes > 0 and len(text) > tail_bytes:
@@ -309,12 +308,24 @@ def create_app(
             if nl != -1:
                 shown = shown[nl + 1:]
             notice = (
-                f"[abench] run.log is large — showing the last {len(shown)} of "
-                f"{len(text)} characters (use “Download full log” for everything)\n"
-                f"{'-' * 60}\n"
+                f"[abench] {filename} is large — showing the last {len(shown)} "
+                f"of {len(text)} characters (use “Download full log” for "
+                f"everything)\n{'-' * 60}\n"
             )
             text = notice + shown
         return Response(text, media_type="text/plain")
+
+    @api.get("/runs/{name}/{condition}/{rep}/run_log")
+    def _read_run_log(name: str, condition: str, rep: int,
+                      batch: str | None = None, tail_bytes: int | None = None):
+        """Readable per-run log (stages, tool/llm one-liners, results, errors)."""
+        return _serve_log(name, condition, rep, "run.log", batch, tail_bytes)
+
+    @api.get("/runs/{name}/{condition}/{rep}/debug_log")
+    def _read_debug_log(name: str, condition: str, rep: int,
+                        batch: str | None = None, tail_bytes: int | None = None):
+        """Full per-run debug log (readable lines + opencode's verbose stderr)."""
+        return _serve_log(name, condition, rep, "debug.log", batch, tail_bytes)
 
     @api.get("/runs/{name}/{condition}/{rep}/method_comparison")
     def _method_comparison(name: str, condition: str, rep: int, request: Request,

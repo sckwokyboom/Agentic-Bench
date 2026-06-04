@@ -69,6 +69,7 @@ class _PerRunPublishingClient:
         timeout_s: int | None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
+        debug_sink: Callable[[str], None] | None = None,
         cancel_event: "threading.Event | None" = None,
     ) -> RunResult:
         cond, rep = self._plan[self._idx]
@@ -106,6 +107,7 @@ class _PerRunPublishingClient:
             timeout_s=timeout_s,
             on_event=on_event_relay,
             log_sink=log_sink,
+            debug_sink=debug_sink,
             cancel_event=cancel_event,
         )
 

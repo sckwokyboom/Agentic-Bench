@@ -32,7 +32,7 @@ class _RaisingClient:
         self.workdir = None
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, cancel_event=None):
+                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         self.workdir = workdir
         raise RuntimeError("boom")
 

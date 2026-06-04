@@ -43,7 +43,7 @@ class _RecordingClient:
         self._fake = FakeOpenCodeClient()
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, cancel_event=None):
+                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         self.captures.append(system_prompt)
         return self._fake.run_task(
             workdir=workdir, system_prompt=system_prompt, model=model,

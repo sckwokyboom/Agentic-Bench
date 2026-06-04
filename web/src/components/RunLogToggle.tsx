@@ -1,7 +1,10 @@
 import { useState } from "react";
-import { Box, Button, Typography, CircularProgress, Link, Stack } from "@mui/material";
+import {
+  Box, Button, Typography, CircularProgress, Link, Stack,
+  ToggleButton, ToggleButtonGroup,
+} from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import { useRunLog, runLogUrl } from "../api/queries";
+import { useRunLog, logUrl, type LogKind } from "../api/queries";
 
 interface Props {
   name: string;
@@ -10,13 +13,15 @@ interface Props {
   batch?: string;
 }
 
-// Collapsible dark-terminal viewer for the raw agent run log (run.log), reusing
-// the RawEventsToggle styling. The text is lazy-fetched: the query is enabled
-// only once expanded, so we don't pull a potentially large log eagerly. A 404
-// (no log written for this run) degrades to a friendly message.
+// Collapsible dark-terminal viewer for the per-run log. Two views: "readable"
+// (run.log — stages, tool/llm one-liners, results, errors; the default) and
+// "full" (debug.log — readable lines + opencode's verbose stderr). Lazy-fetched
+// (only once expanded) and capped to the tail so a multi-MB log can't freeze the
+// browser; the full file is one click away via "Download full log".
 export default function RunLogToggle({ name, condition, rep, batch }: Props) {
   const [open, setOpen] = useState(false);
-  const log = useRunLog(name, condition, rep, open, batch);
+  const [kind, setKind] = useState<LogKind>("readable");
+  const log = useRunLog(name, condition, rep, open, batch, kind);
   return (
     <Box>
       <Button
@@ -36,27 +41,50 @@ export default function RunLogToggle({ name, condition, rep, batch }: Props) {
           fontFamily: "monospace", fontSize: 12, borderRadius: 1,
           maxHeight: 480, overflow: "auto", userSelect: "text",
         }}>
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ mb: 1 }}
+          >
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={kind}
+              onChange={(_e, v: LogKind | null) => v && setKind(v)}
+              sx={{
+                "& .MuiToggleButton-root": {
+                  color: "#9aa4b2", borderColor: "#2a3340", py: 0.1, px: 1,
+                  fontSize: 11, textTransform: "none",
+                },
+                "& .Mui-selected": { color: "#dbe1ec !important", bgcolor: "#1b2330 !important" },
+              }}
+            >
+              <ToggleButton value="readable">readable</ToggleButton>
+              <ToggleButton value="full">full (debug)</ToggleButton>
+            </ToggleButtonGroup>
+            <Link
+              href={logUrl(name, condition, rep, kind, batch)}
+              target="_blank"
+              rel="noopener"
+              variant="caption"
+              sx={{ color: "#8ab4ff" }}
+            >
+              Download full log
+            </Link>
+          </Stack>
           {log.isLoading && <CircularProgress size={16} sx={{ color: "#dbe1ec" }} />}
           {log.error && (
             <Typography variant="caption" component="div" sx={{ color: "inherit" }}>
-              No run log for this run.
+              {kind === "full"
+                ? "No full (debug) log for this run."
+                : "No run log for this run."}
             </Typography>
           )}
           {log.data != null && (
-            <Stack spacing={1}>
-              <Link
-                href={runLogUrl(name, condition, rep, batch)}
-                target="_blank"
-                rel="noopener"
-                variant="caption"
-                sx={{ color: "#8ab4ff", alignSelf: "flex-start" }}
-              >
-                Download full log
-              </Link>
-              {/* Only the tail is fetched (see useRunLog) so a multi-MB build
-                  log can't freeze the browser; the link above has the full log. */}
-              <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap" }}>{log.data}</Box>
-            </Stack>
+            // Only the tail is fetched (see useRunLog) so a multi-MB log can't
+            // freeze the browser; the link above has the full file.
+            <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap" }}>{log.data}</Box>
           )}
         </Box>
       )}

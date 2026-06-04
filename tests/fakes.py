@@ -16,6 +16,7 @@ class FakeOpenCodeClient:
                  user_message: str, timeout_s: int,
                  on_event: Callable[[dict], None],
                  log_sink: Callable[[str], None] | None = None,
+                 debug_sink: Callable[[str], None] | None = None,
                  cancel_event=None) -> RunResult:
         if log_sink is not None:
             log_sink("[fake] starting task")

@@ -235,6 +235,26 @@ def test_run_log_endpoint_batch_aware(client):
     assert r.status_code == 404
 
 
+def test_debug_log_endpoint(client):
+    """The full debug.log is served on its own endpoint (with the same tail cap);
+    404 when absent."""
+    c, root = client
+    name = "exp-dbg"
+    _seed_batched_run(root, name, "20260101-000000", "baseline", 0,
+                      {"success": None, "interrupted_reason": None})
+    (root / name / "experiment.yaml").write_text(
+        "name: exp-dbg\nfixture_path: ./stripped\n")
+    rd = root / name / "runs" / name / "20260101-000000" / "baseline" / "rep_0"
+    (rd / "debug.log").write_text("[opencode] verbose firehose line\n")
+
+    r = c.get(f"/api/runs/{name}/baseline/0/debug_log?batch=20260101-000000")
+    assert r.status_code == 200
+    assert "verbose firehose" in r.text
+    # absent → 404
+    r = c.get(f"/api/runs/{name}/augmented/0/debug_log?batch=20260101-000000")
+    assert r.status_code == 404
+
+
 def test_run_log_tail_bytes_caps_large_log(client):
     """?tail_bytes=N returns only the END of a large log (with a notice) so the
     viewer can't freeze the browser; the full log is still available without it."""

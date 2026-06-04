@@ -140,6 +140,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
     # Initialized before the try so the finally is safe even if the first
     # create_workdir (inside the retry loop) raises.
     workdir: Path | None = None
+    logf = debugf = None  # closed in the outer finally (after verify/result)
     try:
         user_message = compose(exp.task_prompt, cond.augmentation)
 
@@ -152,30 +153,50 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             events_file.write(json.dumps(event) + "\n")
             events_file.flush()
 
-        # Per-run log: captures opencode stderr + harness lines for THIS run.
+        # Two per-run logs:
+        #   run.log   — concise + readable (stages, tool/llm one-liners, results,
+        #               errors); the default the operator/UI sees and can hand to
+        #               an LLM.
+        #   debug.log — the full firehose: the readable lines PLUS opencode's
+        #               verbose stderr, for diagnosing hangs.
         # Best-effort — a logging failure (e.g. disk full) must never crash the
-        # run, so on any open/write error we fall back to a no-op sink.
-        logf = None
-        try:
-            logf = (rundir / "run.log").open("w")
-            # Header: known facts before the run. The verify command may not be
-            # resolved yet (autodetect happens post-run), so include if configured.
-            logf.write(
-                f"# condition: {cond.name}\n"
-                f"# rep: {rep}\n"
-                f"# model: {exp.model}\n"
-                f"# verify_command: {exp.verify.command or '(autodetect)'}\n"
-                "\n"
-            )
-            logf.flush()
-        except Exception:
-            logf = None
+        # run, so on any open/write error the sink degrades to a no-op.
+        def _open_log(fname: str):
+            try:
+                f = (rundir / fname).open("w")
+                f.write(
+                    f"# condition: {cond.name}\n"
+                    f"# rep: {rep}\n"
+                    f"# model: {exp.model}\n"
+                    f"# verify_command: {exp.verify.command or '(autodetect)'}\n"
+                    "\n"
+                )
+                f.flush()
+                return f
+            except Exception:
+                return None
 
-        def log_sink(line: str) -> None:
-            if logf is None:
-                return
-            logf.write(line + "\n")
-            logf.flush()
+        logf = _open_log("run.log")
+        debugf = _open_log("debug.log")
+
+        def _sink(f):
+            def write(line: str) -> None:
+                if f is None:
+                    return
+                try:
+                    f.write(line + "\n")
+                    f.flush()
+                except Exception:
+                    pass
+            return write
+
+        readable_sink = _sink(logf)
+        debug_sink = _sink(debugf)
+
+        def note(line: str) -> None:
+            """A harness line written by the runner itself → both logs."""
+            readable_sink(line)
+            debug_sink(line)
 
         # ── Retry-with-backoff loop ───────────────────────────────────
         # Each attempt gets a FRESH workdir (→ new sha → new nonce header).
@@ -214,7 +235,8 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     user_message=user_message,
                     timeout_s=exp.timeout_s,
                     on_event=on_event,
-                    log_sink=log_sink,
+                    log_sink=readable_sink,
+                    debug_sink=debug_sink,
                     cancel_event=cancel_event,
                 )
 
@@ -230,7 +252,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         f"{attempt}/{exp.rate_limit_retries} after {backoff:.0f}s"
                     )
                     _log(msg)
-                    log_sink(msg)
+                    note(msg)
                     emit({
                         "phase": "rate_limit_backoff",
                         "run_idx": idx, "condition": cond.name, "rep": rep,
@@ -255,9 +277,9 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     continue
                 break
         finally:
+            # Keep run.log/debug.log open through verify + the result line below;
+            # they are closed in the outer finally.
             events_file.close()
-            if logf is not None:
-                logf.close()
 
         # Record isolation nonce on the trace
         if nonce is not None:
@@ -273,6 +295,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             total_added=added,
             total_removed=removed,
         )
+        note(f"[abench] changes: +{added}/-{removed} across {len(per_file)} file(s)")
 
         # ── Trace.json + metrics ─────────────────────────────────────
         (rundir / "trace.json").write_text(json.dumps(result.trace.to_dict(), indent=2))
@@ -298,6 +321,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     write_verify_log(rundir, v)
                 except Exception as exc:
                     _log(f"[abench] WARN verify raised unexpectedly: {exc!r}")
+                    note(f"[abench] WARN verify raised unexpectedly: {exc!r}")
                     result.trace.verify_status = "error"
                     result.trace.verify_command = verify_command
                     result.trace.verify_reason = "unparseable"
@@ -317,6 +341,13 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                 except Exception:
                     pass
 
+            note(
+                f"[abench] verify: {result.trace.verify_status} "
+                f"passed={result.trace.verify_passed_count} "
+                f"failed={result.trace.verify_failed_count} "
+                f"cmd={result.trace.verify_command}"
+            )
+
             # Re-serialise trace.json with verify_* populated
             (rundir / "trace.json").write_text(json.dumps(result.trace.to_dict(), indent=2))
             # Refresh metrics (verify_* propagate via metrics.extract)
@@ -331,17 +362,21 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                 target_dst.write_text(target_src.read_text(), encoding="utf-8")
 
         tr = result.trace
-        _log(
+        result_line = (
             f"[abench] result: finished={tr.finished} "
             f"reason={tr.interrupted_reason} steps={len(tr.steps)} "
             f"tokens_in={tr.tokens_in} tokens_out={tr.tokens_out} "
             f"verify={tr.verify_status}"
         )
+        _log(result_line)
+        note(result_line)
         if tr.verify_status not in (None, "passed", "skipped"):
-            _log(
+            warn = (
                 f"[abench] WARN verify={tr.verify_status} "
                 f"cmd={tr.verify_command} failed={tr.verify_failed_count}"
             )
+            _log(warn)
+            note(warn)
         (rundir / "manifest.json").write_text(json.dumps({
             "condition": cond.name,
             "rep": rep,
@@ -350,6 +385,11 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             "user_message": user_message,
         }, indent=2))
     finally:
+        # Close the per-run logs here (kept open through verify + the result
+        # line so those land in the readable log too).
+        for f in (logf, debugf):
+            if f is not None:
+                f.close()
         # Intermediate retried workdirs are cleaned in the loop and set to
         # None; only the final (or a never-created) workdir remains here.
         if workdir is not None:

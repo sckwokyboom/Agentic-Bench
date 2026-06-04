@@ -267,6 +267,7 @@ class OpenCodeClient(Protocol):
         timeout_s: int | None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
+        debug_sink: Callable[[str], None] | None = None,
         cancel_event: "threading.Event | None" = None,
     ) -> RunResult:
         ...
@@ -312,18 +313,28 @@ class RealOpenCodeClient:
         timeout_s: int | None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
+        debug_sink: Callable[[str], None] | None = None,
         cancel_event: "threading.Event | None" = None,
     ) -> RunResult:
-        def emit(line: str) -> None:
-            """Send a harness/opencode line to stderr AND, if provided, to the
-            per-run log sink (so rundir/run.log captures the full picture).
-            A log-write failure (e.g. disk full) must never crash the run."""
-            _log(line)
-            if log_sink is not None:
+        def _safe(sink: "Callable[[str], None] | None", line: str) -> None:
+            # A log-write failure (e.g. disk full) must never crash the run.
+            if sink is not None:
                 try:
-                    log_sink(line)
+                    sink(line)
                 except Exception:
                     pass
+
+        def readable(line: str) -> None:
+            """A concise, human/LLM-readable line → operator console + the
+            readable run.log + debug.log (which is a superset of run.log)."""
+            _log(line)
+            _safe(log_sink, line)
+            _safe(debug_sink, line)
+
+        def firehose(line: str) -> None:
+            """Verbose opencode output → debug.log ONLY, so the console and the
+            readable run.log stay scannable."""
+            _safe(debug_sink, line)
 
         # ── Approach A: write workdir-local config ────────────────────────
         workdir_path = Path(workdir)
@@ -344,11 +355,11 @@ class RealOpenCodeClient:
             config_data=config_data,
         )
         if self._cfg.sandbox.mode == "container":
-            emit(f"[abench] $ {self._cfg.sandbox.runtime} run --rm "
-                 f"-v {workdir}:{self._cfg.sandbox.workdir_mount} … "
-                 f"{self._cfg.sandbox.image} opencode run …")
+            readable(f"[abench] $ {self._cfg.sandbox.runtime} run --rm "
+                     f"-v {workdir}:{self._cfg.sandbox.workdir_mount} … "
+                     f"{self._cfg.sandbox.image} opencode run …")
         else:
-            emit(f"[abench] $ {' '.join(cmd[:6])} … (cwd={workdir})")
+            readable(f"[abench] $ {' '.join(cmd[:6])} … (cwd={workdir})")
 
         proc = subprocess.Popen(
             cmd,
@@ -376,7 +387,7 @@ class RealOpenCodeClient:
                 raw_events.append(event)
                 summary = _summarize_event(event)
                 if summary is not None:
-                    _log(summary)
+                    readable(summary)
                 on_event(event)
 
         def _drain_stderr() -> None:
@@ -390,7 +401,7 @@ class RealOpenCodeClient:
                 for raw in proc.stderr:
                     text = raw.decode("utf-8", errors="replace").rstrip()
                     if text:
-                        emit(f"  [opencode] {text}")
+                        firehose(f"  [opencode] {text}")
             except Exception:
                 pass
 
@@ -445,9 +456,9 @@ class RealOpenCodeClient:
         if interrupted_reason is None and returncode != 0:
             interrupted_reason = "error"
 
-        emit(f"[abench] opencode returncode={returncode} "
-             f"interrupted={interrupted_reason} "
-             f"service_errors={n_service_errors} rate_limits={n_rate_limits}")
+        readable(f"[abench] opencode returncode={returncode} "
+                 f"interrupted={interrupted_reason} "
+                 f"service_errors={n_service_errors} rate_limits={n_rate_limits}")
 
         # ── Session export ────────────────────────────────────────────────
         session_id: str | None = None

@@ -62,7 +62,7 @@ class _ServiceErrorClient:
     raw events (429 + 503), and writes a line through log_sink."""
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, cancel_event=None):
+                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         from abench.opencode_client import _count_service_errors
         from abench.opencode_client import RunResult
         from abench.trace_model import Trace
@@ -113,6 +113,20 @@ def test_run_one_writes_run_log_and_error_metrics(tmp_path):
     assert metrics["made_source_changes"] is True
 
 
+def test_run_writes_both_readable_and_debug_logs(tmp_path):
+    """Each run writes run.log (readable) and debug.log (full); the readable log
+    carries the agent's concise line and both carry the header."""
+    exp = _experiment(tmp_path)
+    root = run_experiment(exp, lambda e: FakeOpenCodeClient())
+    rundir = root / "baseline" / "rep_0"
+    run_log = rundir / "run.log"
+    debug_log = rundir / "debug.log"
+    assert run_log.is_file() and debug_log.is_file()
+    assert "[fake] starting task" in run_log.read_text()
+    assert "# condition: baseline" in run_log.read_text()
+    assert "# condition: baseline" in debug_log.read_text()
+
+
 class _CancelAfterFirstClient(FakeOpenCodeClient):
     """Fake client that sets a cancel_event after its first run_task call, so
     the runner's pre-run cancel check breaks the loop before the second run."""
@@ -122,7 +136,7 @@ class _CancelAfterFirstClient(FakeOpenCodeClient):
         self._calls = 0
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, cancel_event=None):
+                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         self._calls += 1
         result = super().run_task(
             workdir=workdir, system_prompt=system_prompt, model=model,
