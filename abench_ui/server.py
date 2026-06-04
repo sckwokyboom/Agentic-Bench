@@ -493,6 +493,18 @@ def create_app(
     async def _ws(ws: WebSocket, sid: str):
         await ws.accept()
         if sid not in state["sessions"]:
+            # Unknown/expired session (e.g. the server was restarted, dropping
+            # in-memory sessions). Tell the client so it shows a message and
+            # STOPS reconnecting — otherwise it hammers open/close every 750ms.
+            try:
+                await ws.send_json({
+                    "type": "session.error",
+                    "message": ("This run session is no longer available — the server "
+                                "may have been restarted. Open the experiment's Results "
+                                "to view finished runs."),
+                })
+            except Exception:
+                pass
             await ws.close(code=4004)
             return
 

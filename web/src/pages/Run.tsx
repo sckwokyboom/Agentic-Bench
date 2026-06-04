@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { Stack, Box, Button, Typography, Chip } from "@mui/material";
+import { Stack, Box, Button, Typography, Chip, Alert } from "@mui/material";
 import { useRunSession } from "../ws/useRunSession";
 import ProgressHeader from "../components/ProgressHeader";
 import RunSidebar from "../components/RunSidebar";
@@ -121,6 +121,7 @@ export default function Run() {
           onClick={() => sid && cancel.mutateAsync(sid)}
         >{cancel.isPending ? "Cancelling…" : derived.sessionFinished ? "Finished" : "Cancel"}</Button>
       </Stack>
+      {ws.error && <Alert severity="error">{ws.error}</Alert>}
       <ProgressHeader
         runIdx={derived.runIdx}
         totalRuns={derived.totalRuns}

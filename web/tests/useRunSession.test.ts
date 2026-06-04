@@ -152,4 +152,16 @@ describe("useRunSession", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(FakeWS.instances).toHaveLength(1);
   });
+
+  it("does NOT reconnect when the server closes an unknown session (code 4004)", async () => {
+    const { result } = renderHook(() => useRunSession("S7"));
+    await waitFor(() => expect(FakeWS.instances).toHaveLength(1));
+    act(() => {
+      // Server closes an unknown/expired session with 4004 (no terminal event).
+      FakeWS.instances[0]!.onclose?.(new CloseEvent("close", { code: 4004 }));
+    });
+    await new Promise((r) => setTimeout(r, 1000)); // past RECONNECT_DELAY_MS
+    expect(FakeWS.instances).toHaveLength(1);       // did NOT loop/reconnect
+    expect(result.current.error).toMatch(/no longer available/i);
+  });
 });

@@ -92,3 +92,19 @@ def test_envelopes_carry_condition_and_rep(tmp_path):
         assert "condition" in m
         assert "rep" in m
         assert m["condition"] == "baseline"
+
+
+def test_ws_unknown_session_sends_error_then_closes(tmp_path):
+    """An unknown/expired session (e.g. after a server restart) must get an
+    explicit session.error envelope + a close, so the client shows a message and
+    stops reconnecting instead of looping open/close forever."""
+    from starlette.websockets import WebSocketDisconnect
+    _scaffold_minimal_exp(tmp_path)
+    app = create_app(experiments_dir=tmp_path)
+    client = TestClient(app)
+    with client.websocket_connect("/ws/sessions/does-not-exist") as ws:
+        msg = ws.receive_json()
+        assert msg["type"] == "session.error"
+        assert "no longer available" in msg["message"].lower()
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()
