@@ -3,7 +3,7 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import VerifyChip from "./VerifyChip";
 import IsolationChip from "./IsolationChip";
-import { formatEta } from "../lib/eta";
+import { formatEta, type ExperimentEstimate } from "../lib/eta";
 import type { VerifyStatus } from "../api/types";
 
 interface Props {
@@ -20,8 +20,25 @@ interface Props {
   baselineStatus?: VerifyStatus | null;
   // Live aggregate of service/proxy errors summed across run.finished envelopes.
   serviceErrors?: number;
-  // Estimated remaining seconds (null until enough finished runs to estimate).
-  etaSeconds?: number | null;
+  // Time estimate for the experiment (shown as a prominent line below the bar).
+  estimate?: ExperimentEstimate;
+}
+
+function EstimateLine({ estimate }: { estimate: ExperimentEstimate }) {
+  if (estimate.state === "idle" || estimate.state === "done") return null;
+  const text =
+    estimate.state === "estimating" || estimate.totalSeconds == null || estimate.etaSeconds == null
+      ? "Estimating run time…"
+      : `≈ ${formatEta(estimate.totalSeconds)} total · ${formatEta(estimate.etaSeconds)} left · ${estimate.doneRuns}/${estimate.totalRuns} runs`;
+  return (
+    <Typography
+      variant="body2"
+      color="text.secondary"
+      sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+    >
+      <ScheduleIcon fontSize="small" /> {text}
+    </Typography>
+  );
 }
 
 export default function ProgressHeader(props: Props) {
@@ -40,18 +57,11 @@ export default function ProgressHeader(props: Props) {
         {props.rep !== null && <> · rep: <b>{props.rep}</b></>}
       </Typography>
       <LinearProgress variant="determinate" value={pct} />
+      {props.estimate && <EstimateLine estimate={props.estimate} />}
       <Stack direction="row" spacing={1} flexWrap="wrap">
         <Chip size="small" label={`${props.done} done`} color="success" variant="outlined" />
         <Chip size="small" label={`${props.running} running`} color="info" variant="outlined" />
         <Chip size="small" label={`${props.pending} pending`} variant="outlined" />
-        {props.etaSeconds != null && props.etaSeconds > 0 && (
-          <Chip
-            size="small"
-            variant="outlined"
-            icon={<ScheduleIcon />}
-            label={`${formatEta(props.etaSeconds)} left (est.)`}
-          />
-        )}
         {(props.serviceErrors ?? 0) > 0 && (
           <Chip
             size="small"

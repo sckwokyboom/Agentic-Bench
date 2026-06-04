@@ -83,26 +83,45 @@ describe("ProgressHeader service-errors chip", () => {
   });
 });
 
-describe("ProgressHeader ETA chip", () => {
-  it("renders an estimated-time-left chip when etaSeconds is positive", () => {
+describe("ProgressHeader ETA line", () => {
+  it("shows total + remaining when the estimate is ready", () => {
     render(
       <ProgressHeader
         {...base}
         verifyCounts={{ passed: 0, failed: 0, total: 0 }}
-        etaSeconds={360}
+        estimate={{ state: "ready", totalRuns: 6, doneRuns: 2, etaSeconds: 360, totalSeconds: 600 }}
       />,
     );
-    expect(screen.getByText(/~6m left \(est\.\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/≈ ~10m total · ~6m left · 2\/6 runs/i)).toBeInTheDocument();
   });
 
-  it("renders no ETA chip when etaSeconds is null", () => {
+  it("shows 'Estimating run time…' before the first run finishes", () => {
     render(
       <ProgressHeader
         {...base}
         verifyCounts={{ passed: 0, failed: 0, total: 0 }}
-        etaSeconds={null}
+        estimate={{ state: "estimating", totalRuns: 6, doneRuns: 0, etaSeconds: null, totalSeconds: null }}
       />,
     );
-    expect(screen.queryByText(/left \(est\.\)/i)).toBeNull();
+    expect(screen.getByText(/Estimating run time…/i)).toBeInTheDocument();
+  });
+
+  it("renders no ETA line when idle or done", () => {
+    const { rerender } = render(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 0, failed: 0, total: 0 }}
+        estimate={{ state: "idle", totalRuns: 0, doneRuns: 0, etaSeconds: null, totalSeconds: null }}
+      />,
+    );
+    expect(screen.queryByText(/total ·|Estimating/i)).toBeNull();
+    rerender(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 0, failed: 0, total: 0 }}
+        estimate={{ state: "done", totalRuns: 6, doneRuns: 6, etaSeconds: 0, totalSeconds: 600 }}
+      />,
+    );
+    expect(screen.queryByText(/total ·|Estimating/i)).toBeNull();
   });
 });

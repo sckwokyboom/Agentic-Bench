@@ -8,7 +8,7 @@ import EventStream from "../components/EventStream";
 import StartupStatus from "../components/StartupStatus";
 import { useCancelSession, useRuns, useSessionState } from "../api/queries";
 import { deriveStartupStatus } from "../lib/startupStatus";
-import { estimateEtaSeconds } from "../lib/eta";
+import { estimateExperiment } from "../lib/eta";
 import type { SessionStarted } from "../ws/envelope";
 
 export default function Run() {
@@ -104,8 +104,8 @@ export default function Run() {
   // verify / workdir prep / waiting for the model / 429 backoff).
   const startup = useMemo(() => deriveStartupStatus(ws.envelopes), [ws.envelopes]);
 
-  // Rough remaining-time estimate, refined as each run finishes.
-  const etaSeconds = useMemo(() => estimateEtaSeconds(ws.envelopes), [ws.envelopes]);
+  // Time estimate (total + remaining), refined as each run finishes.
+  const estimate = useMemo(() => estimateExperiment(ws.envelopes), [ws.envelopes]);
 
   useEffect(() => {
     if (
@@ -149,7 +149,7 @@ export default function Run() {
         verifyCounts={derived.verify}
         isolation={derived.isolationOn}
         serviceErrors={derived.serviceErrors}
-        etaSeconds={derived.sessionFinished ? null : etaSeconds}
+        estimate={estimate}
       />
       {derived.sessionFinished && experimentName === null && (
         <Typography color="warning.main">

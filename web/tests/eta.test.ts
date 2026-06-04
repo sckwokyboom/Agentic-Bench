@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { estimateEtaSeconds, formatEta } from "../src/lib/eta";
+import {
+  estimateEtaSeconds, estimateExperiment, priorEstimateFromRuns, formatEta,
+} from "../src/lib/eta";
 import type { Envelope } from "../src/ws/envelope";
 
 const started = (total: number, conditions: string[]): Envelope => ({
@@ -78,6 +80,58 @@ describe("estimateEtaSeconds", () => {
       { type: "session.finished", session_id: "S", event_id: 999, duration_s: 1 },
     ]);
     expect(eta).toBe(0);
+  });
+});
+
+describe("estimateExperiment", () => {
+  it("is idle before a session starts", () => {
+    expect(estimateExperiment([]).state).toBe("idle");
+  });
+
+  it("is 'estimating' once running but before any run finishes", () => {
+    const e = estimateExperiment([started(6, ["baseline", "augmented"])]);
+    expect(e.state).toBe("estimating");
+    expect(e.totalRuns).toBe(6);
+    expect(e.etaSeconds).toBeNull();
+    expect(e.totalSeconds).toBeNull();
+  });
+
+  it("is 'ready' with total = done-time + remaining once a run finishes", () => {
+    const e = estimateExperiment([
+      started(6, ["baseline", "augmented"]),
+      finished("baseline", 60),
+    ]);
+    expect(e.state).toBe("ready");
+    expect(e.doneRuns).toBe(1);
+    expect(e.etaSeconds).toBe(300);        // 5 remaining × 60 (global fallback)
+    expect(e.totalSeconds).toBe(360);      // 60 done + 300 remaining
+  });
+
+  it("is 'done' after session.finished", () => {
+    const e = estimateExperiment([
+      started(6, ["baseline", "augmented"]),
+      finished("baseline", 60),
+      { type: "session.finished", session_id: "S", event_id: 9, duration_s: 1 },
+    ]);
+    expect(e.state).toBe("done");
+    expect(e.etaSeconds).toBe(0);
+  });
+});
+
+describe("priorEstimateFromRuns", () => {
+  it("returns null with no usable durations", () => {
+    expect(priorEstimateFromRuns(undefined)).toBeNull();
+    expect(priorEstimateFromRuns([])).toBeNull();
+    expect(priorEstimateFromRuns([{ duration_s: null }])).toBeNull();
+  });
+
+  it("projects the average duration across all runs", () => {
+    expect(priorEstimateFromRuns([{ duration_s: 10 }, { duration_s: 20 }]))
+      .toEqual({ totalSeconds: 30, n: 2 });
+    // null durations still count toward n (avg of present × n)
+    expect(priorEstimateFromRuns([
+      { duration_s: 10 }, { duration_s: null }, { duration_s: 20 },
+    ])).toEqual({ totalSeconds: 45, n: 3 });
   });
 });
 
