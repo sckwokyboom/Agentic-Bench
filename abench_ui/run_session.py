@@ -66,7 +66,7 @@ class _PerRunPublishingClient:
         system_prompt: str,
         model: str,
         user_message: str,
-        timeout_s: int,
+        timeout_s: int | None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         cancel_event: "threading.Event | None" = None,

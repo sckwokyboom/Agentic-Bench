@@ -75,6 +75,15 @@ def test_load_experiment_defaults_for_new_fields(tmp_path):
     # target defaults: optional, both None
     assert exp.target_file is None
     assert exp.target_methods is None
+    # run timeout: no limit by default (the agent can take as long as it needs)
+    assert exp.timeout_s is None
+
+
+def test_timeout_s_defaults_to_no_limit_and_accepts_a_number(tmp_path):
+    yaml_path = _scaffold(tmp_path)
+    assert load_experiment(yaml_path).timeout_s is None
+    yaml_path.write_text(yaml_path.read_text() + "\ntimeout_s: 1800\n")
+    assert load_experiment(yaml_path).timeout_s == 1800
 
 
 def test_load_experiment_accepts_verify_and_isolation_blocks(tmp_path):

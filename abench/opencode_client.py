@@ -159,6 +159,17 @@ def build_opencode_config(
     return config
 
 
+def _run_deadline(started_at: float, timeout_s: int | None) -> float | None:
+    """Absolute wall-clock deadline for a run, or None for no limit.
+
+    ``timeout_s`` of None (or <= 0) means the agent may run as long as it needs
+    — the run ends on natural completion or a cooperative cancel, never a clock.
+    """
+    if timeout_s is None or timeout_s <= 0:
+        return None
+    return started_at + timeout_s
+
+
 _ENV_REF = re.compile(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -253,7 +264,7 @@ class OpenCodeClient(Protocol):
         system_prompt: str,
         model: str,
         user_message: str,
-        timeout_s: int,
+        timeout_s: int | None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         cancel_event: "threading.Event | None" = None,
@@ -285,7 +296,7 @@ class RealOpenCodeClient:
     ---------------------------------------------------------------------------
     """
 
-    def __init__(self, cfg: OpenCodeCfg, timeout_s: int = 600) -> None:
+    def __init__(self, cfg: OpenCodeCfg, timeout_s: int | None = None) -> None:
         self._cfg = cfg
         # timeout_s stored for callers that construct the client without a
         # per-run override (e.g. tests that call run_task with the same value).
@@ -298,7 +309,7 @@ class RealOpenCodeClient:
         system_prompt: str,
         model: str,
         user_message: str,
-        timeout_s: int,
+        timeout_s: int | None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         cancel_event: "threading.Event | None" = None,
@@ -388,9 +399,10 @@ class RealOpenCodeClient:
         stderr_drainer = threading.Thread(target=_drain_stderr, daemon=True)
         stderr_drainer.start()
 
-        # Wait up to timeout_s for the process to finish, polling so a
-        # cancel_event can kill the subprocess promptly (cooperative cancel).
-        deadline = started_at + timeout_s
+        # Wait for the process to finish, polling every ≤0.5s so a cancel_event
+        # kills the subprocess promptly (cooperative cancel). A deadline of None
+        # means no time limit — wait until natural completion or cancel.
+        deadline = _run_deadline(started_at, timeout_s)
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 proc.kill()
@@ -400,8 +412,7 @@ class RealOpenCodeClient:
                 except subprocess.TimeoutExpired:
                     pass
                 break
-            remaining = deadline - time.time()
-            if remaining <= 0:
+            if deadline is not None and time.time() >= deadline:
                 proc.kill()
                 interrupted_reason = "timeout"
                 try:
@@ -409,8 +420,9 @@ class RealOpenCodeClient:
                 except subprocess.TimeoutExpired:
                     pass
                 break
+            poll = 0.5 if deadline is None else min(0.5, deadline - time.time())
             try:
-                proc.wait(timeout=min(0.5, remaining))
+                proc.wait(timeout=max(0.05, poll))
                 break  # finished naturally
             except subprocess.TimeoutExpired:
                 continue

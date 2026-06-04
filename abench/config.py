@@ -333,10 +333,14 @@ class Experiment(BaseModel):
         title="OpenCode",
         description="OpenCode agent/binary configuration.",
     )
-    timeout_s: int = Field(
-        default=600,
+    timeout_s: int | None = Field(
+        default=None,
         title="Run timeout (s)",
-        description="Max seconds per agent run.",
+        description=(
+            "Max seconds per agent run, or empty for no limit (default). A hard "
+            "task can take many minutes; use Cancel to stop a stuck run. Set a "
+            "number only if you want a backstop against a wedged process."
+        ),
     )
     min_seconds_between_runs: float = Field(
         default=0.0,
