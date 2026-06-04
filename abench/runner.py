@@ -20,7 +20,7 @@ from .config import Condition, Experiment
 from .diffstat import parse_diffstat
 from .metrics import MetricsConfig, extract
 from .opencode_client import OpenCodeClient
-from .prompt import compose
+from .prompt import build_system_prompt, compose
 from .trace_model import FileChange, FinalDiffSummary
 from .verify import detect_command as _detect_verify, run_verify, write_verify_log
 
@@ -190,16 +190,15 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                 })
                 workdir, sha = fx.create_workdir(exp.fixture_path)
 
-                # Isolation: nonce-prefix in system_prompt (rebuilt per attempt).
-                nonce = None
-                system_prompt_eff = exp.system_prompt
-                if exp.isolation.nonce_prefix:
-                    nonce = uuid.uuid4().hex
-                    system_prompt_eff = (
-                        f"# abench-run: {nonce}\n"
-                        f"# fixture: {sha}\n"
-                        f"{exp.system_prompt}"
-                    )
+                # Isolation: grounding guard + nonce-prefix in system_prompt
+                # (rebuilt per attempt so each gets a fresh nonce).
+                nonce = uuid.uuid4().hex if exp.isolation.nonce_prefix else None
+                system_prompt_eff = build_system_prompt(
+                    exp.system_prompt,
+                    nonce=nonce,
+                    fixture_sha=sha,
+                    forbid_external_sources=exp.isolation.forbid_external_sources,
+                )
 
                 result = client.run_task(
                     workdir=str(workdir),

@@ -53,7 +53,9 @@ class _RecordingClient:
 
 
 def test_nonce_prefix_prepended_when_enabled(tmp_path):
-    exp = _make_exp(tmp_path, IsolationCfg(nonce_prefix=True, shuffle_order=False))
+    # forbid_external_sources off so we isolate the nonce-prefix behaviour.
+    exp = _make_exp(tmp_path, IsolationCfg(
+        nonce_prefix=True, shuffle_order=False, forbid_external_sources=False))
     rec = _RecordingClient()
     run_experiment(exp, lambda e: rec)
 
@@ -68,11 +70,38 @@ def test_nonce_prefix_prepended_when_enabled(tmp_path):
 
 
 def test_nonce_prefix_disabled_passes_prompt_unchanged(tmp_path):
-    exp = _make_exp(tmp_path, IsolationCfg(nonce_prefix=False, shuffle_order=False))
+    exp = _make_exp(tmp_path, IsolationCfg(
+        nonce_prefix=False, shuffle_order=False, forbid_external_sources=False))
     rec = _RecordingClient()
     run_experiment(exp, lambda e: rec)
     for prompt in rec.captures:
         assert prompt == "ORIGINAL_SYSTEM_PROMPT"
+
+
+def test_grounding_guard_prepended_when_enabled(tmp_path):
+    """forbid_external_sources prepends the ground rules to every run's system
+    prompt (both conditions), forbidding .git/VCS history and external sources."""
+    exp = _make_exp(tmp_path, IsolationCfg(
+        nonce_prefix=False, shuffle_order=False, forbid_external_sources=True))
+    rec = _RecordingClient()
+    run_experiment(exp, lambda e: rec)
+    assert rec.captures
+    for prompt in rec.captures:
+        assert prompt.startswith("# Ground rules")
+        assert ".git" in prompt
+        assert "ORIGINAL_SYSTEM_PROMPT" in prompt
+
+
+def test_guard_and_nonce_compose(tmp_path):
+    """Both on: guard first, then the nonce marker, then the base prompt."""
+    exp = _make_exp(tmp_path, IsolationCfg(
+        nonce_prefix=True, shuffle_order=False, forbid_external_sources=True))
+    rec = _RecordingClient()
+    run_experiment(exp, lambda e: rec)
+    for prompt in rec.captures:
+        assert prompt.startswith("# Ground rules")
+        assert "# abench-run: " in prompt
+        assert prompt.rstrip().endswith("ORIGINAL_SYSTEM_PROMPT")
 
 
 def test_shuffle_changes_run_order_deterministically(tmp_path):

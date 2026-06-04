@@ -172,6 +172,17 @@ class IsolationCfg(BaseModel):
             "Randomize condition×repetition execution order to avoid ordering bias."
         ),
     )
+    forbid_external_sources: bool = Field(
+        default=True,
+        title="Forbid external sources",
+        description=(
+            "Prepend ground rules forbidding the agent from using anything "
+            "outside the project workdir — no .git/VCS history, no other copies "
+            "of the project, no paths outside it, no internet — so results "
+            "reflect solving from the project's own sources and tests rather "
+            "than a leaked or memorized original."
+        ),
+    )
     # v2 heavyweight (not consumed in v1; placeholder for forward-compat):
     user_field_template: str | None = Field(
         default=None,
