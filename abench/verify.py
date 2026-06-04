@@ -1,6 +1,7 @@
 """Post-run verification — runs the project's test suite and parses the result."""
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import time
@@ -88,9 +89,32 @@ _PARSER_BY_PREFIX: dict[str, Callable[[str], tuple[int, int, list[str]]]] = {
 }
 
 
+# Shell token boundaries: whitespace + the separators that can sit between a
+# prefix and the real command (`cd x && ./gradlew test`, pipes, subshells).
+_SHELL_TOKENS = re.compile(r"[\s;|&()<>]+")
+
+
 def _parser_for(command: str) -> Callable[[str], tuple[int, int, list[str]]] | None:
-    first = command.split()[0]
-    return _PARSER_BY_PREFIX.get(first)
+    """Pick a test-output parser for a shell command.
+
+    Scans ALL tokens (not just the first) so common prefixes don't hide the
+    build tool: ``cd repo && ./gradlew test``, ``JAVA_HOME=… ./gradlew test``,
+    ``timeout 600 mvn test``, ``sudo``/``nice``, ``bash -lc "./gradlew test"``.
+    Matches by exact prefix or by basename, so absolute/relative paths to a
+    wrapper (``/tmp/app/gradlew``) are recognised too.
+    """
+    for raw in _SHELL_TOKENS.split(command):
+        tok = raw.strip("'\"`")
+        if not tok:
+            continue
+        parser = _PARSER_BY_PREFIX.get(tok)
+        if parser is not None:
+            return parser
+        base = tok.rsplit("/", 1)[-1]
+        parser = _PARSER_BY_PREFIX.get(base) or _PARSER_BY_PREFIX.get(f"./{base}")
+        if parser is not None:
+            return parser
+    return None
 
 
 def _results_glob(workdir: Path, system: str) -> list[Path]:

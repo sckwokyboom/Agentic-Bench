@@ -423,3 +423,23 @@ def test_run_verify_does_not_trust_stale_xml_on_build_failure(tmp_path):
         v = run_verify(tmp_path, "gradle test", timeout_s=60)
     assert v.status == "error" and v.reason == "build_failed"
     assert v.passed_count != 9  # the stale green count must never leak through
+
+
+def test_parser_for_sees_build_tool_behind_prefixes():
+    """_parser_for must find the build tool even when the command is prefixed
+    (cd&&, env=, timeout, sudo, bash -c) or path-qualified — otherwise an agent's
+    `cd repo && ./gradlew test` parses to 0 tests."""
+    from abench.verify import _parser_for
+    from abench.verify_parsers import (
+        parse_gradle_output, parse_maven_surefire, parse_pytest_output,
+    )
+    assert _parser_for("./gradlew test") is parse_gradle_output
+    assert _parser_for("cd /tmp/picocli && ./gradlew test") is parse_gradle_output
+    assert _parser_for("JAVA_HOME=/x ./gradlew :core:test") is parse_gradle_output
+    assert _parser_for("timeout 600 ./gradlew test") is parse_gradle_output
+    assert _parser_for('bash -lc "./gradlew test"') is parse_gradle_output
+    assert _parser_for("/opt/app/gradlew test") is parse_gradle_output
+    assert _parser_for("cd x && mvn -q test") is parse_maven_surefire
+    assert _parser_for("JAVA_HOME=/x mvn verify") is parse_maven_surefire
+    assert _parser_for("pytest -q") is parse_pytest_output
+    assert _parser_for("echo hello") is None

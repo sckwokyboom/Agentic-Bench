@@ -12,6 +12,10 @@ DEFAULT_TEST_PATTERNS = [
     r"go test",
     r"cargo test",
     r"(jest|vitest)",
+    # JVM build tools (the verify subsystem already supports gradle/maven; keep
+    # the metric's test-run detection in sync so Java runs aren't silently 0).
+    r"(\./)?gradlew?\b.*\b(test|check)\b",
+    r"(\./)?mvnw?\b.*\b(test|verify|integration-test)\b",
 ]
 
 

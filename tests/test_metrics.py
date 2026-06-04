@@ -178,3 +178,58 @@ def test_n_tests_executed_zero_when_unparseable():
     ])
     m = extract(tr, "", cfg)
     assert m["n_test_runs"] == 1 and m["n_tests_executed"] == 0
+
+
+def test_n_tests_executed_robust_to_command_prefix():
+    """A gradle test run wrapped in `cd ... &&` still parses. The old first-token
+    parser returned 0 here — which is why baseline runs showed 0 tests executed
+    while augmented (bare `./gradlew test`) showed thousands."""
+    from abench.metrics import extract, MetricsConfig
+    from abench.trace_model import Step, StepKind, Trace
+    cfg = MetricsConfig(test_command_patterns=[r"gradlew?\b.*test"],
+                        shell_tool_names=["bash"], read_tool_names=["read"],
+                        search_tool_names=["grep"], command_arg_keys=["command"])
+    tr = Trace(steps=[
+        Step(kind=StepKind.TOOL_CALL, tool_name="bash", tool_call_id="c1",
+             tool_args={"command": "cd /tmp/picocli && ./gradlew test"}),
+        Step(kind=StepKind.TOOL_RESULT, tool_call_id="c1",
+             output="BUILD SUCCESSFUL\n263 tests completed, 0 failed"),
+    ])
+    m = extract(tr, "", cfg)
+    assert m["n_test_runs"] == 1
+    assert m["n_tests_executed"] == 263
+
+
+def test_n_tests_executed_takes_max_not_sum_across_runs():
+    """Re-running the suite must not inflate the count (was a cumulative sum)."""
+    from abench.metrics import extract, MetricsConfig
+    from abench.trace_model import Step, StepKind, Trace
+    cfg = MetricsConfig(test_command_patterns=["pytest"], shell_tool_names=["bash"],
+                        read_tool_names=["read"], search_tool_names=["grep"],
+                        command_arg_keys=["command"])
+    tr = Trace(steps=[
+        Step(kind=StepKind.TOOL_CALL, tool_name="bash", tool_call_id="c1",
+             tool_args={"command": "pytest"}),
+        Step(kind=StepKind.TOOL_RESULT, tool_call_id="c1", output="10 passed in 1s"),
+        Step(kind=StepKind.TOOL_CALL, tool_name="bash", tool_call_id="c2",
+             tool_args={"command": "pytest"}),
+        Step(kind=StepKind.TOOL_RESULT, tool_call_id="c2", output="4 passed in 1s"),
+    ])
+    m = extract(tr, "", cfg)
+    assert m["n_test_runs"] == 2
+    assert m["n_tests_executed"] == 10  # max(10, 4), not 14
+
+
+def test_default_test_patterns_cover_gradle_and_maven():
+    import re
+    from abench.config import DEFAULT_TEST_PATTERNS
+
+    def matches(cmd: str) -> bool:
+        return any(re.search(p, cmd) for p in DEFAULT_TEST_PATTERNS)
+
+    assert matches("./gradlew test")
+    assert matches("gradle :picocli-core:test")
+    assert matches("mvn test")
+    assert matches("./mvnw verify")
+    assert not matches("./gradlew build")  # not a test task
+    assert not matches("git status")
