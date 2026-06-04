@@ -79,6 +79,13 @@ def run_experiment(
     (root / "experiment.resolved.yaml").write_text(_dump_resolved(exp))
 
     mcfg = MetricsConfig(**exp.metrics.model_dump())
+
+    # Container sandbox: make sure the image exists before any run (build once
+    # if missing) so the operator never has to build anything by hand.
+    if exp.opencode.sandbox.mode == "container":
+        from .sandbox import ensure_image
+        ensure_image(exp.opencode.sandbox, log=_log, progress=emit)
+
     client = client_factory(exp)
 
     plan = _plan if _plan is not None else compute_plan(exp)

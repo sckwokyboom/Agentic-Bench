@@ -60,7 +60,11 @@ export interface RunPhase {
   event_id: number;
   // Fine-grained setup status during the silent startup window. These are the
   // phases the UI cannot otherwise see (no raw events flow yet).
-  phase: "baseline_verify" | "preparing_workdir" | "rate_limit_backoff";
+  phase:
+    | "building_sandbox_image"
+    | "baseline_verify"
+    | "preparing_workdir"
+    | "rate_limit_backoff";
   message?: string;
   run_idx?: number;
   condition?: string;

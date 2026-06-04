@@ -100,9 +100,27 @@ class SandboxCfg(BaseModel):
         default="abench-sandbox:latest",
         title="Sandbox image",
         description=(
-            "Image carrying the toolchain + opencode. Build the bundled "
-            "docker/Dockerfile.sandbox or point this at your own image. It must "
-            "NOT contain the original/reference sources."
+            "Image carrying the toolchain + opencode. Built automatically from "
+            "the bundled docker/Dockerfile.sandbox on first use (see auto_build), "
+            "or point this at your own image. It must NOT contain the "
+            "original/reference sources."
+        ),
+    )
+    auto_build: bool = Field(
+        default=True,
+        title="Auto-build image",
+        description=(
+            "If the image is missing, build it automatically (once) from the "
+            "Dockerfile before the first run — so nothing has to be built by "
+            "hand. Turn off if you manage the image yourself."
+        ),
+    )
+    dockerfile: str | None = Field(
+        default=None,
+        title="Dockerfile path",
+        description=(
+            "Dockerfile used for auto-build. Defaults to the bundled "
+            "docker/Dockerfile.sandbox."
         ),
     )
     workdir_mount: str = Field(

@@ -7,6 +7,7 @@ import type { Envelope } from "../ws/envelope";
  */
 export interface StartupStatus {
   kind:
+    | "building_sandbox_image"
     | "baseline_verify"
     | "preparing_workdir"
     | "rate_limit_backoff"
@@ -19,6 +20,7 @@ export interface StartupStatus {
 }
 
 const PHASE_FALLBACK: Record<string, string> = {
+  building_sandbox_image: "Building the sandbox image (first run only)…",
   baseline_verify: "Running baseline verification…",
   preparing_workdir: "Preparing an isolated workdir…",
   rate_limit_backoff: "Rate limited — backing off before retrying…",
