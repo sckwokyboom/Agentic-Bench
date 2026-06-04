@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Box, Button, Typography, CircularProgress } from "@mui/material";
+import { Box, Button, Typography, CircularProgress, Link, Stack } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import { useRunLog } from "../api/queries";
+import { useRunLog, runLogUrl } from "../api/queries";
 
 interface Props {
   name: string;
@@ -43,7 +43,20 @@ export default function RunLogToggle({ name, condition, rep, batch }: Props) {
             </Typography>
           )}
           {log.data != null && (
-            <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap" }}>{log.data}</Box>
+            <Stack spacing={1}>
+              <Link
+                href={runLogUrl(name, condition, rep, batch)}
+                target="_blank"
+                rel="noopener"
+                variant="caption"
+                sx={{ color: "#8ab4ff", alignSelf: "flex-start" }}
+              >
+                Download full log
+              </Link>
+              {/* Only the tail is fetched (see useRunLog) so a multi-MB build
+                  log can't freeze the browser; the link above has the full log. */}
+              <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap" }}>{log.data}</Box>
+            </Stack>
           )}
         </Box>
       )}

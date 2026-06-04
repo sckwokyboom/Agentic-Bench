@@ -235,6 +235,32 @@ def test_run_log_endpoint_batch_aware(client):
     assert r.status_code == 404
 
 
+def test_run_log_tail_bytes_caps_large_log(client):
+    """?tail_bytes=N returns only the END of a large log (with a notice) so the
+    viewer can't freeze the browser; the full log is still available without it."""
+    c, root = client
+    name = "exp-rl2"
+    _seed_batched_run(root, name, "20260101-000000", "baseline", 0,
+                      {"success": None, "interrupted_reason": None})
+    (root / name / "experiment.yaml").write_text(
+        "name: exp-rl2\nfixture_path: ./stripped\n")
+    rd = root / name / "runs" / name / "20260101-000000" / "baseline" / "rep_0"
+    big = "\n".join(f"line-{i}" for i in range(5000)) + "\n"
+    (rd / "run.log").write_text(big)
+
+    full = c.get(f"/api/runs/{name}/baseline/0/run_log?batch=20260101-000000")
+    assert full.status_code == 200
+    assert "line-0\n" in full.text and "line-4999" in full.text
+
+    tail = c.get(
+        f"/api/runs/{name}/baseline/0/run_log?batch=20260101-000000&tail_bytes=200")
+    assert tail.status_code == 200
+    assert "run.log is large" in tail.text   # truncation notice
+    assert "line-4999" in tail.text          # the END is shown
+    assert "line-0\n" not in tail.text       # the head is dropped
+    assert len(tail.text) < 1000             # bounded
+
+
 def test_list_runs_surfaces_new_validity_fields(client):
     """list_runs items include n_service_errors / made_source_changes /
     verify_insensitive / interrupted_reason from metrics.json (defaults when

@@ -292,15 +292,29 @@ def create_app(
             raise HTTPException(404, str(exc))
 
     @api.get("/runs/{name}/{condition}/{rep}/run_log")
-    def _read_run_log(name: str, condition: str, rep: int, batch: str | None = None):
+    def _read_run_log(name: str, condition: str, rep: int,
+                      batch: str | None = None, tail_bytes: int | None = None):
+        """Raw run.log. With ?tail_bytes=N, return only the last N chars (from a
+        line boundary) prefixed with a truncation notice — run.log can be many MB
+        for a verbose build, and rendering all of it freezes the browser. Omit
+        tail_bytes (or 0) for the full log (download)."""
         rd = _resolve_runs_dir(name, batch)
         try:
-            return Response(
-                runs_mod.read_artefact(rd, condition, rep, "run.log"),
-                media_type="text/plain",
-            )
+            text = runs_mod.read_artefact(rd, condition, rep, "run.log")
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
+        if tail_bytes and tail_bytes > 0 and len(text) > tail_bytes:
+            shown = text[-tail_bytes:]
+            nl = shown.find("\n")  # start at a line boundary, not mid-line
+            if nl != -1:
+                shown = shown[nl + 1:]
+            notice = (
+                f"[abench] run.log is large — showing the last {len(shown)} of "
+                f"{len(text)} characters (use “Download full log” for everything)\n"
+                f"{'-' * 60}\n"
+            )
+            text = notice + shown
+        return Response(text, media_type="text/plain")
 
     @api.get("/runs/{name}/{condition}/{rep}/method_comparison")
     def _method_comparison(name: str, condition: str, rep: int, request: Request,

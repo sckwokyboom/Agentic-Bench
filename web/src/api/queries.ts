@@ -152,14 +152,28 @@ export const useVerifyLog = (
       apiGet<string>(withBatch(`/api/runs/${name}/${condition}/${rep}/verify_log`, batch)),
   });
 
+// Cap the run.log the viewer pulls + renders: a verbose build log can be many
+// MB and rendering it all freezes the browser. We fetch only the tail; the full
+// log stays available via runLogUrl() (download).
+export const RUN_LOG_TAIL_CHARS = 200_000;
+
+export function runLogUrl(
+  name: string, condition: string, rep: number, batch?: string,
+): string {
+  return withBatch(`/api/runs/${name}/${condition}/${rep}/run_log`, batch);
+}
+
 export const useRunLog = (
   name: string, condition: string, rep: number, enabled: boolean, batch?: string,
 ) =>
   useQuery({
     queryKey: qk.runLog(name, condition, rep, batch),
     enabled,
-    queryFn: () =>
-      apiGet<string>(withBatch(`/api/runs/${name}/${condition}/${rep}/run_log`, batch)),
+    queryFn: () => {
+      const base = `/api/runs/${name}/${condition}/${rep}/run_log?tail_bytes=${RUN_LOG_TAIL_CHARS}`;
+      const url = batch ? `${base}&batch=${encodeURIComponent(batch)}` : base;
+      return apiGet<string>(url);
+    },
   });
 
 export const useDetectedVerify = (name: string | undefined) =>
