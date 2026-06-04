@@ -14,6 +14,7 @@ import { ApiError } from "../api/client";
 import type { RunBatch } from "../api/types";
 import SummaryTable from "../components/SummaryTable";
 import RunsTable from "../components/RunsTable";
+import ResultsExportButton from "../components/ResultsExportButton";
 import ValiditySignals from "../components/ValiditySignals";
 
 // Batch ids are "YYYYMMDD-HHMMSS" UTC timestamps (or the literal "legacy").
@@ -111,6 +112,12 @@ export default function ExperimentResults() {
         <Button component={RouterLink} to={`/experiments/${name}`} variant="outlined" size="small">
           Edit
         </Button>
+        <ResultsExportButton
+          experimentName={name ?? ""}
+          batchLabel={batch ? formatBatchLabel(batch) : null}
+          summary={summary.data}
+          runs={runs.data}
+        />
       </Stack>
 
       {anyInsensitive && <ValiditySignals verifyInsensitive />}
