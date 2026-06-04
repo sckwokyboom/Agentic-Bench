@@ -3,6 +3,7 @@ import Brightness4Icon from "@mui/icons-material/Brightness4";
 import Brightness7Icon from "@mui/icons-material/Brightness7";
 import { Outlet, NavLink } from "react-router-dom";
 import { useColorMode } from "./theme";
+import ActiveRunsBanner from "./components/ActiveRunsBanner";
 
 // `inherit` so the nav link reads against the AppBar in both light and dark.
 const linkStyle = { color: "inherit", textDecoration: "none", marginLeft: 24 };
@@ -24,6 +25,7 @@ export default function App() {
           </Tooltip>
         </Toolbar>
       </AppBar>
+      <ActiveRunsBanner />
       <Box component="main" sx={{ flexGrow: 1, overflow: "auto", p: 3 }}>
         <Outlet />
       </Box>

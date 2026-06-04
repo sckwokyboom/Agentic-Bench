@@ -6,7 +6,7 @@ import ProgressHeader from "../components/ProgressHeader";
 import RunSidebar from "../components/RunSidebar";
 import EventStream from "../components/EventStream";
 import StartupStatus from "../components/StartupStatus";
-import { useCancelSession, useRuns } from "../api/queries";
+import { useCancelSession, useRuns, useSessionState } from "../api/queries";
 import { deriveStartupStatus } from "../lib/startupStatus";
 import type { SessionStarted } from "../ws/envelope";
 
@@ -14,8 +14,13 @@ export default function Run() {
   const { sid } = useParams<{ sid: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const experimentName =
+  const navStateName =
     (location.state as { experimentName?: string } | null)?.experimentName ?? null;
+  // On a cold open / reload / shared link, location.state is gone. Recover the
+  // experiment name from the session status endpoint so the trace links,
+  // batch polling, and post-finish navigation still work.
+  const sessionInfo = useSessionState(navStateName ? undefined : sid);
+  const experimentName = navStateName ?? sessionInfo.data?.experiment_name ?? null;
   const ws = useRunSession(sid);
   const cancel = useCancelSession();
 

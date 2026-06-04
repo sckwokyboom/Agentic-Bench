@@ -413,19 +413,42 @@ def create_app(
         session.start()
         return {"session_id": sid}
 
+    def _summarize_session(s) -> dict:
+        """Status + enough experiment context (name, batch, conditions) that the
+        UI can re-open a session by sid alone — e.g. after the live tab was
+        closed or the page reloaded (location.state is then gone)."""
+        return {
+            "session_id": s.id,
+            "experiment_name": s.experiment.name,
+            "batch_id": s.batch_id,
+            "state": s.state.value,
+            "started_at": s.started_at,
+            "ended_at": s.ended_at,
+            "total_runs": s.total_runs,
+            "current_idx": s.current_idx,
+            "current_condition": s.current_condition,
+            "current_rep": s.current_rep,
+            "conditions": [c.name for c in s.experiment.conditions],
+        }
+
+    @api.get("/sessions")
+    def _list_active_sessions():
+        """In-flight sessions (pending/running), newest first, so the UI can
+        always offer a way back to a live run after the tab was closed."""
+        active = [
+            _summarize_session(s)
+            for s in state["sessions"].values()
+            if s.state.value in ("pending", "running")
+        ]
+        active.sort(key=lambda x: x["started_at"] or 0, reverse=True)
+        return active
+
     @api.get("/sessions/{sid}")
     def _session_state(sid: str):
         session = state["sessions"].get(sid)
         if session is None:
             raise HTTPException(404, "session not found")
-        return {
-            "state": session.state.value,
-            "started_at": session.started_at,
-            "ended_at": session.ended_at,
-            "total_runs": session.total_runs,
-            "current_condition": session.current_condition,
-            "current_rep": session.current_rep,
-        }
+        return _summarize_session(session)
 
     @api.delete("/sessions/{sid}")
     def _cancel_session(sid: str):

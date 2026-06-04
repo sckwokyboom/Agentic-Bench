@@ -35,6 +35,7 @@ export const qk = {
   verifyJob: (id: string) => ["verifyJob", id] as const,
   providers: ["providers"] as const,
   sessionState: (sid: string) => ["sessionState", sid] as const,
+  activeSessions: ["activeSessions"] as const,
 };
 
 export const useExperiments = () =>
@@ -261,6 +262,15 @@ export const useSessionState = (sid: string | undefined) =>
     enabled: Boolean(sid),
     queryFn: () => apiGet<t.SessionState>(`/api/sessions/${sid}`),
     refetchInterval: 2000,
+  });
+
+// In-flight sessions (pending/running). Polled so the "resume live run" banner
+// appears/updates as runs start and finish.
+export const useActiveSessions = () =>
+  useQuery({
+    queryKey: qk.activeSessions,
+    queryFn: () => apiGet<t.SessionSummary[]>("/api/sessions"),
+    refetchInterval: 3000,
   });
 
 export function useCancelSession() {

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { ColorModeProvider } from "../src/theme";
 import App from "../src/App";
@@ -23,12 +24,15 @@ beforeEach(() => { vi.stubGlobal("localStorage", makeStorage()); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 function renderApp() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <ColorModeProvider>
-      <MemoryRouter>
-        <Routes><Route path="/" element={<App />} /></Routes>
-      </MemoryRouter>
-    </ColorModeProvider>,
+    <QueryClientProvider client={qc}>
+      <ColorModeProvider>
+        <MemoryRouter>
+          <Routes><Route path="/" element={<App />} /></Routes>
+        </MemoryRouter>
+      </ColorModeProvider>
+    </QueryClientProvider>,
   );
 }
 

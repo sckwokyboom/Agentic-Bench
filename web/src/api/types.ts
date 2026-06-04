@@ -195,11 +195,20 @@ export interface ProviderEntry { id: string; configured: boolean; }
 
 export interface ModelCatalogEntry { provider: string; id: string }
 
-export interface SessionState {
+export interface SessionSummary {
+  session_id: string;
+  experiment_name: string;
+  batch_id: string;
   state: "pending" | "running" | "completed" | "cancelled" | "failed";
   started_at: number | null;
   ended_at: number | null;
   total_runs: number;
+  current_idx: number;
   current_condition: string | null;
   current_rep: number | null;
+  conditions: string[];
 }
+
+// GET /api/sessions/{sid} returns the same enriched shape as each item of
+// GET /api/sessions, so a session can be re-opened by sid alone.
+export type SessionState = SessionSummary;
