@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -158,6 +159,86 @@ def build_opencode_config(
     return config
 
 
+_ENV_REF = re.compile(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _env_refs_in_config(config_data: dict) -> list[str]:
+    """Env var NAMES referenced as ``{env:NAME}`` anywhere in the opencode
+    config — these must be forwarded into the sandbox so the provider key
+    resolves inside the container. Returns names only (never values)."""
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def walk(obj) -> None:
+        if isinstance(obj, str):
+            for name in _ENV_REF.findall(obj):
+                if name not in seen:
+                    seen.add(name)
+                    names.append(name)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                walk(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                walk(v)
+
+    walk(config_data)
+    return names
+
+
+def build_run_command(
+    cfg: OpenCodeCfg,
+    *,
+    workdir: str,
+    model: str,
+    user_message: str,
+    config_data: dict,
+) -> list[str]:
+    """Build the argv to run one task.
+
+    ``sandbox.mode == 'none'`` → run the opencode binary directly on the host
+    (unchanged). ``'container'`` → wrap it in ``<runtime> run --rm`` with ONLY
+    the run workdir bind-mounted, so the host filesystem (original sources,
+    reference solution, other checkouts) is invisible. Env vars the provider
+    config references via ``{env:NAME}`` are forwarded by name so the key
+    resolves inside the container. Pure (no I/O) for unit testing.
+    """
+    sb = cfg.sandbox
+    container = sb.mode == "container"
+    run_dir = sb.workdir_mount if container else workdir
+    inner = [
+        cfg.binary, "run",
+        "--format", "json",
+        "--print-logs",
+        "--log-level", "INFO",
+        "--dir", run_dir,
+        "--model", model,
+        "--agent", cfg.agent,
+        "--dangerously-skip-permissions",
+        user_message,
+    ]
+    if not container:
+        return inner
+
+    argv = [
+        sb.runtime, "run", "--rm",
+        "-v", f"{workdir}:{sb.workdir_mount}",
+        "-w", sb.workdir_mount,
+    ]
+    if sb.network:
+        argv += ["--network", sb.network]
+    seen: set[str] = set()
+    for name in [*_env_refs_in_config(config_data), *sb.env_passthrough]:
+        if name not in seen:
+            seen.add(name)
+            argv += ["-e", name]
+    for mount in sb.cache_mounts:
+        argv += ["-v", mount]
+    argv.append(sb.image)
+    argv += inner
+    return argv
+
+
 @dataclass
 class RunResult:
     trace: Trace
@@ -242,22 +323,21 @@ class RealOpenCodeClient:
             json.dumps(config_data, indent=2), encoding="utf-8"
         )
 
-        # ── Spawn subprocess ──────────────────────────────────────────────
+        # ── Spawn subprocess (optionally wrapped in a sandbox container) ───
         started_at = time.time()
-        cmd = [
-            self._cfg.binary,
-            "run",
-            "--format", "json",
-            "--print-logs",
-            "--log-level", "INFO",
-            "--dir", workdir,
-            "--model", model,
-            "--agent", self._cfg.agent,
-            "--dangerously-skip-permissions",
-            user_message,
-        ]
-
-        emit(f"[abench] $ {' '.join(cmd[:6])} … (cwd={workdir})")
+        cmd = build_run_command(
+            self._cfg,
+            workdir=workdir,
+            model=model,
+            user_message=user_message,
+            config_data=config_data,
+        )
+        if self._cfg.sandbox.mode == "container":
+            emit(f"[abench] $ {self._cfg.sandbox.runtime} run --rm "
+                 f"-v {workdir}:{self._cfg.sandbox.workdir_mount} … "
+                 f"{self._cfg.sandbox.image} opencode run …")
+        else:
+            emit(f"[abench] $ {' '.join(cmd[:6])} … (cwd={workdir})")
 
         proc = subprocess.Popen(
             cmd,

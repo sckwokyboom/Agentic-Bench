@@ -1,0 +1,37 @@
+# Sandbox image for abench container runs (opencode.sandbox.mode = "container").
+#
+# Carries ONLY the toolchain + opencode — never the original/reference sources,
+# so the agent (which sees only the bind-mounted run workdir) cannot read the
+# solution off disk. Verify still runs on the host.
+#
+# Build (from repo root):
+#   docker build -t abench-sandbox:latest -f docker/Dockerfile.sandbox .
+# Then set in the experiment:  opencode.sandbox.mode: container
+#
+# Tip: pre-warm the dependency cache so runs don't re-download. Either bake it
+# here, or mount a warmed host cache read-only via opencode.sandbox.cache_mounts,
+# e.g. "/home/me/.gradle:/root/.gradle:ro".
+
+FROM eclipse-temurin:17-jdk
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl git unzip ca-certificates maven \
+    && rm -rf /var/lib/apt/lists/*
+
+# Gradle (projects shipping a ./gradlew wrapper will use their own version).
+ARG GRADLE_VERSION=8.7
+RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip \
+    && unzip -q /tmp/gradle.zip -d /opt \
+    && ln -s "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle \
+    && rm /tmp/gradle.zip
+
+# Node + opencode CLI. Adjust this to however you install opencode if the
+# package/install method differs in your environment.
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && (npm install -g opencode-ai || curl -fsSL https://opencode.ai/install | bash)
+ENV PATH="/root/.opencode/bin:${PATH}"
+
+WORKDIR /work

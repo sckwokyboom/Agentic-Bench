@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -74,6 +75,68 @@ class ProviderCfg(BaseModel):
     )
 
 
+class SandboxCfg(BaseModel):
+    """Filesystem/network isolation for the agent run. When ``mode='container'``
+    the run workdir is the ONLY host path the agent can see, which closes the
+    'agent reads the original off disk' leak vector. The toolchain + opencode
+    live in the image (build with docker/Dockerfile.sandbox). Verify still runs
+    on the host (it is the trusted measurement and needs no isolation)."""
+
+    mode: Literal["none", "container"] = Field(
+        default="none",
+        title="Mode",
+        description=(
+            "'none' runs opencode directly on the host (current behaviour); "
+            "'container' runs each agent run in an isolated container with only "
+            "the run workdir mounted."
+        ),
+    )
+    runtime: str = Field(
+        default="docker",
+        title="Container runtime",
+        description="Container CLI to invoke: 'docker' or 'podman'.",
+    )
+    image: str = Field(
+        default="abench-sandbox:latest",
+        title="Sandbox image",
+        description=(
+            "Image carrying the toolchain + opencode. Build the bundled "
+            "docker/Dockerfile.sandbox or point this at your own image. It must "
+            "NOT contain the original/reference sources."
+        ),
+    )
+    workdir_mount: str = Field(
+        default="/work",
+        title="Workdir mount path",
+        description="Path the run workdir is bind-mounted to inside the container.",
+    )
+    network: str | None = Field(
+        default=None,
+        title="Network",
+        description=(
+            "Value for the runtime's --network (e.g. 'none' to block all egress). "
+            "Leave empty for the default so the model endpoint stays reachable."
+        ),
+    )
+    env_passthrough: list[str] = Field(
+        default_factory=list,
+        title="Env passthrough",
+        description=(
+            "Extra host env var NAMES to forward into the container (-e NAME). "
+            "Any {env:NAME} referenced by the provider config is forwarded "
+            "automatically. Only names are passed, never values."
+        ),
+    )
+    cache_mounts: list[str] = Field(
+        default_factory=list,
+        title="Cache mounts",
+        description=(
+            "Extra 'HOST:CONTAINER[:ro]' bind mounts, e.g. a warmed dependency "
+            "cache like '/home/me/.gradle:/root/.gradle:ro' to avoid re-download."
+        ),
+    )
+
+
 class OpenCodeCfg(BaseModel):
     agent: str = Field(
         default="bench",
@@ -100,6 +163,15 @@ class OpenCodeCfg(BaseModel):
         description=(
             "Register OpenAI-compatible / custom endpoints so you can use "
             "'<id>/<model>' in Model."
+        ),
+    )
+    sandbox: SandboxCfg = Field(
+        default_factory=lambda: SandboxCfg(),
+        title="Sandbox",
+        description=(
+            "Run each agent run inside an isolated container so it cannot read "
+            "anything outside the run workdir (the original sources, the "
+            "reference solution, other checkouts). Off by default."
         ),
     )
 

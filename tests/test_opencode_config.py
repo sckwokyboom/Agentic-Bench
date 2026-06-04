@@ -87,3 +87,62 @@ def test_display_name_is_emitted_when_set():
     )
     config = build_opencode_config(cfg, "kimi/kimi-k2.6", "sys")
     assert config["provider"]["kimi"]["name"] == "Kimi"
+
+
+# ── Sandbox / build_run_command ──────────────────────────────────────────────
+
+from abench.config import SandboxCfg
+from abench.opencode_client import build_run_command, _env_refs_in_config
+
+
+def test_sandbox_defaults_to_none():
+    assert OpenCodeCfg().sandbox.mode == "none"
+
+
+def test_build_run_command_none_is_direct_host_invocation():
+    cfg = OpenCodeCfg()
+    cmd = build_run_command(cfg, workdir="/host/wd", model="m", user_message="do it",
+                            config_data={})
+    assert cmd[0] == "opencode" and cmd[1] == "run"
+    assert "--dir" in cmd and cmd[cmd.index("--dir") + 1] == "/host/wd"
+    assert "--dangerously-skip-permissions" in cmd
+    assert cmd[-1] == "do it"
+    # No container runtime is involved.
+    assert "docker" not in cmd and "podman" not in cmd
+
+
+def test_build_run_command_container_wraps_and_isolates():
+    cfg = OpenCodeCfg(sandbox=SandboxCfg(
+        mode="container", runtime="podman", image="img:1",
+        network="none", cache_mounts=["/h/.gradle:/root/.gradle:ro"]))
+    config_data = {"provider": {"p": {"options": {"apiKey": "{env:DEEPSEEK_KEY}"}}}}
+    cmd = build_run_command(cfg, workdir="/host/wd", model="m",
+                            user_message="go", config_data=config_data)
+
+    assert cmd[:3] == ["podman", "run", "--rm"]
+    # ONLY the run workdir is mounted at the container path; --dir points there.
+    assert "-v" in cmd and "/host/wd:/work" in cmd
+    assert cmd[cmd.index("--dir") + 1] == "/work"
+    # egress policy + cache mount + image
+    assert "--network" in cmd and cmd[cmd.index("--network") + 1] == "none"
+    assert "/h/.gradle:/root/.gradle:ro" in cmd
+    assert "img:1" in cmd
+    # the provider key env is forwarded BY NAME (never the value)
+    assert "-e" in cmd and "DEEPSEEK_KEY" in cmd
+    # opencode itself still runs inside, skip-permissions intact (container is the
+    # real boundary).
+    assert "opencode" in cmd and "--dangerously-skip-permissions" in cmd
+    assert cmd[-1] == "go"
+
+
+def test_env_refs_are_collected_and_deduped():
+    cfg = {"a": "{env:KEY_A}", "b": ["x", "{env:KEY_B}"], "c": "{env:KEY_A}"}
+    assert _env_refs_in_config(cfg) == ["KEY_A", "KEY_B"]
+
+
+def test_container_forwards_explicit_env_passthrough_too():
+    cfg = OpenCodeCfg(sandbox=SandboxCfg(
+        mode="container", env_passthrough=["EXTRA_ENV"]))
+    cmd = build_run_command(cfg, workdir="/wd", model="m", user_message="x",
+                            config_data={})
+    assert "EXTRA_ENV" in cmd
