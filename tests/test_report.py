@@ -79,3 +79,38 @@ def test_summary_json_excludes_interrupted_and_handles_empty(tmp_path: Path):
 
     empty = report.summary_json(tmp_path / "nope")
     assert empty == {"conditions": [], "deltas": {}, "total_runs": 0, "valid_runs": 0}
+
+
+def test_load_runs_tolerates_missing_manifest(tmp_path: Path):
+    """A run interrupted before manifest.json was written (metrics.json present,
+    manifest.json absent — it's the last artefact _run_one writes) must not
+    crash; condition + rep are recovered from the on-disk path."""
+    root = tmp_path / "runs"
+    _write_summary_run(root, "baseline", 0,
+                       {"interrupted_reason": None, "success": True, "n_steps": 10})
+    partial = root / "baseline" / "rep_1"
+    partial.mkdir(parents=True)
+    (partial / "metrics.json").write_text(json.dumps(
+        {"interrupted_reason": None, "success": None, "n_steps": 12}))
+
+    df = load_runs(root)
+    assert len(df) == 2
+    assert sorted(int(r) for r in df["rep"]) == [0, 1]
+    assert set(df["condition"]) == {"baseline"}
+
+    out = report.summary_json(root)  # must not raise
+    assert out["total_runs"] == 2
+
+
+def test_load_runs_skips_unreadable_metrics(tmp_path: Path):
+    """A truncated/half-written metrics.json is skipped, not fatal."""
+    root = tmp_path / "runs"
+    _write_summary_run(root, "baseline", 0,
+                       {"interrupted_reason": None, "success": True, "n_steps": 10})
+    broken = root / "baseline" / "rep_1"
+    broken.mkdir(parents=True)
+    (broken / "metrics.json").write_text("{not valid json")
+
+    df = load_runs(root)
+    assert len(df) == 1
+    assert report.summary_json(root)["total_runs"] == 1

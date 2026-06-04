@@ -269,6 +269,28 @@ def test_list_runs_surfaces_new_validity_fields(client):
     assert aug["interrupted_reason"] is None
 
 
+def test_summary_tolerates_partial_run_missing_manifest(client):
+    """Repro of the live-run crash: a rep interrupted before manifest.json was
+    written (metrics.json present, manifest.json absent) made GET /summary 500.
+    It must now return 200 and still count the partial run."""
+    c, root = client
+    name = "exp-partial"
+    _seed_batched_run(root, name, "20260604-042657", "baseline", 0,
+                      {"success": True, "interrupted_reason": None, "n_steps": 5})
+    (root / name / "experiment.yaml").write_text(
+        "name: exp-partial\nfixture_path: ./stripped\n")
+    # rep_1: metrics.json present, manifest.json absent (aborted mid-run).
+    partial = (root / name / "runs" / name / "20260604-042657"
+               / "baseline" / "rep_1")
+    partial.mkdir(parents=True, exist_ok=True)
+    (partial / "metrics.json").write_text(json.dumps(
+        {"success": None, "interrupted_reason": None, "n_steps": 7}))
+
+    r = c.get(f"/api/runs/{name}/summary?batch=20260604-042657")
+    assert r.status_code == 200
+    assert r.json()["total_runs"] == 2
+
+
 def test_realshape_trace_and_metrics_flow_through_endpoints(client):
     """End-to-end contract smoke (plan Task 10 Step 3): a finished run whose
     trace.json carries the REAL normalized shape (a tool_call paired with its

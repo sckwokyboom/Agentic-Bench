@@ -15,12 +15,37 @@ NUMERIC = [
 ]
 
 
+def _rep_from_dirname(name: str) -> int:
+    """Parse the rep index from a ``rep_<n>`` dir name; 0 if not parseable."""
+    suffix = name[4:] if name.startswith("rep_") else name
+    return int(suffix) if suffix.isdigit() else 0
+
+
 def load_runs(root: Path) -> pd.DataFrame:
     rows = []
     for metrics_file in sorted(Path(root).glob("*/*/metrics.json")):
-        metrics = json.loads(metrics_file.read_text())
-        manifest = json.loads((metrics_file.parent / "manifest.json").read_text())
-        row = {"condition": manifest["condition"], "rep": manifest["rep"]}
+        try:
+            metrics = json.loads(metrics_file.read_text())
+        except (OSError, ValueError):
+            # Partial/aborted run with an unreadable metrics.json — skip it
+            # rather than 500 the whole summary.
+            continue
+        # manifest.json may be missing (run interrupted before it was written —
+        # it is the last artefact _run_one writes) or unparseable. Fall back to
+        # the on-disk path for condition/rep so a partial run never crashes.
+        rundir = metrics_file.parent
+        manifest: dict = {}
+        manifest_file = rundir / "manifest.json"
+        if manifest_file.is_file():
+            try:
+                manifest = json.loads(manifest_file.read_text())
+            except (OSError, ValueError):
+                manifest = {}
+        condition = manifest.get("condition") or rundir.parent.name
+        rep = manifest.get("rep")
+        if rep is None:
+            rep = _rep_from_dirname(rundir.name)
+        row = {"condition": condition, "rep": rep}
         row.update({k: metrics.get(k) for k in NUMERIC})
         row["finished"] = metrics.get("finished")
         row["interrupted_reason"] = metrics.get("interrupted_reason")
