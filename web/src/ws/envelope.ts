@@ -52,6 +52,23 @@ export interface RunFinished {
   verify_insensitive?: boolean;
 }
 
+export interface RunPhase {
+  type: "run.phase";
+  session_id: string;
+  event_id: number;
+  // Fine-grained setup status during the silent startup window. These are the
+  // phases the UI cannot otherwise see (no raw events flow yet).
+  phase: "baseline_verify" | "preparing_workdir" | "rate_limit_backoff";
+  message?: string;
+  run_idx?: number;
+  condition?: string;
+  rep?: number;
+  // Present only for rate_limit_backoff.
+  retry?: number;
+  max_retries?: number;
+  backoff_s?: number;
+}
+
 export interface SessionError {
   type: "session.error";
   session_id: string;
@@ -69,6 +86,7 @@ export interface SessionFinished {
 
 export type Envelope =
   | SessionStarted
+  | RunPhase
   | RunStarted
   | RawEvent
   | RunFinished

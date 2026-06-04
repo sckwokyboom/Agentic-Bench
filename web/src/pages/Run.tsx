@@ -5,7 +5,9 @@ import { useRunSession } from "../ws/useRunSession";
 import ProgressHeader from "../components/ProgressHeader";
 import RunSidebar from "../components/RunSidebar";
 import EventStream from "../components/EventStream";
+import StartupStatus from "../components/StartupStatus";
 import { useCancelSession, useRuns } from "../api/queries";
+import { deriveStartupStatus } from "../lib/startupStatus";
 import type { SessionStarted } from "../ws/envelope";
 
 export default function Run() {
@@ -92,6 +94,10 @@ export default function Run() {
     ? Math.max(1, Math.floor(derived.totalRuns / conditionsArr.length))
     : 0;
 
+  // Granular "what's happening" status for the silent startup window (baseline
+  // verify / workdir prep / waiting for the model / 429 backoff).
+  const startup = useMemo(() => deriveStartupStatus(ws.envelopes), [ws.envelopes]);
+
   useEffect(() => {
     if (
       derived.sessionFinished &&
@@ -122,6 +128,7 @@ export default function Run() {
         >{cancel.isPending ? "Cancelling…" : derived.sessionFinished ? "Finished" : "Cancel"}</Button>
       </Stack>
       {ws.error && <Alert severity="error">{ws.error}</Alert>}
+      {startup && <StartupStatus status={startup} />}
       <ProgressHeader
         runIdx={derived.runIdx}
         totalRuns={derived.totalRuns}

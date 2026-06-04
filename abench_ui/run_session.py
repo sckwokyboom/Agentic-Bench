@@ -3,6 +3,8 @@ publishes WS-style envelope messages, supports cooperative cancel.
 
 Envelope types emitted (in order):
   session.started  — once at the start, with total_runs count
+  run.phase        — fine-grained setup status during the otherwise-silent
+                     startup window (baseline verify, workdir prep, 429 backoff)
   run.started      — once per condition×rep, before the run_task call
   raw_event        — once per opencode JSONL event relayed from the model
   run.finished     — once per condition×rep, after the run_task call returns
@@ -196,6 +198,13 @@ class RunSession:
         self._current_condition = condition
         self._current_rep = rep
 
+    def _publish_phase(self, payload: dict) -> None:
+        """Relay a fine-grained setup/progress signal from the runner as a
+        run.phase envelope, so the UI can show what's happening during the
+        otherwise-silent startup window (baseline verify, workdir prep, 429
+        backoff) before the model produces its first event."""
+        self._publish({"type": "run.phase", "session_id": self.id, **payload})
+
     def _run(self) -> None:
         self.state = SessionState.RUNNING
         self.started_at = time.time()
@@ -233,7 +242,8 @@ class RunSession:
 
         try:
             run_experiment(self.experiment, wrapped_factory, _plan=self.plan,
-                           batch_id=self.batch_id, cancel_event=self._cancel_flag)
+                           batch_id=self.batch_id, cancel_event=self._cancel_flag,
+                           progress=self._publish_phase)
             if self._cancel_flag.is_set():
                 self.state = SessionState.CANCELLED
             else:

@@ -65,7 +65,13 @@ def run_experiment(
     _plan: list[tuple["Condition", int]] | None = None,
     batch_id: str | None = None,
     cancel_event: "threading.Event | None" = None,
+    progress: "Callable[[dict], None] | None" = None,
 ) -> Path:
+    # `progress` carries fine-grained setup status for the UI during the
+    # otherwise-silent startup window (baseline verify, workdir prep, 429
+    # backoff). It is optional so the CLI path is unaffected; default to no-op.
+    emit = progress or (lambda _payload: None)
+
     if batch_id is None:
         batch_id = default_batch_id()
     root = exp.output_dir / exp.name / batch_id
@@ -79,6 +85,13 @@ def run_experiment(
 
     # Baseline pre-flight verify
     if exp.verify.enabled:
+        emit({
+            "phase": "baseline_verify",
+            "message": (
+                "Running baseline verification — checking the reference "
+                "solution and the stripped fixture against the tests…"
+            ),
+        })
         baseline_cache = exp.fixture_path.parent / ".verify-baseline.json"
         _maybe_run_baseline_verify(exp, baseline_cache)
 
@@ -98,7 +111,8 @@ def run_experiment(
             f"[abench] ───── run {idx}/{total}: condition={cond.name} rep={rep} ─────"
         )
         t_run = time.time()
-        _run_one(exp, cond, rep, root, client, mcfg, cancel_event=cancel_event)
+        _run_one(exp, cond, rep, root, client, mcfg, cancel_event=cancel_event,
+                 idx=idx, total=total, progress=emit)
         _log(f"[abench] run {idx}/{total} done in {time.time() - t_run:.1f}s")
         if exp.min_seconds_between_runs:
             _log(f"[abench] cooldown {exp.min_seconds_between_runs}s")
@@ -109,7 +123,10 @@ def run_experiment(
 
 def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
              client: OpenCodeClient, mcfg: MetricsConfig,
-             cancel_event: "threading.Event | None" = None) -> None:
+             cancel_event: "threading.Event | None" = None,
+             idx: int = 0, total: int = 0,
+             progress: "Callable[[dict], None] | None" = None) -> None:
+    emit = progress or (lambda _payload: None)
     rundir = root / cond.name / f"rep_{rep}"
     rundir.mkdir(parents=True, exist_ok=True)
 
@@ -163,6 +180,14 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
         result = None
         try:
             for attempt in range(1, exp.rate_limit_retries + 2):
+                emit({
+                    "phase": "preparing_workdir",
+                    "run_idx": idx, "condition": cond.name, "rep": rep,
+                    "message": (
+                        "Preparing an isolated workdir — copying the project "
+                        "and initializing git…"
+                    ),
+                })
                 workdir, sha = fx.create_workdir(exp.fixture_path)
 
                 # Isolation: nonce-prefix in system_prompt (rebuilt per attempt).
@@ -200,6 +225,16 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     )
                     _log(msg)
                     log_sink(msg)
+                    emit({
+                        "phase": "rate_limit_backoff",
+                        "run_idx": idx, "condition": cond.name, "rep": rep,
+                        "retry": attempt, "max_retries": exp.rate_limit_retries,
+                        "backoff_s": backoff,
+                        "message": (
+                            f"Rate limited (429) — waiting {backoff:.0f}s before "
+                            f"retry {attempt}/{exp.rate_limit_retries}…"
+                        ),
+                    })
                     fx.cleanup(workdir)
                     workdir = None
                     # Cancellable backoff: sleep in ≤0.5s steps, breaking early
