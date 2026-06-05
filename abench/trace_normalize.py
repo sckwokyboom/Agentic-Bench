@@ -8,6 +8,26 @@ from __future__ import annotations
 from abench.trace_model import Step, StepKind, Trace, TurnInfo
 
 
+def fill_missing_token_totals(trace: Trace) -> None:
+    """If the trace-level token totals are missing (the session export reported
+    no usage — common with some OpenAI-compatible endpoints, e.g. a custom
+    DeepSeek endpoint), sum the per-turn step-finish tokens carried by the
+    trace's turns so the totals (and the UI table) aren't blank. Shared by
+    normalize() and the offline recompute path."""
+    def s(attr: str):
+        vals = [getattr(t, attr) for t in trace.turns if getattr(t, attr) is not None]
+        return sum(vals) if vals else None
+
+    if trace.tokens_in is None:
+        trace.tokens_in = s("tokens_in")
+    if trace.tokens_out is None:
+        trace.tokens_out = s("tokens_out")
+    if trace.tokens_reasoning is None:
+        trace.tokens_reasoning = s("tokens_reasoning")
+    if trace.cost is None:
+        trace.cost = s("cost")
+
+
 def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
     """Convert a list of raw OpenCode events and an optional session export
     into a normalized :class:`Trace`.
@@ -133,7 +153,7 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
         cache_write = cache.get("write")
         cost = info.get("cost")
 
-    return Trace(
+    trace = Trace(
         steps=steps,
         turns=turns,
         tokens_in=tokens_in,
@@ -144,3 +164,6 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
         cost=cost,
         # started_at, ended_at, finished, interrupted_reason: caller's responsibility.
     )
+    # When the export gave no usage, fill totals from per-turn step-finish data.
+    fill_missing_token_totals(trace)
+    return trace

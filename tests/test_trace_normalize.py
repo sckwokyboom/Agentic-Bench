@@ -103,15 +103,19 @@ def test_normalize_golden(events, session):
 # ---------------------------------------------------------------------------
 
 
-def test_normalize_without_session(events):
-    """normalize(events, None) must succeed; token / cost fields are None."""
+def test_normalize_without_session_falls_back_to_per_turn_tokens(events):
+    """Without a session export the trace-level token totals are now filled by
+    summing the per-turn step-finish tokens — so the UI table isn't blank for
+    providers whose export reports no usage."""
     from abench.trace_normalize import normalize
 
     trace = normalize(events, None)
     assert len(trace.steps) == 3
-    assert trace.tokens_in is None
-    assert trace.tokens_out is None
-    assert trace.cost is None
+    exp_in = sum(t.tokens_in for t in trace.turns if t.tokens_in is not None)
+    exp_out = sum(t.tokens_out for t in trace.turns if t.tokens_out is not None)
+    assert exp_in > 0  # the golden fixture's step-finish events carry tokens
+    assert trace.tokens_in == exp_in
+    assert trace.tokens_out == (exp_out or None)
 
 
 def test_normalize_populates_turns_from_step_finish():

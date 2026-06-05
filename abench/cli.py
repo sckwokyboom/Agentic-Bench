@@ -31,6 +31,14 @@ def main(argv: list[str] | None = None) -> int:
         help="batch dir name under output_dir/<exp>/ (default: newest batch, "
              "or the flat/legacy layout if that's all that exists)")
 
+    recompute_p = sub.add_parser(
+        "recompute",
+        help="recompute metrics for saved run(s) from trace.json (no agent re-run)")
+    recompute_p.add_argument("experiment", help="path to experiment YAML")
+    recompute_p.add_argument(
+        "--batch", default=None,
+        help="batch dir name (default: newest batch / legacy layout)")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "report":
@@ -69,6 +77,21 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 counts = ""
             print(f"{cond}/rep_{rep} → {v.status}/{v.reason}{counts}")
+        return 0
+
+    if args.cmd == "recompute":
+        from .metrics import MetricsConfig
+        from .recompute import recompute_batch
+        from .run_layout import batch_runs_dir
+
+        exp = load_experiment(args.experiment)
+        rd = batch_runs_dir(exp.output_dir / exp.name, args.batch)
+        if rd is None:
+            print("no runs to recompute")
+            return 1
+        mcfg = MetricsConfig(**exp.metrics.model_dump())
+        n = recompute_batch(rd, mcfg)
+        print(f"recomputed {n} run(s) in {rd}")
         return 0
 
     return 1

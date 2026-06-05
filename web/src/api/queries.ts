@@ -203,6 +203,21 @@ export function useStartReverify() {
   });
 }
 
+// Recompute metrics for a batch from stored trace.json (no agent re-run) — picks
+// up metric changes (tests_executed, token totals) for past runs.
+export function useRecomputeMetrics() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { name: string; batch?: string }) =>
+      apiPostJson<{ recomputed: number }>(
+        withBatch(`/api/runs/${args.name}/recompute`, args.batch), {}),
+    onSuccess: (_data, args) => {
+      qc.invalidateQueries({ queryKey: ["runs", args.name] });
+      qc.invalidateQueries({ queryKey: ["runsSummary", args.name] });
+    },
+  });
+}
+
 export const useReverifyStatus = (verifyId: string | null) =>
   useQuery({
     queryKey: qk.verifyJob(verifyId ?? ""),

@@ -9,6 +9,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useRuns, useRunsSummary, useBatches, useStartReverify, useReverifyStatus,
+  useRecomputeMetrics,
 } from "../api/queries";
 import { ApiError } from "../api/client";
 import type { RunBatch } from "../api/types";
@@ -46,6 +47,7 @@ export default function ExperimentResults() {
 
   const qc = useQueryClient();
   const start = useStartReverify();
+  const recompute = useRecomputeMetrics();
   const [verifyId, setVerifyId] = useState<string | null>(null);
   const job = useReverifyStatus(verifyId);
   // `verifyId !== null` keeps the button disabled between the POST resolving and
@@ -108,6 +110,14 @@ export default function ExperimentResults() {
           {running
             ? `Re-verifying ${job.data?.done ?? 0}/${job.data?.total ?? "…"}`
             : "Re-verify all"}
+        </Button>
+        <Button
+          variant="outlined" size="small"
+          disabled={recompute.isPending || !name}
+          onClick={() => name && recompute.mutate({ name, batch })}
+          title="Recompute metrics (tests executed, tokens…) from saved traces — no agent re-run"
+        >
+          {recompute.isPending ? "Recomputing…" : "Recompute metrics"}
         </Button>
         <Button component={RouterLink} to={`/experiments/${name}`} variant="outlined" size="small">
           Edit

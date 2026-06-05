@@ -326,6 +326,22 @@ def create_app(
         """Full per-run debug log (readable lines + opencode's verbose stderr)."""
         return _serve_log(name, condition, rep, "debug.log", batch, tail_bytes)
 
+    @api.post("/runs/{name}/recompute")
+    def _recompute_metrics(name: str, batch: str | None = None):
+        """Recompute metrics.json (+ refresh trace token totals) for a batch from
+        the stored trace.json/changes.patch — no agent re-run. Picks up metric
+        changes (e.g. tests_executed, token fallback) for past runs. The verify
+        verdict is preserved."""
+        from abench.recompute import recompute_batch
+        from abench.metrics import MetricsConfig
+        rd = _resolve_runs_dir(name, batch)
+        try:
+            exp_payload = exp_mod.read_experiment(state["experiments_dir"], name)
+        except exp_mod.ExperimentNotFound:
+            raise HTTPException(404, f"experiment '{name}' not found")
+        mcfg = MetricsConfig(**Experiment(**exp_payload).metrics.model_dump())
+        return {"recomputed": recompute_batch(rd, mcfg)}
+
     @api.get("/runs/{name}/{condition}/{rep}/method_comparison")
     def _method_comparison(name: str, condition: str, rep: int, request: Request,
                            batch: str | None = None):
