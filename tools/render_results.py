@@ -29,8 +29,7 @@ METRICS = [
     ("steps", "steps", "num", "lower"),
     ("tool_calls", "tool calls", "num", "lower"),
     ("test_runs", "test runs", "num", "lower"),
-    ("duration_s", "duration (s)", "num", "lower"),
-    ("cost", "cost ($)", "cost", "lower"),
+    ("duration_s", "duration (min)", "min", "lower"),
 ]
 
 
@@ -71,8 +70,8 @@ def _fmt(kind: str, v: float | None) -> str:
         return "—"
     if kind == "pct":
         return f"{v:.0f}%"
-    if kind == "cost":
-        return f"{v:.4f}"
+    if kind == "min":  # value is in seconds → minutes
+        return f"{v / 60:.1f}"
     return f"{v:.1f}"
 
 

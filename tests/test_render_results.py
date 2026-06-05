@@ -31,6 +31,9 @@ def test_render_results_produces_labelled_html(tmp_path):
     assert ">100%<" in h and ">50%<" in h and "-50pp" in h
     # steps mean equal (30.0 vs 30.0) → neutral 0.0%
     assert ">30.0<" in h
+    # duration shown in MINUTES (250s mean → 4.2 min); no cost row
+    assert "duration (min)" in h and ">4.2<" in h
+    assert "cost (" not in h
 
 
 def test_render_results_empty_csv_errors(tmp_path):
