@@ -1,10 +1,10 @@
 """Read run artefacts + structured method comparison."""
 from __future__ import annotations
 
-import ast
 import json
-import re
 from pathlib import Path
+
+from abench.methods import method_lines, normalised
 
 # Batch-layout helpers live in core abench/ so abench.reverify can resolve a
 # batch dir without importing abench_ui. Re-exported here so the server +
@@ -60,6 +60,7 @@ def list_runs(root_runs_dir: Path) -> list[dict]:
                 "n_service_errors": m.get("n_service_errors", 0),
                 "made_source_changes": m.get("made_source_changes", False),
                 "verify_insensitive": m.get("verify_insensitive", False),
+                "cheating": m.get("cheating"),
                 "started_at": _mtime_iso(m_path),
             })
     return items
@@ -103,58 +104,14 @@ def method_comparison(
         regen_text = Path(regen_file_override).read_text()
     else:
         regen_text = (Path(workdir) / target_file).read_text()
-    if target_file.endswith(".py"):
-        original = _extract_py_function(ref_text, method_name)
-        regen = _extract_py_function(regen_text, method_name)
-    elif target_file.endswith(".java"):
-        original = _extract_java_method(ref_text, method_name)
-        regen = _extract_java_method(regen_text, method_name)
-    else:
-        original, regen = ref_text.splitlines(), regen_text.splitlines()
-    equivalent = _normalised(original) == _normalised(regen)
+    original = method_lines(ref_text, target_file, method_name)
+    regen = method_lines(regen_text, target_file, method_name)
     return {
         "method_name": method_name,
         "original_lines": original,
         "regen_lines": regen,
-        "equivalent": equivalent,
+        "equivalent": normalised(original) == normalised(regen),
     }
-
-
-def _extract_py_function(source: str, name: str) -> list[str]:
-    tree = ast.parse(source)
-    lines = source.splitlines()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
-            start = node.lineno - 1
-            end = node.end_lineno
-            return lines[start:end]
-    return []
-
-
-_JAVA_SIG = re.compile(
-    r"(?:public|private|protected|static|final|synchronized|abstract|\s)*\s*"
-    r"[\w<>\[\],\s]*\s+(?P<name>\w+)\s*\([^)]*\)\s*(?:throws\s+[\w.,\s]+)?\s*\{"
-)
-
-
-def _extract_java_method(source: str, name: str) -> list[str]:
-    lines = source.splitlines()
-    for i, line in enumerate(lines):
-        m = _JAVA_SIG.search(line)
-        if m and m.group("name") == name:
-            depth = line.count("{") - line.count("}")
-            end = i
-            for j in range(i + 1, len(lines)):
-                depth += lines[j].count("{") - lines[j].count("}")
-                end = j
-                if depth == 0:
-                    break
-            return lines[i:end + 1]
-    return []
-
-
-def _normalised(lines: list[str]) -> str:
-    return "\n".join(line.strip() for line in lines if line.strip())
 
 
 def _mtime_iso(p: Path) -> str:

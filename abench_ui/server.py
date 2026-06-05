@@ -340,7 +340,18 @@ def create_app(
         except exp_mod.ExperimentNotFound:
             raise HTTPException(404, f"experiment '{name}' not found")
         mcfg = MetricsConfig(**Experiment(**exp_payload).metrics.model_dump())
-        return {"recomputed": recompute_batch(rd, mcfg)}
+        # Reference target text (for the output↔original cheating signal); the
+        # original lives at <experiment>/original by convention.
+        target_file = exp_payload.get("target_file")
+        target_methods = exp_payload.get("target_methods") or []
+        ref_text = None
+        if target_file:
+            rt = _exp_dir_for(name) / "original" / target_file
+            if rt.is_file():
+                ref_text = rt.read_text(encoding="utf-8")
+        return {"recomputed": recompute_batch(
+            rd, mcfg, reference_target_text=ref_text,
+            target_file=target_file, target_methods=target_methods)}
 
     @api.get("/runs/{name}/{condition}/{rep}/method_comparison")
     def _method_comparison(name: str, condition: str, rep: int, request: Request,

@@ -38,6 +38,32 @@ describe("ValiditySignals", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a 'possible cheating' banner listing the signals", () => {
+    render(
+      <ValiditySignals
+        cheating={{
+          verdict: "suspicious",
+          signals: [
+            { type: "network", evidence: ["curl https://github.com/x"] },
+            { type: "output_matches_original", evidence: ["99% similar to the reference method"] },
+          ],
+          target_similarity: 0.99,
+        }}
+      />,
+    );
+    expect(screen.getByText(/Possible cheating/i)).toBeInTheDocument();
+    expect(screen.getByText(/network \/ upstream repo/i)).toBeInTheDocument();
+    expect(screen.getByText(/near-identical to the reference/i)).toBeInTheDocument();
+    expect(screen.getByText(/curl https:\/\/github\.com\/x/)).toBeInTheDocument();
+  });
+
+  it("ignores a clean cheating verdict", () => {
+    const { container } = render(
+      <ValiditySignals cheating={{ verdict: "clean", signals: [], target_similarity: null }} />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("renders nothing when there are no signals", () => {
     const { container } = render(<ValiditySignals nServiceErrors={0} />);
     expect(container).toBeEmptyDOMElement();

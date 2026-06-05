@@ -4,7 +4,9 @@ import {
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import GavelIcon from "@mui/icons-material/Gavel";
 import VerifyStatusChip from "./VerifyStatusChip";
+import { CHEATING_LABELS } from "./ValiditySignals";
 import { selectable } from "../theme";
 import type { RunSummary } from "../api/types";
 
@@ -51,6 +53,12 @@ export default function RunsTable({ rows, onOpen }: Props) {
                   {(r.n_service_errors ?? 0) > 0 && (
                     <Tooltip title={`${r.n_service_errors} service/proxy error${r.n_service_errors === 1 ? "" : "s"} during this run`}>
                       <ErrorOutlineIcon color="error" fontSize="small" />
+                    </Tooltip>
+                  )}
+                  {r.cheating?.verdict === "suspicious" && (
+                    <Tooltip title={"Possible cheating: " + r.cheating.signals
+                      .map((s) => CHEATING_LABELS[s.type] ?? s.type).join("; ")}>
+                      <GavelIcon color="warning" fontSize="small" />
                     </Tooltip>
                   )}
                 </Stack>

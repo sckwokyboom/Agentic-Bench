@@ -18,6 +18,7 @@ import yaml
 from . import fixture as fx
 from .config import Condition, Experiment
 from .diffstat import parse_diffstat
+from .methods import best_method_similarity
 from .metrics import MetricsConfig, extract
 from .opencode_client import OpenCodeClient
 from .prompt import build_system_prompt, compose
@@ -296,6 +297,16 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             total_removed=removed,
         )
         note(f"[abench] changes: +{added}/-{removed} across {len(per_file)} file(s)")
+
+        # ── Output-similarity to the reference (cheating 'output≈original') ──
+        if exp.target_file and exp.target_methods and workdir is not None:
+            try:
+                ref_text = (exp.reference_path / exp.target_file).read_text(encoding="utf-8")
+                agent_text = (workdir / exp.target_file).read_text(encoding="utf-8")
+                result.trace.target_similarity = best_method_similarity(
+                    ref_text, agent_text, exp.target_file, exp.target_methods)
+            except Exception:
+                pass
 
         # ── Trace.json + metrics ─────────────────────────────────────
         (rundir / "trace.json").write_text(json.dumps(result.trace.to_dict(), indent=2))

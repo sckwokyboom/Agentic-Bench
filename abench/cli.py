@@ -90,7 +90,14 @@ def main(argv: list[str] | None = None) -> int:
             print("no runs to recompute")
             return 1
         mcfg = MetricsConfig(**exp.metrics.model_dump())
-        n = recompute_batch(rd, mcfg)
+        ref_text = None
+        if exp.target_file:
+            rt = exp.reference_path / exp.target_file
+            if rt.is_file():
+                ref_text = rt.read_text(encoding="utf-8")
+        n = recompute_batch(rd, mcfg, reference_target_text=ref_text,
+                            target_file=exp.target_file,
+                            target_methods=exp.target_methods)
         print(f"recomputed {n} run(s) in {rd}")
         return 0
 

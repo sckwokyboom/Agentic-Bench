@@ -90,6 +90,11 @@ class Trace:
 
     isolation_nonce: str | None = None
 
+    # Max difflib similarity of a target method's final body to the reference
+    # original (0..1), or None if not computed/comparable. Drives the cheating
+    # detector's 'output ≈ original' signal.
+    target_similarity: float | None = None
+
     # v2 timing breakdown — placeholder fields, populated in Phase 2
     llm_latency_s: float | None = None
     tool_exec_s: float | None = None

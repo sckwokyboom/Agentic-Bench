@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .cheating import detect_cheating
 from .diffstat import parse_diffstat
 from .trace_model import StepKind, Trace
 from .verify import _parser_for
@@ -134,4 +135,7 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "made_source_changes": bool(patch_text.strip()),
         "isolation_nonce": trace.isolation_nonce,
         "success": success,
+        # Advisory validity check: did the agent likely cheat? (network/git
+        # history/outside-FS/broad-search from the trace + output≈original).
+        "cheating": detect_cheating(trace, target_similarity=trace.target_similarity),
     }

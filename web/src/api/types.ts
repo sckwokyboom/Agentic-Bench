@@ -16,6 +16,16 @@ export interface RunBatch {
   success_rate?: number | null;
 }
 
+export interface CheatingSignal {
+  type: string;
+  evidence: string[];
+}
+export interface CheatingReport {
+  verdict: "clean" | "suspicious";
+  signals: CheatingSignal[];
+  target_similarity: number | null;
+}
+
 export interface RunSummary {
   condition: string;
   rep: number;
@@ -36,6 +46,9 @@ export interface RunSummary {
   n_rate_limits?: number;
   made_source_changes?: boolean;
   verify_insensitive?: boolean;
+  // Advisory cheating detector (network / VCS history / outside-FS / broad
+  // search / output≈original).
+  cheating?: CheatingReport | null;
 }
 
 export interface ConditionSummary {
@@ -85,6 +98,7 @@ export interface MetricsJson {
   n_rate_limits?: number;
   made_source_changes?: boolean;
   verify_insensitive?: boolean;
+  cheating?: CheatingReport | null;
   [key: string]: unknown;
 }
 

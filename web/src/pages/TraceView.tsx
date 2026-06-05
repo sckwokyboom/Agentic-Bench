@@ -62,6 +62,7 @@ export default function TraceView() {
           interruptedReason={interruptedReason}
           serviceErrorMessages={trace.data.service_error_messages}
           verifyInsensitive={verifyInsensitive}
+          cheating={m?.cheating}
         />
         <VerdictBanner trace={trace.data} />
         {trace.data.verify_baseline_unknown && (
