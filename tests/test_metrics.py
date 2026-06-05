@@ -200,8 +200,9 @@ def test_n_tests_executed_robust_to_command_prefix():
     assert m["n_tests_executed"] == 263
 
 
-def test_n_tests_executed_takes_max_not_sum_across_runs():
-    """Re-running the suite must not inflate the count (was a cumulative sum)."""
+def test_n_tests_executed_sums_across_runs():
+    """tests_executed is the TOTAL test-case executions across all the agent's
+    test runs (an effort/flailing proxy under the 'run all tests' instruction)."""
     from abench.metrics import extract, MetricsConfig
     from abench.trace_model import Step, StepKind, Trace
     cfg = MetricsConfig(test_command_patterns=["pytest"], shell_tool_names=["bash"],
@@ -217,7 +218,7 @@ def test_n_tests_executed_takes_max_not_sum_across_runs():
     ])
     m = extract(tr, "", cfg)
     assert m["n_test_runs"] == 2
-    assert m["n_tests_executed"] == 10  # max(10, 4), not 14
+    assert m["n_tests_executed"] == 14  # 10 + 4, summed across the two runs
 
 
 def test_default_test_patterns_cover_gradle_and_maven():

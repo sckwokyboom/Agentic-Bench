@@ -58,6 +58,20 @@ def test_parse_gradle_ok():
     assert parse_gradle_output(GRADLE_OK) == (142, 0, [])
 
 
+def test_parse_gradle_multi_module_sums_all_tasks():
+    """A multi-module build prints one summary line per test task — they must be
+    summed (not just the first), or a multi-module suite is under-counted and a
+    failure in a later module is missed."""
+    multi = (
+        "> Task :picocli-core:test\n"
+        "263 tests completed, 0 failed\n"
+        "> Task :picocli-codegen:test\n"
+        "89 tests completed, 2 failed\n"
+    )
+    p, f, _ = parse_gradle_output(multi)
+    assert (p, f) == (350, 2)  # (263+89) total − 2 failed = 350 passed, 2 failed
+
+
 def test_parse_gradle_fail():
     p, f, names = parse_gradle_output(GRADLE_FAIL)
     assert (p, f) == (139, 3)

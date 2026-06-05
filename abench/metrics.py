@@ -58,12 +58,13 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         if s.kind == StepKind.TOOL_RESULT and s.tool_call_id is not None:
             result_output[s.tool_call_id] = s.output or ""
 
-    # Tests executed: the size of the LARGEST single parseable test run, NOT a
-    # sum across runs. Summing double-counted re-runs (an agent told to "run
-    # until all pass" re-runs the whole suite many times), so the metric ballooned
-    # with retries instead of reflecting how many tests the run exercised. Max is
-    # stable against repeats and against a final filtered (single-test) run.
-    per_run_totals: list[int] = []
+    # Tests executed: the TOTAL number of test-case executions across every test
+    # run the agent did (passed + failed, summed). With the bench's "run all the
+    # tests until they pass" instruction this is an effort/flailing proxy — an
+    # agent that re-ran the whole suite many times spent more here. (The gradle
+    # parser sums all per-module summary lines, so a multi-module run counts the
+    # whole suite, not just the first module.)
+    n_tests_executed = 0
     for s in tool_calls:
         if s.tool_name in cfg.shell_tool_names:
             cmd = _command_of(s, cfg.command_arg_keys)
@@ -73,10 +74,9 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
                 if parser is not None and out:
                     try:
                         passed, failed, _names = parser(out)
-                        per_run_totals.append(passed + failed)
+                        n_tests_executed += passed + failed
                     except ValueError:
                         pass
-    n_tests_executed = max(per_run_totals) if per_run_totals else 0
 
     n_reads = sum(1 for s in tool_calls if s.tool_name in cfg.read_tool_names)
     n_searches = sum(1 for s in tool_calls if s.tool_name in cfg.search_tool_names)

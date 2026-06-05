@@ -8,7 +8,7 @@ export const SUMMARY_METRICS: { key: string; label: string; direction: Direction
   { key: "n_searches", label: "searches", direction: "lower" },
   { key: "n_test_runs", label: "test runs", direction: "lower" },
   { key: "n_tests_executed", label: "tests executed", direction: "neutral",
-    help: "Individual tests the agent ran — more isn't inherently better." },
+    help: "Total test-case executions (passed+failed) summed across all the agent's test runs — an effort proxy (more ≈ re-ran the suite more); not a pass/fail verdict (see verify)." },
   { key: "duration_s", label: "duration (s)", direction: "lower" },
   { key: "time_to_first_edit_s", label: "time to first edit (s)", direction: "lower" },
   { key: "n_tool_calls", label: "tool calls", direction: "lower" },

@@ -29,11 +29,14 @@ _GRADLE_FAILED_NAME = re.compile(r"^(\w[^\n]*?\s+>\s+\S[^\n]*?)\s+FAILED\s*$", r
 
 
 def parse_gradle_output(output: str) -> tuple[int, int, list[str]]:
-    """Gradle: `N tests completed, M failed`."""
-    m = _GRADLE_LINE.search(output)
-    if not m:
+    """Gradle: `N tests completed, M failed`. A multi-module build prints one
+    such line PER test task, so sum them all — otherwise a multi-module suite is
+    under-counted (and a failure in a later module is missed)."""
+    matches = _GRADLE_LINE.findall(output)
+    if not matches:
         raise ValueError("no Gradle summary found")
-    total, failed = int(m.group(1)), int(m.group(2))
+    total = sum(int(a) for a, _ in matches)
+    failed = sum(int(b) for _, b in matches)
     names = _GRADLE_FAILED_NAME.findall(output)[:20]
     return total - failed, failed, names
 
