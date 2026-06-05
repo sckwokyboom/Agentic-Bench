@@ -4,9 +4,10 @@
 Input  : the per-run CSV exported from the Results page ("Download runs .csv"),
          with columns condition,rep,verify,success,duration_s,steps,tool_calls,
          test_runs,cost,service_errors.
-Output : a self-contained, print-clean HTML file aggregating the runs (mean per
-         condition + Δ augmented-vs-baseline), with a labelled header. Open it in
-         a browser and screenshot, or Cmd/Ctrl+P → "Save as PDF" for the slide.
+Output : a self-contained HTML file rendering the aggregate (mean per condition +
+         Δ augmented-vs-baseline) as a crisp SVG table with a labelled header.
+         Open it in a browser and click "Download PNG" (the SVG is rasterised to
+         a 2× PNG client-side), or Cmd/Ctrl+P → "Save as PDF" for the slide.
 
 No dependencies — runs with any python3.
 
@@ -20,6 +21,7 @@ from __future__ import annotations
 import argparse
 import csv
 import html
+import json
 from pathlib import Path
 
 # (csv column, label, value format, direction) — direction drives Δ colouring:
@@ -95,70 +97,120 @@ def render_html(rows: list[dict], *, title: str, model: str, agent: str) -> str:
     conds = _order_conditions(list(agg))
     has_delta = "baseline" in agg and "augmented" in agg
 
-    chips = "".join(
-        f'<span class="chip">{html.escape(t)}</span>'
-        for t in (f"model: {model}", f"agent: {agent}", f"runs: {len(rows)}")
-        if t
-    )
+    INK, MUTED, LINE, GOOD, BAD = "#0f172a", "#64748b", "#e2e8f0", "#16a34a", "#dc2626"
+    W, PAD = 1000, 44
+    TITLE_FS, SUB_FS, HEAD_FS, CELL_FS = 30, 15, 13, 18
+    HEADER_H, ROW_H = 40, 48
 
-    head = "<th>metric</th>" + "".join(
-        f'<th class="num">{html.escape(c)} <span class="muted">(n={agg[c]["n"]})</span></th>'
-        for c in conds
-    ) + ("<th class='num'>Δ aug vs base</th>" if has_delta else "")
+    numeric_cols = conds + (["Δ aug vs base"] if has_delta else [])
+    metric_w = 270
+    table_w = W - 2 * PAD
+    col_w = (table_w - metric_w) / len(numeric_cols)
 
-    body_rows = []
-    for col, label, kind, direction in METRICS:
-        cells = "".join(f'<td class="num">{_fmt(kind, agg[c].get(col))}</td>' for c in conds)
-        delta_cell = ""
+    def col_right(j: int) -> int:  # right edge (minus padding) of numeric column j
+        return int(PAD + metric_w + col_w * (j + 1) - 14)
+
+    title_y = PAD + TITLE_FS
+    sub_y = title_y + 26
+    table_top = sub_y + 28
+    height = int(table_top + HEADER_H + len(METRICS) * ROW_H + 30 + PAD)
+
+    def esc(s) -> str:
+        return html.escape(str(s))
+
+    el: list[str] = [f'<rect x="0" y="0" width="{W}" height="{height}" fill="#ffffff"/>']
+    el.append(f'<text x="{PAD}" y="{title_y}" font-size="{TITLE_FS}" font-weight="700" '
+              f'fill="{INK}">{esc(title)}</text>')
+    sub = f"model: {model}     ·     agent: {agent}     ·     runs: {len(rows)}"
+    el.append(f'<text x="{PAD}" y="{sub_y}" font-size="{SUB_FS}" fill="{MUTED}">{esc(sub)}</text>')
+
+    hb = int(table_top + HEADER_H * 0.66)
+    el.append(f'<text x="{PAD}" y="{hb}" font-size="{HEAD_FS}" fill="{MUTED}">metric</text>')
+    for j, c in enumerate(numeric_cols):
+        label = c if c == "Δ aug vs base" else f'{c} (n={agg[c]["n"]})'
+        el.append(f'<text x="{col_right(j)}" y="{hb}" font-size="{HEAD_FS}" fill="{MUTED}" '
+                  f'text-anchor="end">{esc(label)}</text>')
+    line_y = table_top + HEADER_H
+    el.append(f'<line x1="{PAD}" y1="{line_y}" x2="{W - PAD}" y2="{line_y}" stroke="{LINE}"/>')
+
+    for r, (col, label, kind, direction) in enumerate(METRICS):
+        row_top = table_top + HEADER_H + r * ROW_H
+        if r % 2 == 0:
+            el.append(f'<rect x="{PAD}" y="{row_top}" width="{table_w}" height="{ROW_H}" fill="#f8fafc"/>')
+        base = int(row_top + ROW_H * 0.62)
+        el.append(f'<text x="{PAD}" y="{base}" font-size="{CELL_FS}" fill="{MUTED}">{esc(label)}</text>')
+        for j, c in enumerate(conds):
+            el.append(f'<text x="{col_right(j)}" y="{base}" font-size="{CELL_FS}" fill="{INK}" '
+                      f'text-anchor="end">{esc(_fmt(kind, agg[c].get(col)))}</text>')
         if has_delta:
-            txt, cls = _delta(kind, direction,
-                              agg["baseline"].get(col), agg["augmented"].get(col))
-            delta_cell = f'<td class="num delta {cls}">{txt}</td>'
-        body_rows.append(f"<tr><td>{html.escape(label)}</td>{cells}{delta_cell}</tr>")
+            txt, cls = _delta(kind, direction, agg["baseline"].get(col), agg["augmented"].get(col))
+            color = {"good": GOOD, "bad": BAD}.get(cls, MUTED)
+            el.append(f'<text x="{col_right(len(conds))}" y="{base}" font-size="{CELL_FS}" '
+                      f'font-weight="700" fill="{color}" text-anchor="end">{esc(txt)}</text>')
+        bb = row_top + ROW_H
+        el.append(f'<line x1="{PAD}" y1="{bb}" x2="{W - PAD}" y2="{bb}" stroke="{LINE}"/>')
 
-    return _TEMPLATE.format(
-        title=html.escape(title),
-        chips=chips,
-        head=head,
-        body="\n".join(body_rows),
+    el.append(f'<text x="{PAD}" y="{height - PAD + 12}" font-size="12" fill="{MUTED}">'
+              f'mean per condition · Δ = augmented vs baseline · generated by abench</text>')
+
+    svg = (
+        f'<svg id="slide" xmlns="http://www.w3.org/2000/svg" width="{W}" height="{height}" '
+        f'viewBox="0 0 {W} {height}" '
+        f"font-family=\"-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif\">\n"
+        + "\n".join("  " + e for e in el)
+        + "\n</svg>"
     )
+    return (_TEMPLATE
+            .replace("__TITLE__", html.escape(title))
+            .replace("__FNAME__", json.dumps(title))
+            .replace("__SVG__", svg))
 
 
+# Plain string + token replace (NOT .format) so the CSS/JS braces need no escaping.
 _TEMPLATE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<title>{title}</title>
+<html lang="en"><head><meta charset="utf-8"><title>__TITLE__</title>
 <style>
-  :root {{ --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --good:#16a34a; --bad:#dc2626; }}
-  html,body {{ margin:0; background:#f1f5f9; color:var(--ink);
-    font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }}
-  .card {{ width:980px; margin:32px auto; background:#fff; border:1px solid var(--line);
-    border-radius:16px; padding:36px 40px; box-shadow:0 10px 30px rgba(2,6,23,.08); }}
-  h1 {{ font-size:30px; margin:0 0 12px; letter-spacing:-.01em; }}
-  .chips {{ margin-bottom:22px; }}
-  .chip {{ display:inline-block; margin:0 8px 8px 0; padding:5px 12px; border-radius:999px;
-    background:#eef2ff; color:#3730a3; font-size:14px; font-weight:600; }}
-  table {{ width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }}
-  th,td {{ padding:11px 14px; border-bottom:1px solid var(--line); }}
-  th {{ text-align:left; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }}
-  td {{ font-size:18px; }}
-  td:first-child {{ color:var(--muted); }}
-  .num {{ text-align:right; }}
-  .muted {{ color:var(--muted); font-weight:400; text-transform:none; letter-spacing:0; }}
-  tbody tr:nth-child(odd) {{ background:#f8fafc; }}
-  .delta {{ font-weight:700; }}
-  .good {{ color:var(--good); }} .bad {{ color:var(--bad); }} .neutral {{ color:var(--muted); }}
-  .foot {{ margin-top:18px; color:var(--muted); font-size:12px; }}
-  @media print {{ html,body {{ background:#fff; }} .card {{ box-shadow:none; margin:0; border:none; }} }}
+  html,body { margin:0; background:#f1f5f9;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { display:flex; flex-direction:column; align-items:center; gap:16px; padding:28px; }
+  .toolbar { display:flex; align-items:center; gap:12px; }
+  .card { background:#fff; border:1px solid #e2e8f0; border-radius:16px;
+    box-shadow:0 10px 30px rgba(2,6,23,.08); overflow:hidden; }
+  button { font:600 14px/1 system-ui; padding:10px 16px; border:1px solid #c7d2fe;
+    background:#eef2ff; color:#3730a3; border-radius:10px; cursor:pointer; }
+  button:hover { background:#e0e7ff; }
+  .hint { color:#64748b; font:13px system-ui; }
+  @media print { .toolbar { display:none; } body { background:#fff; } .card { box-shadow:none; border:none; } }
 </style></head>
-<body><div class="card">
-  <h1>{title}</h1>
-  <div class="chips">{chips}</div>
-  <table><thead><tr>{head}</tr></thead>
-  <tbody>
-{body}
-  </tbody></table>
-  <div class="foot">mean per condition · Δ = augmented vs baseline · generated by abench</div>
-</div></body></html>
+<body><div class="wrap">
+  <div class="toolbar">
+    <button onclick="downloadPng()">⬇ Download PNG</button>
+    <span class="hint">or Cmd/Ctrl+P → Save as PDF</span>
+  </div>
+  <div class="card">__SVG__</div>
+</div>
+<script>
+  const FNAME = __FNAME__;
+  function downloadPng() {
+    const svg = document.getElementById('slide');
+    const xml = new XMLSerializer().serializeToString(svg);
+    const url = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
+    const img = new Image();
+    img.onload = function () {
+      const scale = 2, vb = svg.viewBox.baseVal;
+      const c = document.createElement('canvas');
+      c.width = vb.width * scale; c.height = vb.height * scale;
+      const ctx = c.getContext('2d'); ctx.scale(scale, scale); ctx.drawImage(img, 0, 0);
+      c.toBlob(function (blob) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = FNAME + '.png';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(a.href);
+      }, 'image/png');
+    };
+    img.src = url;
+  }
+</script></body></html>
 """
 
 
@@ -183,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
     print(f"wrote {out.resolve()}")
-    print("open it in a browser and screenshot, or Cmd/Ctrl+P → Save as PDF for the slide")
+    print("open it in a browser → click “Download PNG” (or Cmd/Ctrl+P → Save as PDF)")
     return 0
 
 
