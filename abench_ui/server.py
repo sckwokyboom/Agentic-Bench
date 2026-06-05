@@ -18,7 +18,6 @@ from fastapi import (
     Request,
     Response,
     WebSocket,
-    WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -540,57 +539,81 @@ def create_app(
     @app.websocket("/ws/sessions/{sid}")
     async def _ws(ws: WebSocket, sid: str):
         await ws.accept()
+
+        async def send(payload: dict) -> bool:
+            """Send JSON; return False (never raise) if the client has gone away
+            — tab closed, laptop slept ("1001 going away"). Lets us stop quietly
+            instead of an unhandled ASGI exception when pushing to a dead socket."""
+            try:
+                await ws.send_json(payload)
+                return True
+            except Exception:
+                return False
+
         if sid not in state["sessions"]:
             # Unknown/expired session (e.g. the server was restarted, dropping
             # in-memory sessions). Tell the client so it shows a message and
             # STOPS reconnecting — otherwise it hammers open/close every 750ms.
+            await send({
+                "type": "session.error",
+                "message": ("This run session is no longer available — the server "
+                            "may have been restarted. Open the experiment's Results "
+                            "to view finished runs."),
+            })
             try:
-                await ws.send_json({
-                    "type": "session.error",
-                    "message": ("This run session is no longer available — the server "
-                                "may have been restarted. Open the experiment's Results "
-                                "to view finished runs."),
-                })
+                await ws.close(code=4004)
             except Exception:
                 pass
-            await ws.close(code=4004)
             return
 
         buf: SessionEventBuffer = state["buffers"][sid]
         q: asyncio.Queue = asyncio.Queue(maxsize=10_000)
         state["ws_queues"].setdefault(sid, []).append(q)
+        terminal_types = ("session.finished", "session.error")
 
-        # Replay buffered events from last_event_id onward (for reconnect).
-        last_id = int(ws.query_params.get("last_event_id", 0))
-        terminal_replayed = False
-        for ev in buf.replay_from(last_id):
-            await ws.send_json(ev)
-            if ev.get("type") in ("session.finished", "session.error"):
-                terminal_replayed = True
+        # Track the highest event_id sent so replay-on-timeout and the live
+        # stream never re-send the same event (which used to re-flood the whole
+        # buffer every 30s of quiet).
+        sent_id = int(ws.query_params.get("last_event_id", 0))
 
-        # If replay already included the terminal event, no need to stream live.
-        if terminal_replayed:
-            try:
-                state["ws_queues"][sid].remove(q)
-            except (KeyError, ValueError):
-                pass
-            return
+        def advance(ev: dict) -> None:
+            nonlocal sent_id
+            eid = ev.get("event_id")
+            if isinstance(eid, int) and eid > sent_id:
+                sent_id = eid
 
-        # Stream live events until terminal envelope.
         try:
-            while True:
-                envelope = await asyncio.wait_for(q.get(), timeout=30.0)
-                await ws.send_json(envelope)
-                if envelope.get("type") in ("session.finished", "session.error"):
+            # Replay buffered events from last_event_id onward (for reconnect).
+            terminal = False
+            for ev in buf.replay_from(sent_id):
+                if not await send(ev):
+                    return
+                advance(ev)
+                if ev.get("type") in terminal_types:
+                    terminal = True
+
+            # Stream live events until a terminal envelope or the client leaves.
+            while not terminal:
+                try:
+                    envelope = await asyncio.wait_for(q.get(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    # Quiet for a while — re-check the buffer for a terminal we
+                    # may have missed (only events newer than sent_id), then wait.
+                    for ev in buf.replay_from(sent_id):
+                        if not await send(ev):
+                            return
+                        advance(ev)
+                        if ev.get("type") in terminal_types:
+                            terminal = True
+                    continue
+                eid = envelope.get("event_id")
+                if isinstance(eid, int) and eid <= sent_id:
+                    continue  # already sent via replay (overlap) — dedupe
+                if not await send(envelope):
+                    return
+                advance(envelope)
+                if envelope.get("type") in terminal_types:
                     break
-        except asyncio.TimeoutError:
-            # Session may have finished before we connected; check buffer again.
-            for ev in buf.replay_from(last_id):
-                await ws.send_json(ev)
-                if ev.get("type") in ("session.finished", "session.error"):
-                    break
-        except WebSocketDisconnect:
-            pass
         finally:
             try:
                 state["ws_queues"][sid].remove(q)

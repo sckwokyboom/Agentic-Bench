@@ -175,6 +175,16 @@ class OpenCodeCfg(BaseModel):
             "want a cheaper/faster helper, e.g. 'openrouter/...'."
         ),
     )
+    idle_timeout_s: int | None = Field(
+        default=600,
+        title="Idle (no-output) timeout (s)",
+        description=(
+            "Kill a run that produces NO output for this long — a likely hang "
+            "(stalled model/connection), so an unattended experiment never "
+            "wedges forever on one run. Independent of the overall run timeout; "
+            "empty/0 disables it."
+        ),
+    )
     providers: list[ProviderCfg] = Field(
         default_factory=list,
         title="Custom providers",

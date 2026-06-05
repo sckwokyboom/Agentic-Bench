@@ -170,6 +170,16 @@ def _run_deadline(started_at: float, timeout_s: int | None) -> float | None:
     return started_at + timeout_s
 
 
+def _is_stalled(last_activity: float, idle_timeout_s: int | None, now: float) -> bool:
+    """True when the run has produced no output for longer than idle_timeout_s
+    — a likely hang (stalled model/connection). Disabled when idle_timeout_s is
+    None or <= 0. This is what stops an unattended run from hanging forever when
+    there is no overall timeout."""
+    if idle_timeout_s is None or idle_timeout_s <= 0:
+        return False
+    return (now - last_activity) > idle_timeout_s
+
+
 _ENV_REF = re.compile(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -371,12 +381,17 @@ class RealOpenCodeClient:
 
         raw_events: list[dict] = []
         interrupted_reason: str | None = None
+        # Last time the subprocess produced ANY output (stdout event or stderr
+        # line). A one-element list so the reader threads can update it under the
+        # GIL without nonlocal. Drives the idle (no-progress) watchdog below.
+        last_activity = [started_at]
 
         def _read_stdout() -> None:
             """Read stdout line by line; parse JSONL; call on_event live and
             print a one-line summary so the operator can see progress."""
             assert proc.stdout is not None
             for line in proc.stdout:
+                last_activity[0] = time.time()
                 text = line.decode("utf-8", errors="replace").rstrip()
                 if not text:
                     continue
@@ -399,6 +414,7 @@ class RealOpenCodeClient:
                 return
             try:
                 for raw in proc.stderr:
+                    last_activity[0] = time.time()
                     text = raw.decode("utf-8", errors="replace").rstrip()
                     if text:
                         firehose(f"  [opencode] {text}")
@@ -412,12 +428,26 @@ class RealOpenCodeClient:
 
         # Wait for the process to finish, polling every ≤0.5s so a cancel_event
         # kills the subprocess promptly (cooperative cancel). A deadline of None
-        # means no time limit — wait until natural completion or cancel.
+        # means no overall time limit — but the idle watchdog still kills a run
+        # that goes silent for idle_timeout_s (a likely hang), so an unattended
+        # experiment never wedges forever on one stalled run.
         deadline = _run_deadline(started_at, timeout_s)
+        idle_timeout_s = self._cfg.idle_timeout_s
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 proc.kill()
                 interrupted_reason = "cancelled"
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+            if _is_stalled(last_activity[0], idle_timeout_s, time.time()):
+                idle = time.time() - last_activity[0]
+                readable(f"[abench] no output for {idle:.0f}s — treating the run "
+                         f"as stalled and stopping it")
+                proc.kill()
+                interrupted_reason = "stalled"
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:

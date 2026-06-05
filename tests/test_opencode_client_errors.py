@@ -4,7 +4,9 @@ These exercise the pure counting helper directly (no subprocess), so they run
 fast and deterministically. The full subprocess path is covered by the
 integration smoke test (skipped when opencode is absent).
 """
-from abench.opencode_client import _count_service_errors, _run_deadline
+from abench.opencode_client import (
+    _count_service_errors, _run_deadline, _is_stalled,
+)
 
 
 def test_run_deadline_none_or_nonpositive_means_no_limit():
@@ -16,6 +18,18 @@ def test_run_deadline_none_or_nonpositive_means_no_limit():
 
 def test_run_deadline_positive_is_start_plus_timeout():
     assert _run_deadline(100.0, 600) == 700.0
+
+
+def test_is_stalled_detects_no_output_past_idle_timeout():
+    now = 1000.0
+    assert _is_stalled(now - 700, 600, now) is True   # silent 700s > 600s
+    assert _is_stalled(now - 100, 600, now) is False  # silent 100s, still alive
+
+
+def test_is_stalled_disabled_when_idle_timeout_none_or_zero():
+    now = 1000.0
+    assert _is_stalled(now - 99999, None, now) is False
+    assert _is_stalled(now - 99999, 0, now) is False
 
 
 def test_count_service_errors_counts_top_level_and_part_errors():

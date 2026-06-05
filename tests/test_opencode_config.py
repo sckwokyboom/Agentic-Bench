@@ -99,6 +99,12 @@ def test_sandbox_defaults_to_none():
     assert OpenCodeCfg().sandbox.mode == "none"
 
 
+def test_idle_timeout_default_is_ten_minutes():
+    # The no-output watchdog: kills a hung run after 10 min of silence so an
+    # unattended experiment never wedges forever (even with no overall timeout).
+    assert OpenCodeCfg().idle_timeout_s == 600
+
+
 def test_build_run_command_none_is_direct_host_invocation():
     cfg = OpenCodeCfg()
     cmd = build_run_command(cfg, workdir="/host/wd", model="m", user_message="do it",
