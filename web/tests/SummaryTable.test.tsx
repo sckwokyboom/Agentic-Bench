@@ -76,6 +76,26 @@ test("never colors a neutral metric's delta as success or error", () => {
   expect(redDominant).toBe(false); // not error → balanced grey
 });
 
+test("renders a 'tests passed %' row when conditions carry tests_pass_rate", () => {
+  const withTpr: RunsSummary = {
+    ...summary,
+    conditions: [
+      { ...summary.conditions[0]!, tests_pass_rate: 1.0 },
+      { ...summary.conditions[1]!, tests_pass_rate: 0.998 },
+    ],
+  };
+  render(<SummaryTable summary={withTpr} />);
+  expect(screen.getByText("tests passed %")).toBeInTheDocument();
+  expect(screen.getByText("100.0%")).toBeInTheDocument();  // baseline (1 decimal)
+  expect(screen.getByText("99.8%")).toBeInTheDocument();   // augmented
+  expect(screen.getByText("-0.2pp")).toBeInTheDocument();  // Δ
+});
+
+test("omits the 'tests passed %' row when no condition has it", () => {
+  render(<SummaryTable summary={summary} />);
+  expect(screen.queryByText("tests passed %")).toBeNull();
+});
+
 test("shows an empty-state when no valid runs", () => {
   render(<SummaryTable summary={{ conditions: [], deltas: {}, total_runs: 0, valid_runs: 0 }} />);
   expect(screen.getByText(/no aggregate/i)).toBeInTheDocument();

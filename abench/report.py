@@ -50,6 +50,7 @@ def load_runs(root: Path) -> pd.DataFrame:
         row["finished"] = metrics.get("finished")
         row["interrupted_reason"] = metrics.get("interrupted_reason")
         row["success"] = metrics.get("success")
+        row["tests_pass_rate"] = metrics.get("tests_pass_rate")
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -83,6 +84,11 @@ def summary_json(root: Path) -> dict:
         success_rate = (
             float((succ == True).sum()) / len(succ) if len(succ) else None  # noqa: E712
         )
+        # Mean fraction of tests passing at the end (passed/(passed+failed)) —
+        # surfaces "2198/2200" runs that the binary success rate hides.
+        tpr = (sub["tests_pass_rate"].dropna()
+               if "tests_pass_rate" in sub else sub.get("tests_pass_rate"))
+        tests_pass_rate = float(tpr.mean()) if tpr is not None and len(tpr) else None
         metrics = {}
         for m in NUMERIC:
             mv = mean.loc[cond, m]
@@ -95,6 +101,7 @@ def summary_json(root: Path) -> dict:
             "name": str(cond),
             "runs": int(len(sub)),
             "success_rate": success_rate,
+            "tests_pass_rate": tests_pass_rate,
             "metrics": metrics,
         })
 

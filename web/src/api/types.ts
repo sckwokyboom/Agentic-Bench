@@ -66,6 +66,7 @@ export interface ConditionSummary {
   name: string;
   runs: number;
   success_rate: number | null;
+  tests_pass_rate?: number | null;  // mean passed/(passed+failed) over valid runs
   metrics: Record<string, { mean: number | null; median: number | null }>;
 }
 

@@ -68,6 +68,24 @@ def test_summary_json_means_and_deltas(tmp_path: Path):
     assert out["deltas"]["n_steps"] == -60.0
 
 
+def test_summary_json_includes_tests_pass_rate(tmp_path: Path):
+    root = tmp_path / "runs"
+    base = {"interrupted_reason": None, "success": True}
+    _write_summary_run(root, "baseline", 0, {**base, "tests_pass_rate": 1.0})
+    _write_summary_run(root, "baseline", 1, {**base, "tests_pass_rate": 1.0})
+    _write_summary_run(root, "augmented", 0, {**base, "tests_pass_rate": 0.998})
+    conds = {c["name"]: c for c in report.summary_json(root)["conditions"]}
+    assert conds["baseline"]["tests_pass_rate"] == 1.0
+    assert round(conds["augmented"]["tests_pass_rate"], 3) == 0.998
+
+
+def test_summary_json_tests_pass_rate_none_when_absent(tmp_path: Path):
+    root = tmp_path / "runs"
+    _write_summary_run(root, "baseline", 0, {"interrupted_reason": None, "success": True})
+    conds = {c["name"]: c for c in report.summary_json(root)["conditions"]}
+    assert conds["baseline"]["tests_pass_rate"] is None
+
+
 def test_summary_json_excludes_interrupted_and_handles_empty(tmp_path: Path):
     root = tmp_path / "runs"
     _write_summary_run(root, "baseline", 0, {"interrupted_reason": "timeout", "success": None, "n_steps": 99})

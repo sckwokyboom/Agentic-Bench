@@ -30,6 +30,14 @@ export default function SummaryTable({ summary }: Props) {
     base?.success_rate != null && aug?.success_rate != null
       ? (aug.success_rate - base.success_rate) * 100
       : null;
+  // % of tests passing at the end (passed/(passed+failed)) — like success rate
+  // (higher better, percentage-point Δ), but kept at 1 decimal so a "2198/2200"
+  // run reads as 99.9%, not a rounded 100%.
+  const anyTpr = conditions.some((c) => c.tests_pass_rate != null);
+  const tprDeltaPP =
+    base?.tests_pass_rate != null && aug?.tests_pass_rate != null
+      ? (aug.tests_pass_rate - base.tests_pass_rate) * 100
+      : null;
   return (
     <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "auto" }}>
       <Table size="small">
@@ -59,6 +67,28 @@ export default function SummaryTable({ summary }: Props) {
               </TableCell>
             )}
           </TableRow>
+          {anyTpr && (
+            <TableRow hover>
+              <TableCell>
+                <Tooltip title="Mean fraction of tests passing at the end (passed / (passed+failed)) — surfaces near-misses like 2198/2200 that a binary success rate hides.">
+                  <span>tests passed %</span>
+                </Tooltip>
+              </TableCell>
+              {conditions.map((c) => (
+                <TableCell key={c.name} align="right" sx={selectable}>
+                  {c.tests_pass_rate == null ? "—" : `${(c.tests_pass_rate * 100).toFixed(1)}%`}
+                </TableCell>
+              ))}
+              {hasDelta && (
+                <TableCell
+                  align="right"
+                  sx={{ color: tprDeltaPP == null || tprDeltaPP === 0 ? "text.secondary" : tprDeltaPP > 0 ? "success.main" : "error.main" }}
+                >
+                  {tprDeltaPP == null ? "—" : `${tprDeltaPP > 0 ? "+" : ""}${tprDeltaPP.toFixed(1)}pp`}
+                </TableCell>
+              )}
+            </TableRow>
+          )}
           {SUMMARY_METRICS.map((m) => {
             const delta = summary.deltas[m.key];
             const good = delta != null && delta !== 0 &&
