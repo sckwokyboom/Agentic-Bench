@@ -38,7 +38,18 @@ export interface RunSummary {
   n_steps: number | null;
   n_tool_calls: number | null;
   n_test_runs: number | null;
+  n_tests_executed?: number | null;
+  tests_pass_rate?: number | null;   // passed / (passed+failed), 0..1
+  verify_passed_count?: number | null;
+  verify_failed_count?: number | null;
   cost: number | null;
+  tokens_in?: number | null;
+  tokens_out?: number | null;
+  tokens_reasoning?: number | null;
+  n_reads?: number | null;
+  n_searches?: number | null;
+  n_files_edited?: number | null;
+  tool_calls_by_name?: Record<string, number> | null;
   // Validity signals (Tasks A/B): surfaced so the table/results can flag runs
   // that scored without doing meaningful work (proxy errors, no edits, an
   // insensitive verify).

@@ -31,12 +31,15 @@ const runs: RunSummary[] = [
     condition: "baseline", rep: 0, finished: true, interrupted_reason: null,
     verify_status: "passed", success: true, started_at: "t",
     duration_s: 100.4, n_steps: 12, n_tool_calls: 8, n_test_runs: 2,
-    cost: 0.0234, n_service_errors: 0,
+    n_tests_executed: 2200, tests_pass_rate: 1.0, tokens_in: 10000, tokens_out: 2000,
+    n_reads: 5, n_searches: 3, cost: 0.0234, n_service_errors: 0,
+    tool_calls_by_name: { bash: 8, read: 5 },
   },
   {
     condition: "augmented", rep: 0, finished: true, interrupted_reason: null,
     verify_status: "failed", success: false, started_at: "t",
     duration_s: 90, n_steps: 15, n_tool_calls: 9, n_test_runs: 3,
+    n_tests_executed: 2200, tests_pass_rate: 0.999, tokens_in: 15000, tokens_out: 3000,
     cost: 0.0312, n_service_errors: 1,
   },
 ];
@@ -72,9 +75,9 @@ describe("buildResultsMarkdown", () => {
     expect(md).toContain("| success rate | 100% | 67% | -33pp |");
     expect(md).toContain("| steps | 12.00 | 15.00 | +25.0% |");
   });
-  it("includes the per-run table", () => {
+  it("includes the per-run table (concise: tests % + tokens)", () => {
     expect(md).toContain("## Runs (2)");
-    expect(md).toContain("| baseline | 0 | passed | pass | 100.4 | 12 | 8 | 2 | 0.0234 | 0 |");
+    expect(md).toContain("| baseline | 0 | passed | pass | 100.0% | 12 | 8 | 2 | 100.4 | 10000 | 2000 |");
   });
   it("omits batch from the title when absent", () => {
     const m = buildResultsMarkdown({ experimentName: "e" }, summary, []);
@@ -84,14 +87,22 @@ describe("buildResultsMarkdown", () => {
 });
 
 describe("buildRunsCsv", () => {
-  it("emits the header row and one line per run", () => {
+  it("emits a header with the extended metric columns + one line per run", () => {
     const csv = buildRunsCsv(runs);
     const lines = csv.split("\n");
-    expect(lines[0]).toBe(
-      "condition,rep,verify,success,duration_s,steps,tool_calls,test_runs,cost,service_errors",
-    );
-    expect(lines[1]).toBe("baseline,0,passed,pass,100.4,12,8,2,0.0234,0");
-    expect(lines[2]).toBe("augmented,0,failed,fail,90.0,15,9,3,0.0312,1");
+    const header = lines[0]!;
+    for (const col of ["tests_pass_rate", "tests_executed", "tokens_in",
+      "tokens_out", "reads", "searches", "tool_calls_by_name"]) {
+      expect(header).toContain(col);
+    }
+    const cols = lines[1]!.split(",");
+    const idx = (name: string) => header.split(",").indexOf(name);
+    expect(cols[idx("condition")]).toBe("baseline");
+    expect(cols[idx("tests_pass_rate")]).toBe("1.0000");
+    expect(cols[idx("tests_executed")]).toBe("2200");
+    expect(cols[idx("tokens_in")]).toBe("10000");
+    // tool_calls_by_name is JSON (quoted because it contains commas)
+    expect(lines[1]).toContain('{""bash"":8');
   });
   it("emits just the header for no runs", () => {
     expect(buildRunsCsv([]).split("\n")).toHaveLength(1);

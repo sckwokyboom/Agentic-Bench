@@ -99,6 +99,14 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
 
     success = _success_from_status(trace.verify_status)
 
+    # Fraction of tests passing at the end (passed / (passed+failed)). Captures
+    # "2198/2200 passed" runs that a binary success=False would hide. None when
+    # verify didn't produce counts.
+    vp, vf = trace.verify_passed_count, trace.verify_failed_count
+    tests_pass_rate = (
+        vp / (vp + vf) if vp is not None and vf is not None and (vp + vf) > 0 else None
+    )
+
     return {
         "duration_s": duration,
         "n_steps": n_steps,
@@ -135,6 +143,7 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "made_source_changes": bool(patch_text.strip()),
         "isolation_nonce": trace.isolation_nonce,
         "success": success,
+        "tests_pass_rate": tests_pass_rate,
         # Advisory validity check: did the agent likely cheat? (network/git
         # history/outside-FS/broad-search from the trace + output≈original).
         "cheating": detect_cheating(trace, target_similarity=trace.target_similarity),

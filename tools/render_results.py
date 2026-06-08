@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Render an abench results CSV into a slide-ready table (standalone, stdlib-only).
 
-Input  : the per-run CSV exported from the Results page ("Download runs .csv"),
-         with columns condition,rep,verify,success,duration_s,steps,tool_calls,
-         test_runs,cost,service_errors.
+Input  : the per-run CSV exported from the Results page ("Download runs .csv").
+         Aggregates whatever of these columns are present: success, tests_pass_rate,
+         steps, tool_calls, reads, searches, test_runs, tests_executed, duration_s,
+         tokens_in, tokens_out, cost. Missing columns simply render as "—".
 Output : a self-contained HTML file rendering the aggregate (mean per condition +
          Δ augmented-vs-baseline) as a crisp SVG table with a labelled header.
          Open it in a browser and click "Download PNG" (the SVG is rasterised to
@@ -28,11 +29,19 @@ from pathlib import Path
 # "lower" → a negative Δ is good (green); "higher" → positive Δ is good.
 METRICS = [
     ("success_rate", "success rate", "pct", "higher"),
+    ("tests_pass_rate", "tests passed %", "pct1", "higher"),
+    ("tests_executed", "tests executed", "num", "neutral"),
+    ("test_runs", "test runs", "num", "lower"),
     ("steps", "steps", "num", "lower"),
     ("tool_calls", "tool calls", "num", "lower"),
-    ("test_runs", "test runs", "num", "lower"),
     ("duration_s", "duration (min)", "min", "lower"),
+    ("tokens_in", "tokens in", "num", "lower"),
+    ("tokens_out", "tokens out", "num", "lower"),
 ]
+
+# Numeric CSV columns the aggregate averages per condition.
+_NUM_COLS = ("steps", "tool_calls", "reads", "searches", "test_runs",
+             "tests_executed", "duration_s", "tokens_in", "tokens_out", "cost")
 
 
 def _to_float(s: str):
@@ -51,13 +60,17 @@ def aggregate(rows: list[dict]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for cond, items in by_cond.items():
         agg: dict[str, float | None] = {"n": len(items)}
-        for col in ("steps", "tool_calls", "test_runs", "duration_s", "cost"):
+        for col in _NUM_COLS:
             vals = [v for v in (_to_float(r.get(col, "")) for r in items) if v is not None]
             agg[col] = sum(vals) / len(vals) if vals else None
         verdicts = [r.get("success", "") for r in items if r.get("success") in ("pass", "fail")]
         agg["success_rate"] = (
             100.0 * sum(v == "pass" for v in verdicts) / len(verdicts) if verdicts else None
         )
+        # tests_pass_rate column is a 0..1 fraction per run → mean × 100 → percent.
+        prates = [v for v in (_to_float(r.get("tests_pass_rate", "")) for r in items)
+                  if v is not None]
+        agg["tests_pass_rate"] = 100.0 * sum(prates) / len(prates) if prates else None
         out[cond] = agg
     return out
 
@@ -72,6 +85,8 @@ def _fmt(kind: str, v: float | None) -> str:
         return "—"
     if kind == "pct":
         return f"{v:.0f}%"
+    if kind == "pct1":  # one decimal — surfaces 99.9% vs 100%
+        return f"{v:.1f}%"
     if kind == "min":  # value is in seconds → minutes
         return f"{v / 60:.1f}"
     return f"{v:.1f}"
@@ -81,15 +96,20 @@ def _delta(kind: str, direction: str, base, aug):
     """Return (text, css-class) for the Δ cell, or ('—','neutral')."""
     if base is None or aug is None:
         return "—", "neutral"
-    if kind == "pct":  # percentage-points
+    if kind in ("pct", "pct1"):  # percentage-points
         d = aug - base
+        dec = 1 if kind == "pct1" else 0
+        if direction == "neutral":
+            return f"{d:+.{dec}f}pp", "neutral"
         cls = "neutral" if d == 0 else ("good" if (d > 0) == (direction == "higher") else "bad")
-        return f"{'+' if d > 0 else ''}{d:.0f}pp", cls
+        return f"{d:+.{dec}f}pp", cls
     if base == 0:
         return "—", "neutral"
     d = (aug - base) / base * 100.0
+    if direction == "neutral":
+        return f"{d:+.1f}%", "neutral"
     cls = "neutral" if d == 0 else ("good" if (d < 0) == (direction == "lower") else "bad")
-    return f"{'+' if d > 0 else ''}{d:.1f}%", cls
+    return f"{d:+.1f}%", cls
 
 
 def render_html(rows: list[dict], *, title: str, model: str, agent: str) -> str:

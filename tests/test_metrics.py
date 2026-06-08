@@ -221,6 +221,20 @@ def test_n_tests_executed_sums_across_runs():
     assert m["n_tests_executed"] == 14  # 10 + 4, summed across the two runs
 
 
+def test_tests_pass_rate_is_passed_over_total():
+    from abench.metrics import extract, MetricsConfig
+    from abench.trace_model import Trace
+    cfg = MetricsConfig(test_command_patterns=["pytest"], shell_tool_names=["bash"],
+                        read_tool_names=["read"], search_tool_names=["grep"],
+                        command_arg_keys=["command"])
+    # 2198/2200 passed → ~0.999 (captures a "nearly all passed" run that
+    # success=False would hide).
+    m = extract(Trace(verify_passed_count=2198, verify_failed_count=2), "", cfg)
+    assert round(m["tests_pass_rate"], 4) == round(2198 / 2200, 4)
+    # no verify counts → None
+    assert extract(Trace(), "", cfg)["tests_pass_rate"] is None
+
+
 def test_default_test_patterns_cover_gradle_and_maven():
     import re
     from abench.config import DEFAULT_TEST_PATTERNS

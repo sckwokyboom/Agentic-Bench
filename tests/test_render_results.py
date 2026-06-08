@@ -9,11 +9,12 @@ SCRIPT = Path(__file__).resolve().parent.parent / "tools" / "render_results.py"
 def test_render_results_produces_labelled_html(tmp_path):
     csv = tmp_path / "r.csv"
     csv.write_text(
-        "condition,rep,verify,success,duration_s,steps,tool_calls,test_runs,cost,service_errors\n"
-        "baseline,0,passed,pass,300,20,30,1,0.01,0\n"
-        "baseline,1,passed,pass,200,40,40,1,0.02,0\n"
-        "augmented,0,failed,fail,250,30,40,9,0.03,0\n"
-        "augmented,1,passed,pass,250,30,40,3,0.03,0\n"
+        "condition,rep,verify,success,tests_pass_rate,duration_s,steps,tool_calls,"
+        "test_runs,tests_executed,tokens_in,tokens_out,cost,service_errors\n"
+        "baseline,0,passed,pass,1.0,300,20,30,1,2200,10000,2000,0.01,0\n"
+        "baseline,1,passed,pass,1.0,200,40,40,1,2200,12000,2200,0.02,0\n"
+        "augmented,0,failed,fail,0.99,250,30,40,9,2200,15000,3000,0.03,0\n"
+        "augmented,1,passed,pass,0.99,250,30,40,3,2200,14000,2800,0.03,0\n"
     )
     out = tmp_path / "slide.html"
     r = subprocess.run(
@@ -34,6 +35,11 @@ def test_render_results_produces_labelled_html(tmp_path):
     # duration shown in MINUTES (250s mean → 4.2 min); no cost row
     assert "duration (min)" in h and ">4.2<" in h
     assert "cost (" not in h
+    # tests passed % with one decimal (baseline 100.0% vs augmented 99.0%)
+    assert "tests passed %" in h and ">100.0%<" in h and ">99.0%<" in h
+    # tests executed + token rows surface (means)
+    assert "tests executed" in h and ">2200.0<" in h
+    assert "tokens in" in h and "tokens out" in h and ">11000.0<" in h
 
 
 def test_render_results_empty_csv_errors(tmp_path):

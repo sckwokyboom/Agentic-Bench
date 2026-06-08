@@ -65,8 +65,11 @@ function summaryTable(summary: RunsSummary): { headers: string[]; rows: string[]
 // ── Per-run table ─────────────────────────────────────────────────────────────
 
 const RUN_HEADERS = [
-  "condition", "rep", "verify", "success", "duration_s",
-  "steps", "tool_calls", "test_runs", "cost", "service_errors",
+  "condition", "rep", "verify", "success", "tests_pass_rate",
+  "verify_passed", "verify_failed", "duration_s", "steps", "tool_calls",
+  "reads", "searches", "test_runs", "tests_executed", "files_edited",
+  "tokens_in", "tokens_out", "tokens_reasoning", "cost", "service_errors",
+  "cheating", "tool_calls_by_name",
 ];
 
 function runCells(r: RunSummary): string[] {
@@ -76,12 +79,24 @@ function runCells(r: RunSummary): string[] {
     String(r.rep),
     r.verify_status ?? "",
     r.success == null ? "" : r.success ? "pass" : "fail",
+    r.tests_pass_rate == null ? "" : r.tests_pass_rate.toFixed(4),
+    n(r.verify_passed_count),
+    n(r.verify_failed_count),
     n(r.duration_s, 1),
     n(r.n_steps),
     n(r.n_tool_calls),
+    n(r.n_reads),
+    n(r.n_searches),
     n(r.n_test_runs),
+    n(r.n_tests_executed),
+    n(r.n_files_edited),
+    n(r.tokens_in),
+    n(r.tokens_out),
+    n(r.tokens_reasoning),
     n(r.cost, 4),
     String(r.n_service_errors ?? 0),
+    r.cheating?.verdict ?? "",
+    r.tool_calls_by_name ? JSON.stringify(r.tool_calls_by_name) : "",
   ];
 }
 
@@ -110,11 +125,35 @@ export function buildResultsMarkdown(
     );
   }
   if (runs && runs.length > 0) {
+    // Concise per-run table for chat/LLM (the CSV export carries every column).
     parts.push(
-      `\n## Runs (${runs.length})\n\n${toMarkdownTable(RUN_HEADERS, runs.map(runCells))}`,
+      `\n## Runs (${runs.length})\n\n${toMarkdownTable(MD_RUN_HEADERS, runs.map(mdRunCells))}`,
     );
   }
   return `${parts.join("\n")}\n`;
+}
+
+const MD_RUN_HEADERS = [
+  "condition", "rep", "verify", "success", "tests %",
+  "steps", "tool_calls", "test_runs", "duration_s", "tokens_in", "tokens_out",
+];
+
+function mdRunCells(r: RunSummary): string[] {
+  const n = (v: number | null | undefined, d = 0) => (v == null ? "—" : v.toFixed(d));
+  const pct = r.tests_pass_rate == null ? "—" : `${(r.tests_pass_rate * 100).toFixed(1)}%`;
+  return [
+    r.condition,
+    String(r.rep),
+    r.verify_status ?? "—",
+    r.success == null ? "—" : r.success ? "pass" : "fail",
+    pct,
+    n(r.n_steps),
+    n(r.n_tool_calls),
+    n(r.n_test_runs),
+    n(r.duration_s, 1),
+    n(r.tokens_in),
+    n(r.tokens_out),
+  ];
 }
 
 /** The per-run table as CSV (for spreadsheets / quick LLM ingestion). */
