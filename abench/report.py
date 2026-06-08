@@ -56,6 +56,7 @@ def load_runs(root: Path) -> pd.DataFrame:
         # tests_pass_rate, so runs written before that field existed still count.
         row["verify_passed_count"] = metrics.get("verify_passed_count")
         row["verify_failed_count"] = metrics.get("verify_failed_count")
+        row["verify_expected_total"] = metrics.get("verify_expected_total")
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -99,10 +100,17 @@ def summary_json(root: Path) -> dict:
         tot_pass = tot_total = 0.0
         have_counts = False
         if {"verify_passed_count", "verify_failed_count"} <= set(sub.columns):
-            for p, f in zip(sub["verify_passed_count"], sub["verify_failed_count"]):
+            expected_col = (sub["verify_expected_total"]
+                            if "verify_expected_total" in sub.columns else [None] * len(sub))
+            for p, f, e in zip(sub["verify_passed_count"], sub["verify_failed_count"], expected_col):
                 if pd.notna(p) and pd.notna(f) and (p + f) > 0:
+                    # Denominator is the full expected suite when known, so tests
+                    # that never ran in a failing run count as not-passed.
+                    run_total = float(p) + float(f)
+                    if e is not None and pd.notna(e) and float(e) > run_total:
+                        run_total = float(e)
                     tot_pass += float(p)
-                    tot_total += float(p) + float(f)
+                    tot_total += run_total
                     have_counts = True
         tests_pass_rate = (tot_pass / tot_total) if have_counts and tot_total else None
         metrics = {}

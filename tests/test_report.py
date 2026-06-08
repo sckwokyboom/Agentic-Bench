@@ -99,6 +99,22 @@ def test_summary_json_tests_pass_rate_not_inflated_when_runs_lack_derived_field(
     assert cond["tests_pass_rate"] < 1.0
 
 
+def test_summary_json_tests_pass_rate_uses_expected_total(tmp_path: Path):
+    """A failing run that aborted early (ran 2281 of 2437) is scored against the
+    full expected suite, so the un-run tests count as not-passed."""
+    root = tmp_path / "runs"
+    base = {"interrupted_reason": None}
+    _write_summary_run(root, "augmented", 0, {**base, "success": True,
+                       "verify_passed_count": 2437, "verify_failed_count": 0,
+                       "verify_expected_total": 2437})
+    _write_summary_run(root, "augmented", 1, {**base, "success": False,
+                       "verify_passed_count": 2280, "verify_failed_count": 1,
+                       "verify_expected_total": 2437})
+    cond = {c["name"]: c for c in report.summary_json(root)["conditions"]}["augmented"]
+    # Σpassed=4717 ; Σtotal = 2437 + max(2281, 2437) = 4874
+    assert cond["tests_pass_rate"] == (2437 + 2280) / (2437 + 2437)
+
+
 def test_summary_json_tests_pass_rate_none_when_no_verify_counts(tmp_path: Path):
     root = tmp_path / "runs"
     _write_summary_run(root, "baseline", 0, {"interrupted_reason": None, "success": True})

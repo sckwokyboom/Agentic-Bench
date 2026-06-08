@@ -235,6 +235,26 @@ def test_tests_pass_rate_is_passed_over_total():
     assert extract(Trace(), "", cfg)["tests_pass_rate"] is None
 
 
+def test_tests_pass_rate_uses_expected_total_denominator():
+    """When the full expected suite size is known, tests that never ran in a
+    failing run (early abort / non-compiling module) count as not-passed."""
+    from abench.metrics import extract, MetricsConfig
+    from abench.trace_model import Trace
+    cfg = MetricsConfig(test_command_patterns=["pytest"], shell_tool_names=["bash"],
+                        read_tool_names=["read"], search_tool_names=["grep"],
+                        command_arg_keys=["command"])
+    # 2280 passed, 1 failed, but the full suite is 2437 → 156 never ran.
+    tr = Trace(verify_passed_count=2280, verify_failed_count=1, verify_expected_total=2437)
+    assert round(extract(tr, "", cfg)["tests_pass_rate"], 6) == round(2280 / 2437, 6)
+    # expected <= passed+failed (or absent) → denominator stays passed+failed.
+    tr2 = Trace(verify_passed_count=2280, verify_failed_count=1, verify_expected_total=2281)
+    assert round(extract(tr2, "", cfg)["tests_pass_rate"], 6) == round(2280 / 2281, 6)
+    tr3 = Trace(verify_passed_count=2280, verify_failed_count=1)  # no expected → fallback
+    assert round(extract(tr3, "", cfg)["tests_pass_rate"], 6) == round(2280 / 2281, 6)
+    tr4 = Trace(verify_passed_count=2437, verify_failed_count=0, verify_expected_total=2437)
+    assert extract(tr4, "", cfg)["tests_pass_rate"] == 1.0
+
+
 def test_default_test_patterns_cover_gradle_and_maven():
     import re
     from abench.config import DEFAULT_TEST_PATTERNS

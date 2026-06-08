@@ -5,12 +5,41 @@ from unittest.mock import patch
 
 import pytest
 
-from abench.verify import VerifyResult, detect_command, run_verify
+from abench.verify import (
+    VerifyResult, augment_for_full_run, detect_command, run_verify,
+)
 from abench.verify_parsers import (
     parse_gradle_output,
     parse_maven_surefire,
     parse_pytest_output,
 )
+
+
+def test_augment_appends_gradle_continue():
+    assert augment_for_full_run("./gradlew test") == "./gradlew test --continue"
+    assert augment_for_full_run("gradle :core:test") == "gradle :core:test --continue"
+
+
+def test_augment_appends_maven_fail_at_end():
+    assert augment_for_full_run("mvn test") == "mvn test --fail-at-end"
+    assert augment_for_full_run("./mvnw verify") == "./mvnw verify --fail-at-end"
+
+
+def test_augment_is_idempotent():
+    assert augment_for_full_run("./gradlew test --continue") == "./gradlew test --continue"
+    assert augment_for_full_run("mvn -fae test") == "mvn -fae test"
+    assert augment_for_full_run("mvn --fail-at-end test") == "mvn --fail-at-end test"
+
+
+def test_augment_recognises_wrapped_commands():
+    assert (augment_for_full_run("cd repo && ./gradlew test")
+            == "cd repo && ./gradlew test --continue")
+
+
+def test_augment_leaves_pytest_and_none_untouched():
+    assert augment_for_full_run("pytest -q") == "pytest -q"
+    assert augment_for_full_run(None) is None
+    assert augment_for_full_run("") == ""
 
 
 MAVEN_OK = "Tests run: 142, Failures: 0, Errors: 0, Skipped: 0"

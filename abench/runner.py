@@ -23,7 +23,12 @@ from .metrics import MetricsConfig, extract
 from .opencode_client import OpenCodeClient
 from .prompt import build_system_prompt, compose
 from .trace_model import FileChange, FinalDiffSummary
-from .verify import detect_command as _detect_verify, run_verify, write_verify_log
+from .verify import (
+    augment_for_full_run,
+    detect_command as _detect_verify,
+    run_verify,
+    write_verify_log,
+)
 
 ClientFactory = Callable[[Experiment], OpenCodeClient]
 
@@ -315,7 +320,8 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
 
         # ── Verify (post-rep, before cleanup) ────────────────────────
         if exp.verify.enabled:
-            verify_command = exp.verify.command or _detect_verify(workdir)
+            verify_command = augment_for_full_run(
+                exp.verify.command or _detect_verify(workdir))
             if verify_command is None:
                 result.trace.verify_status = "skipped"
             else:
@@ -349,6 +355,10 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     # cannot reflect agent work.
                     result.trace.verify_insensitive = (
                         baseline.get("fixture_status") == "passed")
+                    # Full expected suite size = the reference's passing count
+                    # (only trustworthy when the reference itself verified green).
+                    if baseline.get("status") == "passed" and baseline.get("passed_count"):
+                        result.trace.verify_expected_total = baseline["passed_count"]
                 except Exception:
                     pass
 
@@ -482,7 +492,7 @@ def _maybe_run_baseline_verify(exp: Experiment, cache_path: Path) -> None:
         except Exception:
             return None
         try:
-            command = exp.verify.command or _detect_verify(workdir)
+            command = augment_for_full_run(exp.verify.command or _detect_verify(workdir))
             if command is None:
                 return None
             return run_verify(workdir, command, exp.verify.timeout_s)

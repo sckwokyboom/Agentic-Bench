@@ -182,6 +182,35 @@ def _system_of(command: str) -> str | None:
     return None
 
 
+def _system_for_command(command: str) -> str | None:
+    """Like _system_of but scans ALL shell tokens, so a wrapped command
+    (`cd repo && ./gradlew test`, `JAVA_HOME=… mvn test`) is still recognised."""
+    for raw in _SHELL_TOKENS.split(command):
+        base = raw.strip("'\"`").rsplit("/", 1)[-1]
+        if base in ("gradle", "gradlew"):
+            return "gradle"
+        if base in ("mvn", "mvnw"):
+            return "maven"
+    return None
+
+
+def augment_for_full_run(command: str | None) -> str | None:
+    """Append the build tool's keep-going-after-a-failure flag so ONE failing
+    module doesn't abort the rest of the suite — Gradle `--continue`, Maven
+    `--fail-at-end`. Without it a failing run stops early, so its downstream
+    modules' tests never run and both the failed count and the suite total come
+    out lower than a passing run's (a single early failure can hide a whole
+    later module). Idempotent; only touches recognised Gradle/Maven commands."""
+    if not command:
+        return command
+    system = _system_for_command(command)
+    if system == "gradle" and not re.search(r"(?:^|\s)--continue(?:\s|$)", command):
+        return f"{command} --continue"
+    if system == "maven" and not re.search(r"(?:^|\s)(?:--fail-at-end|-fae)(?:\s|$)", command):
+        return f"{command} --fail-at-end"
+    return command
+
+
 def _clear_results(workdir: Path, system: str) -> None:
     """Delete stale JUnit XML result dirs BEFORE running verify, so the XML
     fallback can only ever read results written by THIS invocation. Without

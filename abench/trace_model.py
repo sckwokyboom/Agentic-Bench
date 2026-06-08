@@ -80,6 +80,11 @@ class Trace:
     verify_failed_names: list[str] = field(default_factory=list)
     verify_baseline_unknown: bool = False
     verify_insensitive: bool = False
+    # Full expected suite size — the reference (gold) verify's passing count from
+    # the baseline cache. Used as the tests_pass_rate denominator so tests that
+    # never ran (an early abort, or a module that didn't compile) count as
+    # not-passed instead of being silently dropped. None when unknown.
+    verify_expected_total: int | None = None
 
     # Service/proxy errors surfaced by opencode (rate limits, 5xx, etc.).
     n_service_errors: int = 0

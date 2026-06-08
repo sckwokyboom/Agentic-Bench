@@ -103,9 +103,18 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
     # "2198/2200 passed" runs that a binary success=False would hide. None when
     # verify didn't produce counts.
     vp, vf = trace.verify_passed_count, trace.verify_failed_count
-    tests_pass_rate = (
-        vp / (vp + vf) if vp is not None and vf is not None and (vp + vf) > 0 else None
-    )
+    if vp is not None and vf is not None:
+        # Denominator is the full expected suite when known (reference verify),
+        # so tests that never ran — an early abort, or a module that failed to
+        # compile — count as not-passed rather than shrinking the denominator and
+        # flattering a broken run to ~100%. Falls back to passed+failed.
+        expected = trace.verify_expected_total
+        denom = vp + vf
+        if expected is not None and expected > denom:
+            denom = expected
+        tests_pass_rate = vp / denom if denom > 0 else None
+    else:
+        tests_pass_rate = None
 
     return {
         "duration_s": duration,
@@ -133,6 +142,7 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "verify_duration_s": trace.verify_duration_s,
         "verify_passed_count": trace.verify_passed_count,
         "verify_failed_count": trace.verify_failed_count,
+        "verify_expected_total": trace.verify_expected_total,
         "verify_failed_names": list(trace.verify_failed_names),
         "verify_reason": trace.verify_reason,
         "verify_message": trace.verify_message,
