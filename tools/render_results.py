@@ -112,10 +112,41 @@ def _delta(kind: str, direction: str, base, aug):
     return f"{d:+.1f}%", cls
 
 
+def tool_distribution(rows: list[dict], conds: list[str]):
+    """Per-condition MEAN tool calls/run from the runs CSV's tool_calls_by_name
+    JSON column. Returns ({cond: {tool: mean_per_run}}, ordered_tool_names). The
+    column is absent in older CSVs → returns ({}, [])."""
+    per: dict[str, dict[str, float]] = {c: {} for c in conds}
+    counts = {c: 0 for c in conds}
+    totals: dict[str, float] = {}
+    for r in rows:
+        c = r.get("condition", "?")
+        if c not in per:
+            continue
+        counts[c] += 1
+        raw = r.get("tool_calls_by_name") or ""
+        try:
+            dist = json.loads(raw) if raw else {}
+        except (ValueError, TypeError):
+            dist = {}
+        for tool, n in (dist or {}).items():
+            if isinstance(n, (int, float)):
+                per[c][tool] = per[c].get(tool, 0.0) + n
+                totals[tool] = totals.get(tool, 0.0) + n
+    if not totals:
+        return {}, []
+    for c in per:
+        denom = counts[c] or 1
+        per[c] = {t: v / denom for t, v in per[c].items()}
+    tools = sorted(totals, key=lambda t: -totals[t])[:12]
+    return per, tools
+
+
 def render_html(rows: list[dict], *, title: str, model: str, agent: str) -> str:
     agg = aggregate(rows)
     conds = _order_conditions(list(agg))
     has_delta = "baseline" in agg and "augmented" in agg
+    tool_per, tool_names = tool_distribution(rows, conds)
 
     INK, MUTED, LINE, GOOD, BAD = "#0f172a", "#64748b", "#e2e8f0", "#16a34a", "#dc2626"
     ZEBRA, CARD_R = "#f1f5f9", 18
@@ -123,7 +154,7 @@ def render_html(rows: list[dict], *, title: str, model: str, agent: str) -> str:
     MARGIN = 26          # transparent gutter so the PNG has rounded corners
     PAD_IN = 36          # padding inside the card
     OX = MARGIN + PAD_IN  # content left edge
-    TITLE_FS, SUB_FS, HEAD_FS, CELL_FS = 30, 15, 13, 18
+    TITLE_FS, SUB_FS, HEAD_FS, CELL_FS, SEC_FS = 30, 15, 13, 18, 15
     HEADER_H, ROW_H = 40, 48
 
     numeric_cols = conds + (["Δ aug vs base"] if has_delta else [])
@@ -134,61 +165,88 @@ def render_html(rows: list[dict], *, title: str, model: str, agent: str) -> str:
     def col_right(j: int) -> int:  # right edge (minus padding) of numeric column j
         return int(OX + metric_w + col_w * (j + 1) - 14)
 
-    title_y = MARGIN + PAD_IN + TITLE_FS
-    sub_y = title_y + 26
-    table_top = sub_y + 28
-    table_bottom = table_top + HEADER_H + len(METRICS) * ROW_H
-    foot_y = table_bottom + 26
-    height = int(foot_y + 14 + MARGIN)
-
     def esc(s) -> str:
         return html.escape(str(s))
 
-    # White rounded "card"; nothing is drawn outside it, so the rasterised PNG
-    # has transparent (rounded) corners that sit cleanly on any slide.
-    el: list[str] = [
-        f'<rect x="{MARGIN}" y="{MARGIN}" width="{W - 2 * MARGIN}" '
-        f'height="{height - 2 * MARGIN}" rx="{CARD_R}" ry="{CARD_R}" '
-        f'fill="#ffffff" stroke="{LINE}"/>'
+    el: list[str] = []  # SVG body; card rect is prepended once height is known
+
+    def draw_block(top: int, first_col: str, specs: list[tuple]) -> int:
+        """specs: list of (label, {cond: text}, (delta_text, delta_cls)|None).
+        Draws a header row + data rows (zebra); returns the y below the block."""
+        hb = int(top + HEADER_H * 0.66)
+        el.append(f'<text x="{OX}" y="{hb}" font-size="{HEAD_FS}" fill="{MUTED}">{esc(first_col)}</text>')
+        for j, c in enumerate(numeric_cols):
+            lbl = c if c == "Δ aug vs base" else f'{c} (n={agg[c]["n"]})'
+            el.append(f'<text x="{col_right(j)}" y="{hb}" font-size="{HEAD_FS}" fill="{MUTED}" '
+                      f'text-anchor="end">{esc(lbl)}</text>')
+        el.append(f'<line x1="{OX}" y1="{top + HEADER_H}" x2="{W - OX}" y2="{top + HEADER_H}" stroke="{LINE}"/>')
+        for r, (label, cells, delta) in enumerate(specs):
+            row_top = top + HEADER_H + r * ROW_H
+            if r % 2 == 0:
+                el.append(f'<rect x="{OX}" y="{row_top}" width="{table_w}" height="{ROW_H}" '
+                          f'rx="6" ry="6" fill="{ZEBRA}"/>')
+            base = int(row_top + ROW_H * 0.62)
+            el.append(f'<text x="{OX}" y="{base}" font-size="{CELL_FS}" fill="{MUTED}">{esc(label)}</text>')
+            for j, c in enumerate(conds):
+                el.append(f'<text x="{col_right(j)}" y="{base}" font-size="{CELL_FS}" fill="{INK}" '
+                          f'text-anchor="end">{esc(cells.get(c, "—"))}</text>')
+            if has_delta and delta is not None:
+                txt, cls = delta
+                color = {"good": GOOD, "bad": BAD}.get(cls, MUTED)
+                el.append(f'<text x="{col_right(len(conds))}" y="{base}" font-size="{CELL_FS}" '
+                          f'font-weight="700" fill="{color}" text-anchor="end">{esc(txt)}</text>')
+        return top + HEADER_H + len(specs) * ROW_H
+
+    # Row specs --------------------------------------------------------------
+    metric_specs = []
+    for col, label, kind, direction in METRICS:
+        cells = {c: _fmt(kind, agg[c].get(col)) for c in conds}
+        delta = (_delta(kind, direction, agg["baseline"].get(col), agg["augmented"].get(col))
+                 if has_delta else None)
+        metric_specs.append((label, cells, delta))
+
+    tool_specs = []
+    for tool in tool_names:
+        cells = {c: _fmt("num", tool_per[c].get(tool)) for c in conds}
+        delta = (_delta("num", "neutral", tool_per["baseline"].get(tool),
+                        tool_per["augmented"].get(tool)) if has_delta else None)
+        tool_specs.append((tool, cells, delta))
+
+    # Layout -----------------------------------------------------------------
+    title_y = MARGIN + PAD_IN + TITLE_FS
+    sub_y = title_y + 26
+    m_top = sub_y + 28
+    title_el = [
+        f'<text x="{OX}" y="{title_y}" font-size="{TITLE_FS}" font-weight="700" fill="{INK}">{esc(title)}</text>',
+        f'<text x="{OX}" y="{sub_y}" font-size="{SUB_FS}" fill="{MUTED}">'
+        f'{esc(f"model: {model}     ·     agent: {agent}     ·     runs: {len(rows)}")}</text>',
     ]
-    el.append(f'<text x="{OX}" y="{title_y}" font-size="{TITLE_FS}" font-weight="700" '
-              f'fill="{INK}">{esc(title)}</text>')
-    sub = f"model: {model}     ·     agent: {agent}     ·     runs: {len(rows)}"
-    el.append(f'<text x="{OX}" y="{sub_y}" font-size="{SUB_FS}" fill="{MUTED}">{esc(sub)}</text>')
+    el.extend(title_el)
+    m_bottom = draw_block(m_top, "metric", metric_specs)
 
-    hb = int(table_top + HEADER_H * 0.66)
-    el.append(f'<text x="{OX}" y="{hb}" font-size="{HEAD_FS}" fill="{MUTED}">metric</text>')
-    for j, c in enumerate(numeric_cols):
-        label = c if c == "Δ aug vs base" else f'{c} (n={agg[c]["n"]})'
-        el.append(f'<text x="{col_right(j)}" y="{hb}" font-size="{HEAD_FS}" fill="{MUTED}" '
-                  f'text-anchor="end">{esc(label)}</text>')
-    line_y = table_top + HEADER_H
-    el.append(f'<line x1="{OX}" y1="{line_y}" x2="{W - OX}" y2="{line_y}" stroke="{LINE}"/>')
+    if tool_specs:
+        sec_y = m_bottom + 34
+        el.append(f'<text x="{OX}" y="{sec_y}" font-size="{SEC_FS}" font-weight="700" '
+                  f'fill="{INK}">Tool calls (mean per run)</text>')
+        bottom = draw_block(sec_y + 12, "tool", tool_specs)
+    else:
+        bottom = m_bottom
 
-    for r, (col, label, kind, direction) in enumerate(METRICS):
-        row_top = table_top + HEADER_H + r * ROW_H
-        if r % 2 == 0:  # zebra: 1st, 3rd, 5th rows (matches the HTML view)
-            el.append(f'<rect x="{OX}" y="{row_top}" width="{table_w}" height="{ROW_H}" '
-                      f'rx="6" ry="6" fill="{ZEBRA}"/>')
-        base = int(row_top + ROW_H * 0.62)
-        el.append(f'<text x="{OX}" y="{base}" font-size="{CELL_FS}" fill="{MUTED}">{esc(label)}</text>')
-        for j, c in enumerate(conds):
-            el.append(f'<text x="{col_right(j)}" y="{base}" font-size="{CELL_FS}" fill="{INK}" '
-                      f'text-anchor="end">{esc(_fmt(kind, agg[c].get(col)))}</text>')
-        if has_delta:
-            txt, cls = _delta(kind, direction, agg["baseline"].get(col), agg["augmented"].get(col))
-            color = {"good": GOOD, "bad": BAD}.get(cls, MUTED)
-            el.append(f'<text x="{col_right(len(conds))}" y="{base}" font-size="{CELL_FS}" '
-                      f'font-weight="700" fill="{color}" text-anchor="end">{esc(txt)}</text>')
-
+    foot_y = bottom + 26
+    height = int(foot_y + 14 + MARGIN)
     el.append(f'<text x="{OX}" y="{foot_y}" font-size="12" fill="{MUTED}">'
               f'mean per condition · Δ = augmented vs baseline · generated by abench</text>')
 
+    card = (
+        f'<rect x="{MARGIN}" y="{MARGIN}" width="{W - 2 * MARGIN}" '
+        f'height="{height - 2 * MARGIN}" rx="{CARD_R}" ry="{CARD_R}" '
+        f'fill="#ffffff" stroke="{LINE}"/>'
+    )
     svg = (
         f'<svg id="slide" xmlns="http://www.w3.org/2000/svg" width="{W}" height="{height}" '
         f'viewBox="0 0 {W} {height}" '
         f"font-family=\"-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif\">\n"
-        + "\n".join("  " + e for e in el)
+        + "\n".join("  " + e for e in [card, *el])
         + "\n</svg>"
     )
     return (_TEMPLATE

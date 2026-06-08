@@ -42,6 +42,33 @@ def test_render_results_produces_labelled_html(tmp_path):
     assert "tokens in" in h and "tokens out" in h and ">11000.0<" in h
 
 
+def test_render_results_includes_tool_distribution(tmp_path):
+    csv = tmp_path / "r.csv"
+    csv.write_text(
+        'condition,rep,success,tool_calls_by_name\n'
+        'baseline,0,pass,"{""bash"": 4, ""read"": 6}"\n'
+        'baseline,1,pass,"{""bash"": 2, ""read"": 4}"\n'
+        'augmented,0,pass,"{""bash"": 10, ""grep"": 3}"\n'
+    )
+    out = tmp_path / "slide.html"
+    r = subprocess.run([sys.executable, str(SCRIPT), str(csv), "-o", str(out)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    h = out.read_text()
+    assert "Tool calls (mean per run)" in h
+    assert ">bash<" in h and ">read<" in h and ">grep<" in h
+    # baseline bash mean = (4+2)/2 = 3.0 ; augmented bash = 10/1 = 10.0
+    assert ">3.0<" in h and ">10.0<" in h
+
+
+def test_render_results_no_tool_section_without_column(tmp_path):
+    csv = tmp_path / "r.csv"
+    csv.write_text("condition,rep,success,steps\nbaseline,0,pass,10\n")
+    out = tmp_path / "slide.html"
+    subprocess.run([sys.executable, str(SCRIPT), str(csv), "-o", str(out)], check=True)
+    assert "Tool calls (mean per run)" not in out.read_text()
+
+
 def test_render_results_empty_csv_errors(tmp_path):
     csv = tmp_path / "empty.csv"
     csv.write_text("condition,rep,success\n")  # header only, no rows
