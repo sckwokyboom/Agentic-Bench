@@ -61,6 +61,7 @@ export default function SafeTraceButton({ name, condition, rep, batch, label }: 
             disabled={busy}
             aria-label="download safe trace"
             onClick={run}
+            sx={{ minWidth: 150 }}
           >
             {busy ? "Exporting…" : (label ?? "Safe trace")}
           </Button>

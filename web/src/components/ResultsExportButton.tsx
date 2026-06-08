@@ -53,6 +53,7 @@ export default function ResultsExportButton({
         disabled={!hasData}
         aria-label="export results"
         onClick={(e) => setAnchor(e.currentTarget)}
+        sx={{ minWidth: 150 }}
       >
         Export
       </Button>

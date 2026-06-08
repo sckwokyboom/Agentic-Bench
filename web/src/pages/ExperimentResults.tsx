@@ -6,6 +6,9 @@ import {
 } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ReplayIcon from "@mui/icons-material/Replay";
+import CalculateIcon from "@mui/icons-material/Calculate";
+import EditIcon from "@mui/icons-material/Edit";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useRuns, useRunsSummary, useBatches, useStartReverify, useReverifyStatus,
@@ -87,10 +90,10 @@ export default function ExperimentResults() {
 
   return (
     <Stack spacing={3} sx={{ maxWidth: 1100, mx: "auto" }}>
-      <Stack direction="row" alignItems="center" spacing={2}>
+      <Stack direction="row" alignItems="center" spacing={2} sx={{ flexWrap: "wrap", rowGap: 1 }}>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>Results · {name}</Typography>
         {showSelector && (
-          <FormControl size="small" sx={{ minWidth: 220 }}>
+          <FormControl size="small" sx={{ minWidth: 240 }}>
             <InputLabel id="batch-select-label">Batch</InputLabel>
             <Select
               labelId="batch-select-label"
@@ -107,20 +110,31 @@ export default function ExperimentResults() {
             </Select>
           </FormControl>
         )}
-        <Button variant="outlined" size="small" onClick={handleReverifyAll} disabled={running}>
+      </Stack>
+
+      {/* Actions get their own full-width, wrapping row so they're never squeezed;
+          every action is small+outlined with an icon and a shared min-width. */}
+      <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", gap: 1.5 }}>
+        <Button
+          variant="outlined" size="small" startIcon={<ReplayIcon />} sx={{ minWidth: 150 }}
+          onClick={handleReverifyAll} disabled={running}
+        >
           {running
             ? `Re-verifying ${job.data?.done ?? 0}/${job.data?.total ?? "…"}`
             : "Re-verify all"}
         </Button>
         <Button
-          variant="outlined" size="small"
+          variant="outlined" size="small" startIcon={<CalculateIcon />} sx={{ minWidth: 150 }}
           disabled={recompute.isPending || !name}
           onClick={() => name && recompute.mutate({ name, batch })}
           title="Recompute metrics (tests executed, tokens…) from saved traces — no agent re-run"
         >
           {recompute.isPending ? "Recomputing…" : "Recompute metrics"}
         </Button>
-        <Button component={RouterLink} to={`/experiments/${name}`} variant="outlined" size="small">
+        <Button
+          component={RouterLink} to={`/experiments/${name}`}
+          variant="outlined" size="small" startIcon={<EditIcon />} sx={{ minWidth: 150 }}
+        >
           Edit
         </Button>
         <ResultsExportButton
