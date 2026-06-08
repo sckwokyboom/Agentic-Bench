@@ -140,7 +140,13 @@ const MD_RUN_HEADERS = [
 
 function mdRunCells(r: RunSummary): string[] {
   const n = (v: number | null | undefined, d = 0) => (v == null ? "—" : v.toFixed(d));
-  const pct = r.tests_pass_rate == null ? "—" : `${(r.tests_pass_rate * 100).toFixed(1)}%`;
+  // Floored, matching the UI: anything below a perfect pass reads under 100%, so
+  // a 2280/2281 run is "99.9%", never a misleading "100.0%".
+  const pct = r.tests_pass_rate == null
+    ? "—"
+    : r.tests_pass_rate >= 1
+      ? "100%"
+      : `${(Math.floor(r.tests_pass_rate * 1000) / 10).toFixed(1)}%`;
   return [
     r.condition,
     String(r.rep),

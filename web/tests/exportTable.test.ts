@@ -77,7 +77,7 @@ describe("buildResultsMarkdown", () => {
   });
   it("includes the per-run table (concise: tests % + tokens)", () => {
     expect(md).toContain("## Runs (2)");
-    expect(md).toContain("| baseline | 0 | passed | pass | 100.0% | 12 | 8 | 2 | 100.4 | 10000 | 2000 |");
+    expect(md).toContain("| baseline | 0 | passed | pass | 100% | 12 | 8 | 2 | 100.4 | 10000 | 2000 |");
   });
   it("omits batch from the title when absent", () => {
     const m = buildResultsMarkdown({ experimentName: "e" }, summary, []);
