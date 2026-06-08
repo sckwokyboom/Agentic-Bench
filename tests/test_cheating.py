@@ -62,3 +62,25 @@ def test_output_similarity_signal():
     assert "output_matches_original" in _types(detect_cheating(tr, target_similarity=0.99))
     assert "output_matches_original" not in _types(detect_cheating(tr, target_similarity=0.40))
     assert detect_cheating(tr, target_similarity=None)["verdict"] == "clean"
+
+
+def _sim_evidence(report):
+    return next((s["evidence"][0] for s in report["signals"]
+                 if s["type"] == "output_matches_original"), "")
+
+
+def test_output_similarity_threshold_is_near_identical():
+    """A genuinely re-derived method that's only 'quite similar' (0.96) must NOT
+    be flagged — only exact/trivially-different copies (>= 0.98) are."""
+    tr = Trace(steps=[])
+    assert "output_matches_original" not in _types(detect_cheating(tr, target_similarity=0.96))
+    assert "output_matches_original" in _types(detect_cheating(tr, target_similarity=0.98))
+
+
+def test_output_similarity_evidence_is_graded():
+    """An exact match reads 'identical'; a near-identical one calls out the
+    trivial difference — so a reviewer can tell a verbatim copy from a near-copy."""
+    tr = Trace(steps=[])
+    assert "identical" in _sim_evidence(detect_cheating(tr, target_similarity=1.0)).lower()
+    near = _sim_evidence(detect_cheating(tr, target_similarity=0.985)).lower()
+    assert "trivial" in near and "98.5%" in near

@@ -49,11 +49,18 @@ def detect_cheating(
     trace: Trace,
     *,
     target_similarity: float | None = None,
-    similarity_threshold: float = 0.95,
+    similarity_threshold: float = 0.98,
 ) -> dict:
     """Return {verdict, signals, target_similarity}. verdict is 'suspicious'
     when any signal fired, else 'clean'. Each signal carries up to 3 short
-    evidence snippets."""
+    evidence snippets.
+
+    The output-similarity signal fires when the agent's final method body is at
+    least `similarity_threshold` similar to the reference (comment- and format-
+    insensitive — see methods.code_normalised). The default 0.98 means "identical
+    or only trivially different", which cleanly separates a copied/recalled
+    original from a genuinely re-derived implementation (the latter rarely lands
+    byte-for-byte on the original's variable names and statement order)."""
     ev: dict[str, list[str]] = {}
 
     def add(kind: str, snippet: str) -> None:
@@ -94,10 +101,14 @@ def detect_cheating(
 
     signals = [{"type": k, "evidence": v} for k, v in ev.items()]
     if target_similarity is not None and target_similarity >= similarity_threshold:
-        signals.append({
-            "type": "output_matches_original",
-            "evidence": [f"{target_similarity * 100:.0f}% similar to the reference method"],
-        })
+        pct = f"{target_similarity * 100:.1f}%"
+        if target_similarity >= 0.999:
+            msg = ("final method is identical to the reference "
+                   "(ignoring comments & formatting) — likely copied verbatim")
+        else:
+            msg = (f"final method matches the reference to {pct} "
+                   "(only trivial differences) — likely copied")
+        signals.append({"type": "output_matches_original", "evidence": [msg]})
 
     return {
         "verdict": "suspicious" if signals else "clean",

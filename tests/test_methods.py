@@ -38,6 +38,34 @@ def test_similarity_low_for_different_body():
     assert method_similarity(_JAVA_REF, _JAVA_DIFF, "X.java", "putValue") < 0.8
 
 
+_JAVA_REFORMATTED_WITH_COMMENT = """\
+class C {
+    public int putValue(int row, int col) {
+        // recompute the cell value
+        if (row > rowCount) {
+            throw new IllegalArgumentException("x");
+        }
+        return row + col;
+    }
+}
+"""
+
+
+def test_similarity_ignores_comments_and_reformatting():
+    """A body reflowed onto more lines with an extra comment is still a verbatim
+    copy → 1.0 (the old whitespace-only normaliser scored this below 1.0)."""
+    assert method_similarity(
+        _JAVA_REF, _JAVA_REFORMATTED_WITH_COMMENT, "X.java", "putValue") == 1.0
+
+
+_PY_REF = "def f(x):\n    return x + 1\n"
+_PY_COMMENTED = "def f(x):\n    # add one\n    return x + 1  # trivial\n"
+
+
+def test_similarity_ignores_python_comments():
+    assert method_similarity(_PY_REF, _PY_COMMENTED, "m.py", "f") == 1.0
+
+
 def test_similarity_none_when_method_missing():
     assert method_similarity(_JAVA_REF, _JAVA_DIFF, "X.java", "nope") is None
 

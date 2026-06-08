@@ -57,13 +57,41 @@ def normalised(lines: list[str]) -> str:
     return "\n".join(line.strip() for line in lines if line.strip())
 
 
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+_C_LIKE = (".java", ".kt", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs",
+           ".c", ".cc", ".cpp", ".h", ".hpp", ".scala", ".cs", ".swift")
+
+
+def _strip_comments(text: str, target_file: str) -> str:
+    """Drop comments so a copy with an added/removed comment still compares as
+    near-identical. Heuristic (regex, not a real lexer) — fine for a similarity
+    ratio since BOTH bodies get the exact same treatment."""
+    if target_file.endswith(_C_LIKE):
+        text = _BLOCK_COMMENT.sub("", text)
+        text = re.sub(r"//.*?$", "", text, flags=re.M)
+    elif target_file.endswith(".py"):
+        text = re.sub(r"#.*?$", "", text, flags=re.M)
+    return text
+
+
+def code_normalised(lines: list[str], target_file: str) -> str:
+    """Comment- AND format-insensitive form of a body: strip comments, then
+    collapse every run of whitespace (incl. newlines/indentation) to one space.
+    So a copy that was reindented, reflowed onto other lines, or had a comment
+    added still normalises to the same string as the original."""
+    text = _strip_comments("\n".join(lines), target_file)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def method_similarity(
     ref_text: str, regen_text: str, target_file: str, name: str,
 ) -> float | None:
-    """0..1 similarity of one method's body between two files (whitespace-
-    normalised difflib ratio). None if the method isn't found in BOTH files."""
-    a = normalised(method_lines(ref_text, target_file, name))
-    b = normalised(method_lines(regen_text, target_file, name))
+    """0..1 similarity of one method's body between two files (comment- and
+    format-insensitive difflib ratio, so trivial reformatting/comments don't
+    hide a copy). None if the method isn't found in BOTH files. 1.0 means the
+    bodies are identical modulo comments and whitespace."""
+    a = code_normalised(method_lines(ref_text, target_file, name), target_file)
+    b = code_normalised(method_lines(regen_text, target_file, name), target_file)
     if not a or not b:
         return None
     return difflib.SequenceMatcher(None, a, b).ratio()

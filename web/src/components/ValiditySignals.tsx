@@ -9,7 +9,7 @@ export const CHEATING_LABELS: Record<string, string> = {
   vcs_history: "read VCS history to recover the original (git log/show/.git)",
   outside_workdir: "read source files outside the run workdir",
   fs_wide_search: "ran a filesystem-wide search",
-  output_matches_original: "final output is near-identical to the reference original",
+  output_matches_original: "final method body is near-identical to the reference original (possible copy)",
 };
 
 interface Props {
