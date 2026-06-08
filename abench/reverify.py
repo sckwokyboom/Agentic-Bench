@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Iterator
@@ -60,7 +61,24 @@ def _baseline_expected_total(exp: Experiment) -> int | None:
     return None
 
 
+def _backup_once(rundir: Path) -> None:
+    """Snapshot the pre-re-verify artifacts to ``<name>.orig`` so the original
+    recorded result is always restorable. Written ONCE per run — a later
+    re-verify keeps the first (true original) backup, never overwrites it.
+
+    Re-verify only ever rewrites the verify_* verdict fields (never the agent
+    trace: steps/turns/tokens/the patch/events.jsonl are untouched), but we
+    snapshot anyway so a reconstruction that goes wrong — a patch that no longer
+    applies, or environment drift — can never cost you a recorded result."""
+    for name in ("trace.json", "metrics.json", "verify_output.log"):
+        src = rundir / name
+        bak = rundir / f"{name}.orig"
+        if src.is_file() and not bak.exists():
+            shutil.copy2(src, bak)
+
+
 def _write_back(rundir: Path, v: VerifyResult, expected_total: int | None = None) -> None:
+    _backup_once(rundir)
     verify_fields = {
         "verify_status": v.status,
         "verify_command": v.command,

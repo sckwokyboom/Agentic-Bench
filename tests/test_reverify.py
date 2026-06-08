@@ -102,6 +102,27 @@ def test_reverify_run_patch_apply_failed(tmp_path):
     assert m["success"] is None
 
 
+def test_reverify_backs_up_original_artifacts_once(tmp_path):
+    """Re-verify snapshots the pre-re-verify trace/metrics to *.orig (so the
+    original is always restorable), and a SECOND re-verify keeps that first
+    backup rather than clobbering it with the post-re-verify state."""
+    exp, _fix, runs = _make_exp(tmp_path)
+    rd = _seed_run(runs, "baseline", 0, _GOOD_PATCH)
+    orig_metrics = (rd / "metrics.json").read_text()
+    orig_trace = (rd / "trace.json").read_text()
+    fake = VerifyResult(status="passed", reason="passed", message="ok", command="pytest",
+                        passed_count=5, failed_count=0)
+    with mock.patch("abench.reverify.run_verify", return_value=fake), \
+         mock.patch("abench.reverify.detect_command", return_value="pytest"):
+        reverify.reverify_run(exp, "baseline", 0)
+        reverify.reverify_run(exp, "baseline", 0)  # second run must NOT touch .orig
+
+    assert (rd / "metrics.json.orig").read_text() == orig_metrics
+    assert (rd / "trace.json.orig").read_text() == orig_trace
+    # the live files were updated (verdict changed) — proves .orig is the original
+    assert (rd / "metrics.json").read_text() != orig_metrics
+
+
 def test_reverify_run_no_run(tmp_path):
     exp, _fix, _runs = _make_exp(tmp_path)
     v = reverify.reverify_run(exp, "baseline", 0)
