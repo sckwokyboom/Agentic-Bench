@@ -7,23 +7,13 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DownloadIcon from "@mui/icons-material/Download";
 import type { RunsSummary, RunSummary } from "../api/types";
 import { buildResultsMarkdown, buildRunsCsv } from "../lib/exportTable";
+import { downloadText } from "../lib/download";
 
 interface Props {
   experimentName: string;
   batchLabel?: string | null;
   summary: RunsSummary | null | undefined;
   runs: RunSummary[] | null | undefined;
-}
-
-function downloadText(filename: string, text: string, mime: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 /**

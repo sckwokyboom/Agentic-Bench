@@ -12,6 +12,7 @@ import RunLogToggle from "../components/RunLogToggle";
 import MethodComparisonCard from "../components/MethodComparisonCard";
 import MetricsDrawer from "../components/MetricsDrawer";
 import TraceRunSwitcher from "../components/TraceRunSwitcher";
+import SafeTraceButton from "../components/SafeTraceButton";
 
 export default function TraceView() {
   const { name, condition, rep } = useParams<{ name: string; condition: string; rep: string }>();
@@ -56,7 +57,10 @@ export default function TraceView() {
       </Box>
 
       <Stack spacing={2} sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="h5">{name} / {condition} / rep {repN}</Typography>
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+          <Typography variant="h5">{name} / {condition} / rep {repN}</Typography>
+          <SafeTraceButton name={name!} condition={condition!} rep={repN} batch={batch} />
+        </Stack>
         <ValiditySignals
           nServiceErrors={nServiceErrors}
           interruptedReason={interruptedReason}

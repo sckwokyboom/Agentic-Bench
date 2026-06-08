@@ -16,6 +16,7 @@ import type { RunBatch } from "../api/types";
 import SummaryTable from "../components/SummaryTable";
 import RunsTable from "../components/RunsTable";
 import ResultsExportButton from "../components/ResultsExportButton";
+import SafeTraceButton from "../components/SafeTraceButton";
 import ValiditySignals from "../components/ValiditySignals";
 
 // Batch ids are "YYYYMMDD-HHMMSS" UTC timestamps (or the literal "legacy").
@@ -128,6 +129,7 @@ export default function ExperimentResults() {
           summary={summary.data}
           runs={runs.data}
         />
+        <SafeTraceButton name={name ?? ""} batch={batch} label="Safe traces" />
       </Stack>
 
       {anyInsensitive && <ValiditySignals verifyInsensitive />}

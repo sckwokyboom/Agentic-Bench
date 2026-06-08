@@ -392,3 +392,38 @@ def test_realshape_trace_and_metrics_flow_through_endpoints(client):
     assert m["n_test_runs"] == 1 and m["n_tests_executed"] == 7
     assert m["tokens_in"] == 11700 and m["tokens_out"] == 118
     assert "cache_read" in m and "cost" in m
+
+
+def test_safe_trace_endpoints_redact(client):
+    c, root = client
+    name = "exp-a"
+    rd = root / name / "runs" / name / "augmented" / "rep_0"
+    rd.mkdir(parents=True)
+    (rd / "manifest.json").write_text(json.dumps({"condition": "augmented", "rep": 0}))
+    (rd / "metrics.json").write_text(json.dumps(
+        {"finished": True, "interrupted_reason": None, "success": True}))
+    (rd / "trace.json").write_text(json.dumps({
+        "started_at": 0.0, "ended_at": 5.0,
+        "isolation_nonce": "NONCE9", "message_id": "msg_SECRET",
+        "steps": [
+            {"kind": "tool_call", "turn": 0, "ts": 1.0, "tool_name": "grep",
+             "tool_args": {"pattern": "putValue", "path": "/Users/corpuser/p"}},
+            {"kind": "tool_result", "turn": 0, "ts": 2.0,
+             "output": "leaked https://internal.corp"},
+        ],
+    }))
+    (root / name / "experiment.yaml").write_text("name: exp-a\nfixture_path: ./stripped\n")
+
+    r = c.get("/api/runs/exp-a/augmented/0/safe_trace")
+    assert r.status_code == 200
+    bundle = r.json()
+    assert bundle["schema"] == "abench-safe-trace/v1" and bundle["n_traces"] == 1
+    blob = json.dumps(bundle)
+    assert "putValue" in blob                                   # analysis content kept
+    for leak in ("corpuser", "NONCE9", "msg_SECRET", "internal.corp", "leaked"):
+        assert leak not in blob, f"LEAKED: {leak}"
+
+    # batch endpoint bundles every rep
+    r2 = c.get("/api/runs/exp-a/safe_traces")
+    assert r2.status_code == 200
+    assert r2.json()["n_traces"] >= 1
