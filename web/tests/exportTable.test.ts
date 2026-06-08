@@ -104,6 +104,27 @@ describe("buildRunsCsv", () => {
     // tool_calls_by_name is JSON (quoted because it contains commas)
     expect(lines[1]).toContain('{""bash"":8');
   });
+  it("breaks the cheating verdict down into signal types + target_similarity", () => {
+    const run: RunSummary = {
+      ...runs[1]!,
+      cheating: {
+        verdict: "suspicious",
+        signals: [
+          { type: "fs_wide_search", evidence: ["grep -r x /"] },
+          { type: "output_matches_original", evidence: ["identical"] },
+        ],
+        target_similarity: 0.9987,
+      },
+    };
+    const csv = buildRunsCsv([run]);
+    const header = csv.split("\n")[0]!.split(",");
+    const cells = csv.split("\n")[1]!.split(",");
+    const at = (name: string) => cells[header.indexOf(name)];
+    expect(at("cheating")).toBe("suspicious");
+    expect(at("cheating_signals")).toBe("fs_wide_search|output_matches_original");
+    expect(at("target_similarity")).toBe("0.9987");
+  });
+
   it("emits just the header for no runs", () => {
     expect(buildRunsCsv([]).split("\n")).toHaveLength(1);
   });

@@ -69,7 +69,7 @@ const RUN_HEADERS = [
   "verify_passed", "verify_failed", "duration_s", "steps", "tool_calls",
   "reads", "searches", "test_runs", "tests_executed", "files_edited",
   "tokens_in", "tokens_out", "tokens_reasoning", "cost", "service_errors",
-  "cheating", "tool_calls_by_name",
+  "cheating", "cheating_signals", "target_similarity", "tool_calls_by_name",
 ];
 
 function runCells(r: RunSummary): string[] {
@@ -96,6 +96,10 @@ function runCells(r: RunSummary): string[] {
     n(r.cost, 4),
     String(r.n_service_errors ?? 0),
     r.cheating?.verdict ?? "",
+    // Which signals fired (pipe-joined types) — so the suspicious rate can be
+    // broken down (e.g. is it output_matches_original vs a real leak vector?).
+    (r.cheating?.signals ?? []).map((s) => s.type).join("|"),
+    r.cheating?.target_similarity == null ? "" : r.cheating.target_similarity.toFixed(4),
     r.tool_calls_by_name ? JSON.stringify(r.tool_calls_by_name) : "",
   ];
 }
