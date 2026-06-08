@@ -69,6 +69,10 @@ def main(argv=None) -> int:
     ap.add_argument("-o", "--output", help="output file (default: <path>/safe-traces.json)")
     ap.add_argument("--include-outputs", action="store_true",
                     help="include tool outputs (scrubbed AND truncated). Off by default.")
+    ap.add_argument("--digest", action="store_true",
+                    help="compact navigation skeleton: diff bodies → +/- counts, "
+                         "agent text truncated, long args clipped. Much smaller; "
+                         "ideal for pasting into a chat.")
     ap.add_argument("--max-output-chars", type=int, default=500)
     ap.add_argument("--strip-prefix", default=None,
                     help="absolute repo/workdir root to make paths repo-relative")
@@ -89,7 +93,7 @@ def main(argv=None) -> int:
 
     bundle = build_bundle(items, include_outputs=args.include_outputs,
                           max_output_chars=args.max_output_chars,
-                          strip_prefix=args.strip_prefix)
+                          strip_prefix=args.strip_prefix, digest=args.digest)
 
     out = Path(args.output) if args.output else (
         path.parent / "safe-traces.json" if path.is_file() else path / "safe-traces.json")

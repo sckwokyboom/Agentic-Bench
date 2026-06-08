@@ -72,9 +72,38 @@ def _num(v):
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
+_DIGEST_TEXT_CHARS = 160
+_DIGEST_ARG_CHARS = 200
+
+
+def _truncate_strings(o, limit: int):
+    if isinstance(o, str):
+        return o if len(o) <= limit else o[:limit] + "…"
+    if isinstance(o, dict):
+        return {k: _truncate_strings(v, limit) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_truncate_strings(v, limit) for v in o]
+    return o
+
+
+def _diffstat(patch: str) -> dict:
+    """Added/removed line counts from a unified diff (ignoring the ± file headers)."""
+    added = removed = 0
+    for ln in patch.splitlines():
+        if ln.startswith("+++") or ln.startswith("---"):
+            continue
+        if ln.startswith("+"):
+            added += 1
+        elif ln.startswith("-"):
+            removed += 1
+    return {"added": added, "removed": removed}
+
+
 def safe_step(step: dict, base_ts, scr: Scrubber, *, include_outputs: bool,
-              max_output_chars: int) -> dict:
-    """Project ONE step to allowlisted, scrubbed fields."""
+              max_output_chars: int, digest: bool = False) -> dict:
+    """Project ONE step to allowlisted, scrubbed fields. In ``digest`` mode the
+    bulky bodies are dropped — diffs become +/- line counts, the agent's text is
+    truncated, long args clipped — leaving a compact navigation skeleton."""
     out: dict = {"kind": step.get("kind")}
     turn = step.get("turn")
     if turn is not None:
@@ -85,13 +114,19 @@ def safe_step(step: dict, base_ts, scr: Scrubber, *, include_outputs: bool,
     if step.get("tool_name"):
         out["tool"] = scr.text(step["tool_name"])
     if isinstance(step.get("tool_args"), (dict, list)):
-        out["args"] = scr.obj(step["tool_args"])
+        a = scr.obj(step["tool_args"])
+        out["args"] = _truncate_strings(a, _DIGEST_ARG_CHARS) if digest else a
     if step.get("path"):
         out["path"] = scr.text(step["path"])
     if step.get("patch"):
-        out["patch"] = scr.text(step["patch"])
+        if digest:
+            out["edit"] = _diffstat(step["patch"])  # +/- counts, not the body
+        else:
+            out["patch"] = scr.text(step["patch"])
     if step.get("text"):
-        out["text"] = scr.text(step["text"])
+        t = scr.text(step["text"])
+        out["text"] = (t[:_DIGEST_TEXT_CHARS] + "…") if (
+            digest and isinstance(t, str) and len(t) > _DIGEST_TEXT_CHARS) else t
     ec = step.get("exit_code")
     if ec is not None:
         out["exit_code"] = ec
@@ -103,11 +138,11 @@ def safe_step(step: dict, base_ts, scr: Scrubber, *, include_outputs: bool,
 
 
 def safe_trace(trace: dict, manifest: dict, scr: Scrubber, *,
-               include_outputs: bool, max_output_chars: int) -> dict:
+               include_outputs: bool, max_output_chars: int, digest: bool = False) -> dict:
     """Project ONE trace dict (+ {condition, rep}) to its allowlisted, scrubbed form."""
     base_ts = _num(trace.get("started_at"))
     steps = [safe_step(s, base_ts, scr, include_outputs=include_outputs,
-                       max_output_chars=max_output_chars)
+                       max_output_chars=max_output_chars, digest=digest)
              for s in (trace.get("steps") or []) if isinstance(s, dict)]
 
     by_name: Counter = Counter()
@@ -148,18 +183,21 @@ def safe_trace(trace: dict, manifest: dict, scr: Scrubber, *,
 
 
 def build_bundle(items, *, include_outputs: bool = False, max_output_chars: int = 500,
-                 strip_prefix: str | None = None) -> dict:
+                 strip_prefix: str | None = None, digest: bool = False) -> dict:
     """Bundle a list of (trace_dict, manifest_dict) into one safe artifact.
 
-    A single shared Scrubber tallies redactions across all traces."""
+    A single shared Scrubber tallies redactions across all traces. ``digest``
+    drops bulky bodies (diff bodies → +/- counts, text truncated) for a compact,
+    pasteable navigation skeleton."""
     scr = Scrubber(strip_prefix)
     traces = [safe_trace(t, m or {}, scr, include_outputs=include_outputs,
-                         max_output_chars=max_output_chars)
+                         max_output_chars=max_output_chars, digest=digest)
               for t, m in items]
     return {
         "schema": SCHEMA,
-        "policy": "allowlist; outputs " + (
-            "included(scrubbed+truncated)" if include_outputs else "excluded"),
+        "policy": ("allowlist; " + ("digest; " if digest else "")
+                   + "outputs " + ("included(scrubbed+truncated)" if include_outputs
+                                   else "excluded")),
         "n_traces": len(traces),
         "redaction": dict(scr.counts),
         "traces": traces,

@@ -112,3 +112,34 @@ def test_safe_export_bundles_a_runs_root(tmp_path):
     _run(tmp_path, "-o", str(tmp_path / "out.json"))
     bundle = json.loads((tmp_path / "out.json").read_text())
     assert bundle["n_traces"] == 2
+
+
+def test_digest_mode_drops_bodies_and_keeps_skeleton():
+    from abench.safe_trace import build_bundle
+    trace = {
+        "started_at": 0.0, "ended_at": 10.0,
+        "steps": [
+            {"kind": "tool_call", "ts": 1.0, "tool_name": "grep",
+             "tool_args": {"pattern": "putValue", "command": "x" * 500}},
+            {"kind": "reasoning", "ts": 2.0, "text": "y" * 400},
+            {"kind": "file_edit", "ts": 3.0, "path": "src/X.java",
+             "patch": "--- a/src/X.java\n+++ b/src/X.java\n+line1\n+line2\n-old\n"},
+        ],
+    }
+    b = build_bundle([(trace, {"condition": "augmented", "rep": 0})], digest=True)
+    assert "digest" in b["policy"]
+    steps = b["traces"][0]["steps"]
+    edit = next(s for s in steps if s["kind"] == "file_edit")
+    assert "patch" not in edit and edit["edit"] == {"added": 2, "removed": 1}
+    tc = next(s for s in steps if s["kind"] == "tool_call")
+    assert tc["args"]["pattern"] == "putValue"
+    assert tc["args"]["command"].endswith("…") and len(tc["args"]["command"]) <= 201
+    txt = next(s for s in steps if s["kind"] == "reasoning")
+    assert txt["text"].endswith("…") and len(txt["text"]) <= 161
+
+
+def test_non_digest_keeps_patch_body():
+    from abench.safe_trace import build_bundle
+    trace = {"steps": [{"kind": "file_edit", "path": "x", "patch": "+code line\n"}]}
+    s = build_bundle([(trace, {})])["traces"][0]["steps"][0]
+    assert "patch" in s and "edit" not in s

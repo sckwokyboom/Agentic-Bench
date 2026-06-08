@@ -258,10 +258,11 @@ def create_app(
             raise HTTPException(404, str(exc))
 
     @api.get("/runs/{name}/{condition}/{rep}/safe_trace")
-    def _safe_trace(name: str, condition: str, rep: int,
-                    batch: str | None = None, include_outputs: bool = False):
+    def _safe_trace(name: str, condition: str, rep: int, batch: str | None = None,
+                    include_outputs: bool = False, digest: bool = False):
         """Redacted, share-safe view of ONE run's trace (allowlist + scrubbing —
-        see abench.safe_trace). Tool outputs excluded unless include_outputs."""
+        see abench.safe_trace). Tool outputs excluded unless include_outputs;
+        digest drops bulky bodies for a compact, pasteable skeleton."""
         from abench.safe_trace import build_bundle
         rd = _resolve_runs_dir(name, batch)
         try:
@@ -269,10 +270,11 @@ def create_app(
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
         return build_bundle([(trace, {"condition": condition, "rep": rep})],
-                            include_outputs=include_outputs)
+                            include_outputs=include_outputs, digest=digest)
 
     @api.get("/runs/{name}/safe_traces")
-    def _safe_traces(name: str, batch: str | None = None, include_outputs: bool = False):
+    def _safe_traces(name: str, batch: str | None = None,
+                     include_outputs: bool = False, digest: bool = False):
         """Redacted, share-safe bundle of EVERY run's trace in a batch."""
         from abench.safe_trace import build_bundle
         rd = _resolve_runs_dir(name, batch)
@@ -284,7 +286,7 @@ def create_app(
             except runs_mod.RunNotFound:
                 continue
             items.append((trace, {"condition": r["condition"], "rep": r["rep"]}))
-        return build_bundle(items, include_outputs=include_outputs)
+        return build_bundle(items, include_outputs=include_outputs, digest=digest)
 
     @api.get("/runs/{name}/{condition}/{rep}/patch")
     def _read_patch(name: str, condition: str, rep: int, batch: str | None = None):
