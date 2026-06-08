@@ -76,19 +76,19 @@ test("never colors a neutral metric's delta as success or error", () => {
   expect(redDominant).toBe(false); // not error → balanced grey
 });
 
-test("renders a 'tests passed %' row when conditions carry tests_pass_rate", () => {
+test("renders a 'tests passed %' row, exact-100 vs floored", () => {
   const withTpr: RunsSummary = {
     ...summary,
     conditions: [
-      { ...summary.conditions[0]!, tests_pass_rate: 1.0 },
-      { ...summary.conditions[1]!, tests_pass_rate: 0.998 },
+      { ...summary.conditions[0]!, tests_pass_rate: 1.0 },     // exact → "100%"
+      { ...summary.conditions[1]!, tests_pass_rate: 0.9996 },  // 99.96% → floored
     ],
   };
   render(<SummaryTable summary={withTpr} />);
   expect(screen.getByText("tests passed %")).toBeInTheDocument();
-  expect(screen.getByText("100.0%")).toBeInTheDocument();  // baseline (1 decimal)
-  expect(screen.getByText("99.8%")).toBeInTheDocument();   // augmented
-  expect(screen.getByText("-0.2pp")).toBeInTheDocument();  // Δ
+  expect(screen.getAllByText("100%").length).toBeGreaterThanOrEqual(1); // baseline exact
+  expect(screen.getByText("99.9%")).toBeInTheDocument();   // floored, not rounded up
+  expect(screen.queryByText("100.0%")).toBeNull();         // never the rounded-up form
 });
 
 test("omits the 'tests passed %' row when no condition has it", () => {

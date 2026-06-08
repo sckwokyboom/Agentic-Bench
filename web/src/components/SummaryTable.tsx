@@ -70,13 +70,17 @@ export default function SummaryTable({ summary }: Props) {
           {anyTpr && (
             <TableRow hover>
               <TableCell>
-                <Tooltip title="Mean fraction of tests passing at the end (passed / (passed+failed)) — surfaces near-misses like 2198/2200 that a binary success rate hides.">
+                <Tooltip title="Share of tests passing at the end across the condition's runs (Σpassed / Σ(passed+failed)) — surfaces near-misses like 2198/2200 that a binary success rate hides. Floored, so anything below a perfect pass reads under 100%.">
                   <span>tests passed %</span>
                 </Tooltip>
               </TableCell>
               {conditions.map((c) => (
                 <TableCell key={c.name} align="right" sx={selectable}>
-                  {c.tests_pass_rate == null ? "—" : `${(c.tests_pass_rate * 100).toFixed(1)}%`}
+                  {c.tests_pass_rate == null
+                    ? "—"
+                    : c.tests_pass_rate >= 1
+                      ? "100%"
+                      : `${(Math.floor(c.tests_pass_rate * 1000) / 10).toFixed(1)}%`}
                 </TableCell>
               ))}
               {hasDelta && (

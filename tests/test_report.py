@@ -68,18 +68,38 @@ def test_summary_json_means_and_deltas(tmp_path: Path):
     assert out["deltas"]["n_steps"] == -60.0
 
 
-def test_summary_json_includes_tests_pass_rate(tmp_path: Path):
+def test_summary_json_tests_pass_rate_from_summed_verify_counts(tmp_path: Path):
+    """Condition tests_pass_rate = Σpassed / Σ(passed+failed) over valid runs,
+    NOT a mean of the derived per-run field. A run failing 2/2200 pulls it < 1."""
     root = tmp_path / "runs"
-    base = {"interrupted_reason": None, "success": True}
-    _write_summary_run(root, "baseline", 0, {**base, "tests_pass_rate": 1.0})
-    _write_summary_run(root, "baseline", 1, {**base, "tests_pass_rate": 1.0})
-    _write_summary_run(root, "augmented", 0, {**base, "tests_pass_rate": 0.998})
+    base = {"interrupted_reason": None}
+    _write_summary_run(root, "baseline", 0, {**base, "success": True, "verify_passed_count": 2200, "verify_failed_count": 0})
+    _write_summary_run(root, "baseline", 1, {**base, "success": True, "verify_passed_count": 2200, "verify_failed_count": 0})
+    _write_summary_run(root, "augmented", 0, {**base, "success": True, "verify_passed_count": 2200, "verify_failed_count": 0})
+    _write_summary_run(root, "augmented", 1, {**base, "success": False, "verify_passed_count": 2198, "verify_failed_count": 2})
     conds = {c["name"]: c for c in report.summary_json(root)["conditions"]}
     assert conds["baseline"]["tests_pass_rate"] == 1.0
-    assert round(conds["augmented"]["tests_pass_rate"], 3) == 0.998
+    assert conds["augmented"]["tests_pass_rate"] == (2200 + 2198) / 4400  # < 1
 
 
-def test_summary_json_tests_pass_rate_none_when_absent(tmp_path: Path):
+def test_summary_json_tests_pass_rate_not_inflated_when_runs_lack_derived_field(tmp_path: Path):
+    """Regression for the reported bug: success rate 33% but tests passed % showed
+    100%. Cause was aggregating the derived per-run tests_pass_rate and dropping
+    runs that lacked it (pre-feature metrics), so the mean fell back to the lone
+    passing run = 1.0. Aggregating from the stable verify counts keeps the failing
+    runs in the denominator → the rate is < 1, matching reality."""
+    root = tmp_path / "runs"
+    base = {"interrupted_reason": None}  # NOTE: no "tests_pass_rate" field at all
+    _write_summary_run(root, "augmented", 0, {**base, "success": True, "verify_passed_count": 2200, "verify_failed_count": 0})
+    _write_summary_run(root, "augmented", 1, {**base, "success": False, "verify_passed_count": 2198, "verify_failed_count": 2})
+    _write_summary_run(root, "augmented", 2, {**base, "success": False, "verify_passed_count": 2197, "verify_failed_count": 3})
+    cond = {c["name"]: c for c in report.summary_json(root)["conditions"]}["augmented"]
+    assert round(cond["success_rate"], 3) == 0.333
+    assert cond["tests_pass_rate"] == (2200 + 2198 + 2197) / 6600  # < 1, NOT the buggy 1.0
+    assert cond["tests_pass_rate"] < 1.0
+
+
+def test_summary_json_tests_pass_rate_none_when_no_verify_counts(tmp_path: Path):
     root = tmp_path / "runs"
     _write_summary_run(root, "baseline", 0, {"interrupted_reason": None, "success": True})
     conds = {c["name"]: c for c in report.summary_json(root)["conditions"]}

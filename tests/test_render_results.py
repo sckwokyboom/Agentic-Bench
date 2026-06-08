@@ -42,6 +42,26 @@ def test_render_results_produces_labelled_html(tmp_path):
     assert "tokens in" in h and "tokens out" in h and ">11000.0<" in h
 
 
+def test_render_results_tests_passed_from_verify_counts_floored(tmp_path):
+    """tests passed % is summed Σpassed/Σtotal and FLOORED: a 2198/2200 run makes
+    augmented 99.95%, which must render 99.9% (not round up to 100.0%)."""
+    csv = tmp_path / "r.csv"
+    csv.write_text(
+        "condition,rep,success,verify_passed,verify_failed\n"
+        "baseline,0,pass,2200,0\n"
+        "augmented,0,pass,2200,0\n"
+        "augmented,1,fail,2198,2\n"
+    )
+    out = tmp_path / "slide.html"
+    r = subprocess.run([sys.executable, str(SCRIPT), str(csv), "-o", str(out)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    h = out.read_text()
+    assert "tests passed %" in h
+    assert ">100.0%<" in h   # baseline: all pass
+    assert ">99.9%<" in h    # augmented: (2200+2198)/4400 = 99.95% → floored, not 100.0%
+
+
 def test_render_results_includes_tool_distribution(tmp_path):
     csv = tmp_path / "r.csv"
     csv.write_text(

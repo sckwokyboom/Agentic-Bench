@@ -23,6 +23,7 @@ import argparse
 import csv
 import html
 import json
+import math
 from pathlib import Path
 
 # (csv column, label, value format, direction) — direction drives Δ colouring:
@@ -67,10 +68,22 @@ def aggregate(rows: list[dict]) -> dict[str, dict]:
         agg["success_rate"] = (
             100.0 * sum(v == "pass" for v in verdicts) / len(verdicts) if verdicts else None
         )
-        # tests_pass_rate column is a 0..1 fraction per run → mean × 100 → percent.
-        prates = [v for v in (_to_float(r.get("tests_pass_rate", "")) for r in items)
-                  if v is not None]
-        agg["tests_pass_rate"] = 100.0 * sum(prates) / len(prates) if prates else None
+        # tests passed %: prefer SUMMED verify counts (Σpassed/Σtotal) — robust to
+        # runs missing the derived tests_pass_rate column and keeps failing runs in
+        # the denominator. Fall back to the mean of the 0..1 per-run fractions.
+        tot_p = tot_t = 0.0
+        for r in items:
+            p = _to_float(r.get("verify_passed", "") or r.get("verify_passed_count", ""))
+            f = _to_float(r.get("verify_failed", "") or r.get("verify_failed_count", ""))
+            if p is not None and f is not None and (p + f) > 0:
+                tot_p += p
+                tot_t += p + f
+        if tot_t:
+            agg["tests_pass_rate"] = 100.0 * tot_p / tot_t
+        else:
+            prates = [v for v in (_to_float(r.get("tests_pass_rate", "")) for r in items)
+                      if v is not None]
+            agg["tests_pass_rate"] = 100.0 * sum(prates) / len(prates) if prates else None
         out[cond] = agg
     return out
 
@@ -85,8 +98,8 @@ def _fmt(kind: str, v: float | None) -> str:
         return "—"
     if kind == "pct":
         return f"{v:.0f}%"
-    if kind == "pct1":  # one decimal — surfaces 99.9% vs 100%
-        return f"{v:.1f}%"
+    if kind == "pct1":  # one decimal, FLOORED so 99.96% never rounds up to 100.0%
+        return f"{math.floor(v * 10) / 10:.1f}%"
     if kind == "min":  # value is in seconds → minutes
         return f"{v / 60:.1f}"
     return f"{v:.1f}"

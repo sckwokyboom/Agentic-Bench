@@ -51,6 +51,11 @@ def load_runs(root: Path) -> pd.DataFrame:
         row["interrupted_reason"] = metrics.get("interrupted_reason")
         row["success"] = metrics.get("success")
         row["tests_pass_rate"] = metrics.get("tests_pass_rate")
+        # Stable, long-existing verify counts — the condition-level pass rate is
+        # aggregated from these (Σpassed/Σtotal), NOT from the derived per-run
+        # tests_pass_rate, so runs written before that field existed still count.
+        row["verify_passed_count"] = metrics.get("verify_passed_count")
+        row["verify_failed_count"] = metrics.get("verify_failed_count")
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -84,11 +89,22 @@ def summary_json(root: Path) -> dict:
         success_rate = (
             float((succ == True).sum()) / len(succ) if len(succ) else None  # noqa: E712
         )
-        # Mean fraction of tests passing at the end (passed/(passed+failed)) —
-        # surfaces "2198/2200" runs that the binary success rate hides.
-        tpr = (sub["tests_pass_rate"].dropna()
-               if "tests_pass_rate" in sub else sub.get("tests_pass_rate"))
-        tests_pass_rate = float(tpr.mean()) if tpr is not None and len(tpr) else None
+        # Fraction of tests passing at the end across the condition's runs,
+        # computed from SUMMED verify counts (Σpassed / Σ(passed+failed)) rather
+        # than averaging the derived per-run tests_pass_rate. This keeps failing
+        # runs in the denominator (a run that fails 2/2200 pulls the rate below
+        # 100%) and, crucially, does NOT silently drop runs whose metrics predate
+        # the tests_pass_rate field — they still carry verify_*_count. Surfaces
+        # "2198/2200" near-misses the binary success rate hides.
+        tot_pass = tot_total = 0.0
+        have_counts = False
+        if {"verify_passed_count", "verify_failed_count"} <= set(sub.columns):
+            for p, f in zip(sub["verify_passed_count"], sub["verify_failed_count"]):
+                if pd.notna(p) and pd.notna(f) and (p + f) > 0:
+                    tot_pass += float(p)
+                    tot_total += float(p) + float(f)
+                    have_counts = True
+        tests_pass_rate = (tot_pass / tot_total) if have_counts and tot_total else None
         metrics = {}
         for m in NUMERIC:
             mv = mean.loc[cond, m]
