@@ -10,7 +10,9 @@ from . import fixture as fx
 from .config import Experiment
 from .metrics import _success_from_status
 from .run_layout import batch_runs_dir
-from .verify import VerifyResult, detect_command, run_verify, write_verify_log
+from .verify import (
+    VerifyResult, augment_for_full_run, detect_command, run_verify, write_verify_log,
+)
 
 
 def _runs_root(exp: Experiment, batch: str | None) -> Path | None:
@@ -43,7 +45,22 @@ def discover_runs(exp: Experiment, batch: str | None = None) -> list[tuple[str, 
     return out
 
 
-def _write_back(rundir: Path, v: VerifyResult) -> None:
+def _baseline_expected_total(exp: Experiment) -> int | None:
+    """Full expected suite size = the reference's passing count from the baseline
+    cache (trustworthy only when the reference itself verified green)."""
+    cache = exp.fixture_path.parent / ".verify-baseline.json"
+    if not cache.is_file():
+        return None
+    try:
+        b = json.loads(cache.read_text())
+    except (OSError, ValueError):
+        return None
+    if b.get("status") == "passed" and b.get("passed_count"):
+        return int(b["passed_count"])
+    return None
+
+
+def _write_back(rundir: Path, v: VerifyResult, expected_total: int | None = None) -> None:
     verify_fields = {
         "verify_status": v.status,
         "verify_command": v.command,
@@ -54,6 +71,8 @@ def _write_back(rundir: Path, v: VerifyResult) -> None:
         "verify_reason": v.reason,
         "verify_message": v.message,
     }
+    if expected_total is not None:
+        verify_fields["verify_expected_total"] = expected_total
     tpath = rundir / "trace.json"
     if tpath.is_file():
         tr = json.loads(tpath.read_text())
@@ -77,6 +96,7 @@ def reverify_run(
             status="error", reason="no_run",
             message=f"no saved run at {condition}/rep_{rep}",
         )
+    expected = _baseline_expected_total(exp)
     patch = rundir / "changes.patch"
     workdir, _sha = fx.create_workdir(exp.fixture_path)
     try:
@@ -91,16 +111,18 @@ def reverify_run(
                         "(fixture changed?)",
                 raw_output=applied.stderr,
             )
-            _write_back(rundir, v)
+            _write_back(rundir, v, expected)
             return v
-        command = exp.verify.command or detect_command(workdir)
+        # Same keep-going augmentation as the live runner, so a re-verify of an
+        # old run gets the FULL suite (not the truncated count it aborted at).
+        command = augment_for_full_run(exp.verify.command or detect_command(workdir))
         if command is None:
             v = VerifyResult(status="skipped", reason="skipped",
                              message="no build system detected")
-            _write_back(rundir, v)
+            _write_back(rundir, v, expected)
             return v
         v = run_verify(workdir, command, exp.verify.timeout_s)
-        _write_back(rundir, v)
+        _write_back(rundir, v, expected)
         return v
     finally:
         fx.cleanup(workdir)

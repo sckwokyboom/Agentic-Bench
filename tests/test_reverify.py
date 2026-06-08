@@ -65,6 +65,32 @@ def test_reverify_run_happy_writes_back(tmp_path):
     assert "5 passed" in (rd / "verify_output.log").read_text()
 
 
+def test_reverify_augments_command_and_writes_expected_total(tmp_path):
+    """Re-verify re-runs with --continue (full suite, not the truncated count the
+    run aborted at) and records the reference's full size as verify_expected_total
+    so a later recompute scores tests_pass_rate against the whole suite."""
+    exp, fix, runs = _make_exp(tmp_path)
+    (fix.parent / ".verify-baseline.json").write_text(
+        json.dumps({"status": "passed", "passed_count": 2437}))
+    rd = _seed_run(runs, "baseline", 0, _GOOD_PATCH)
+    captured = {}
+
+    def fake_run_verify(workdir, command, timeout_s):
+        captured["command"] = command
+        return VerifyResult(status="failed", reason="tests_failed",
+                            message="1 of 2281 failed", command=command,
+                            passed_count=2280, failed_count=1)
+
+    with mock.patch("abench.reverify.run_verify", side_effect=fake_run_verify), \
+         mock.patch("abench.reverify.detect_command", return_value="./gradlew test"):
+        reverify.reverify_run(exp, "baseline", 0)
+
+    assert captured["command"] == "./gradlew test --continue"
+    tr = json.loads((rd / "trace.json").read_text())
+    assert tr["verify_expected_total"] == 2437
+    assert json.loads((rd / "metrics.json").read_text())["verify_expected_total"] == 2437
+
+
 def test_reverify_run_patch_apply_failed(tmp_path):
     exp, _fix, runs = _make_exp(tmp_path)
     rd = _seed_run(runs, "baseline", 0, "diff --git a/a.txt b/a.txt\n@@ bogus @@\nnonsense\n")
