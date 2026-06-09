@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from .tokens import estimate_tokens
+
 SCHEMA = "abench-safe-trace/v1"
 
 # Ordered scrubbers — URLs before paths (URLs contain '//'); secrets before hex.
@@ -130,10 +132,14 @@ def safe_step(step: dict, base_ts, scr: Scrubber, *, include_outputs: bool,
     ec = step.get("exit_code")
     if ec is not None:
         out["exit_code"] = ec
-    if include_outputs and step.get("output"):
-        raw = str(step["output"])
-        clipped = raw[:max_output_chars]
-        out["output"] = scr.text(clipped) + ("…[truncated]" if len(raw) > max_output_chars else "")
+    if step.get("output"):
+        # Always carry the observation's token COST (a safe number), even when the
+        # raw output text is excluded — that's the "context noise" signal.
+        out["obs_tokens"] = estimate_tokens(str(step["output"]))
+        if include_outputs:
+            raw = str(step["output"])
+            clipped = raw[:max_output_chars]
+            out["output"] = scr.text(clipped) + ("…[truncated]" if len(raw) > max_output_chars else "")
     return out
 
 
@@ -150,6 +156,20 @@ def safe_trace(trace: dict, manifest: dict, scr: Scrubber, *,
         if s.get("kind") == "tool_call" and s.get("tool"):
             by_name[s["tool"]] += 1
 
+    # Observation token cost per tool, from the RAW steps (the projected steps
+    # drop tool_call_id, so attribute results to their calling tool here).
+    name_by_call = {s.get("tool_call_id"): s.get("tool_name")
+                    for s in (trace.get("steps") or [])
+                    if isinstance(s, dict) and s.get("kind") == "tool_call" and s.get("tool_call_id")}
+    obs_total = 0
+    obs_by_tool: dict[str, int] = {}
+    for s in (trace.get("steps") or []):
+        if isinstance(s, dict) and s.get("kind") == "tool_result" and s.get("output"):
+            est = estimate_tokens(str(s["output"]))
+            obs_total += est
+            nm = name_by_call.get(s.get("tool_call_id")) or "?"
+            obs_by_tool[nm] = obs_by_tool.get(nm, 0) + est
+
     ended = _num(trace.get("ended_at"))
     duration = round(ended - base_ts, 1) if base_ts is not None and ended is not None else None
 
@@ -160,6 +180,8 @@ def safe_trace(trace: dict, manifest: dict, scr: Scrubber, *,
         "n_steps": len(steps),
         "n_tool_calls": sum(by_name.values()),
         "tool_calls_by_name": dict(by_name),
+        "obs_tokens_total": obs_total,
+        "obs_tokens_by_tool": obs_by_tool,
         "finished": trace.get("finished"),
         "interrupted_reason": scr.text(trace.get("interrupted_reason")),
         "n_service_errors": _num(trace.get("n_service_errors")) or 0,

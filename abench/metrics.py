@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .cheating import detect_cheating
 from .diffstat import parse_diffstat
+from .tokens import estimate_tokens
 from .trace_model import StepKind, Trace
 from .verify import _parser_for
 
@@ -58,6 +59,21 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
     for s in trace.steps:
         if s.kind == StepKind.TOOL_RESULT and s.tool_call_id is not None:
             result_output[s.tool_call_id] = s.output or ""
+
+    # Observation (tool-result) token cost: a rough estimate of how much context
+    # each tool's outputs add for the model to read, attributed to the calling
+    # tool by tool_call_id. Estimate only (≈ chars/4) — for relative comparison
+    # of context noise per tool, not exact provider tokenization.
+    name_by_call = {s.tool_call_id: s.tool_name for s in tool_calls
+                    if s.tool_call_id is not None}
+    obs_tokens_by_tool: dict[str, int] = {}
+    obs_tokens_total = 0
+    for s in trace.steps:
+        if s.kind == StepKind.TOOL_RESULT and s.output:
+            est = estimate_tokens(s.output)
+            obs_tokens_total += est
+            name = name_by_call.get(s.tool_call_id or "", "?") or "?"
+            obs_tokens_by_tool[name] = obs_tokens_by_tool.get(name, 0) + est
 
     # Tests executed: the TOTAL number of test-case executions across every test
     # run the agent did (passed + failed, summed). With the bench's "run all the
@@ -121,6 +137,8 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "n_steps": n_steps,
         "n_tool_calls": len(tool_calls),
         "tool_calls_by_name": by_name,
+        "obs_tokens_total": obs_tokens_total,
+        "obs_tokens_by_tool": obs_tokens_by_tool,
         "n_test_runs": n_test,
         "n_tests_executed": n_tests_executed,
         "n_reads": n_reads,

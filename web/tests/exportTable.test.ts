@@ -34,6 +34,7 @@ const runs: RunSummary[] = [
     n_tests_executed: 2200, tests_pass_rate: 1.0, tokens_in: 10000, tokens_out: 2000,
     n_reads: 5, n_searches: 3, cost: 0.0234, n_service_errors: 0,
     tool_calls_by_name: { bash: 8, read: 5 },
+    obs_tokens_total: 12000, obs_tokens_by_tool: { bash: 8000, read: 4000 },
   },
   {
     condition: "augmented", rep: 0, finished: true, interrupted_reason: null,
@@ -92,7 +93,8 @@ describe("buildRunsCsv", () => {
     const lines = csv.split("\n");
     const header = lines[0]!;
     for (const col of ["tests_pass_rate", "tests_executed", "tokens_in",
-      "tokens_out", "reads", "searches", "tool_calls_by_name"]) {
+      "tokens_out", "reads", "searches", "tool_calls_by_name",
+      "obs_tokens_total", "obs_tokens_by_tool"]) {
       expect(header).toContain(col);
     }
     const cols = lines[1]!.split(",");
@@ -101,8 +103,10 @@ describe("buildRunsCsv", () => {
     expect(cols[idx("tests_pass_rate")]).toBe("1.0000");
     expect(cols[idx("tests_executed")]).toBe("2200");
     expect(cols[idx("tokens_in")]).toBe("10000");
-    // tool_calls_by_name is JSON (quoted because it contains commas)
+    expect(cols[idx("obs_tokens_total")]).toBe("12000");
+    // tool_calls_by_name + obs_tokens_by_tool are JSON (quoted, contain commas)
     expect(lines[1]).toContain('{""bash"":8');
+    expect(lines[1]).toContain('{""bash"":8000');
   });
   it("breaks the cheating verdict down into signal types + target_similarity", () => {
     const run: RunSummary = {

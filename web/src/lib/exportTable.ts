@@ -68,8 +68,9 @@ const RUN_HEADERS = [
   "condition", "rep", "verify", "success", "tests_pass_rate",
   "verify_passed", "verify_failed", "duration_s", "steps", "tool_calls",
   "reads", "searches", "test_runs", "tests_executed", "files_edited",
-  "tokens_in", "tokens_out", "tokens_reasoning", "cost", "service_errors",
-  "cheating", "cheating_signals", "target_similarity", "tool_calls_by_name",
+  "tokens_in", "tokens_out", "tokens_reasoning", "obs_tokens_total", "cost",
+  "service_errors", "cheating", "cheating_signals", "target_similarity",
+  "tool_calls_by_name", "obs_tokens_by_tool",
 ];
 
 function runCells(r: RunSummary): string[] {
@@ -93,6 +94,7 @@ function runCells(r: RunSummary): string[] {
     n(r.tokens_in),
     n(r.tokens_out),
     n(r.tokens_reasoning),
+    n(r.obs_tokens_total),
     n(r.cost, 4),
     String(r.n_service_errors ?? 0),
     r.cheating?.verdict ?? "",
@@ -101,6 +103,7 @@ function runCells(r: RunSummary): string[] {
     (r.cheating?.signals ?? []).map((s) => s.type).join("|"),
     r.cheating?.target_similarity == null ? "" : r.cheating.target_similarity.toFixed(4),
     r.tool_calls_by_name ? JSON.stringify(r.tool_calls_by_name) : "",
+    r.obs_tokens_by_tool ? JSON.stringify(r.obs_tokens_by_tool) : "",
   ];
 }
 

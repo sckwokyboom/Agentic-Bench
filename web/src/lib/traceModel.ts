@@ -1,8 +1,14 @@
 import type { Step, Trace } from "../api/types";
 
+/** Rough token estimate (≈ chars/4); mirrors abench/tokens.py so UI and computed
+ * numbers agree. Provider-agnostic heuristic for relative context-cost, not exact. */
+export function estimateTokens(text: string | null | undefined): number {
+  return text ? Math.ceil(text.length / 4) : 0;
+}
+
 export type UiPart =
   | { kind: "reasoning" | "text"; text: string }
-  | { kind: "tool"; name: string; args: Record<string, unknown>; output: string | null; exitCode: number | null; ok: boolean | null }
+  | { kind: "tool"; name: string; args: Record<string, unknown>; output: string | null; outputTokens: number; exitCode: number | null; ok: boolean | null }
   | { kind: "edit"; path: string; patch: string };
 
 export interface UiTurn {
@@ -48,6 +54,7 @@ export function turnsFromTrace(trace: Pick<Trace, "steps" | "turns">): UiTurn[] 
       t.parts.push({
         kind: "tool", name: s.tool_name ?? "?", args: s.tool_args ?? {},
         output: res?.output ?? null,
+        outputTokens: estimateTokens(res?.output ?? null),
         exitCode,
         ok: exitCode == null ? null : exitCode === 0,
       });
@@ -132,9 +139,10 @@ export function turnsFromRawEvents(rawEvents: any[]): UiTurn[] {
       const exitRaw = st.metadata?.exit;
       const exitCode = typeof exitRaw === "number" ? exitRaw : null;
       const ok = st.status === "error" ? false : exitCode == null ? (st.status === "completed" ? true : null) : exitCode === 0;
+      const toolOut = st.output != null ? String(st.output) : null;
       place({
         kind: "tool", name: String(p.tool ?? "?"), args: st.input ?? {},
-        output: st.output != null ? String(st.output) : null, exitCode, ok,
+        output: toolOut, outputTokens: estimateTokens(toolOut), exitCode, ok,
       });
     } else if (p.type === "step-finish") {
       const tk = p.tokens ?? {};
@@ -156,4 +164,33 @@ export function toolBreakdown(turn: UiTurn): Record<string, number> {
     else if (p.kind === "edit") out["edit"] = (out["edit"] ?? 0) + 1;
   }
   return out;
+}
+
+// ── Observation (tool-output) token cost — "how much context the tools poured in" ──
+/** Estimated tokens of this turn's tool outputs (what the model had to read back). */
+export function turnObsTokens(turn: UiTurn): number {
+  return turn.parts.reduce((n, p) => n + (p.kind === "tool" ? p.outputTokens : 0), 0);
+}
+
+/** Across the run: estimated observation tokens per tool name. */
+export function observationTokensByTool(turns: UiTurn[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const t of turns) {
+    for (const p of t.parts) {
+      if (p.kind === "tool" && p.outputTokens > 0) {
+        out[p.name] = (out[p.name] ?? 0) + p.outputTokens;
+      }
+    }
+  }
+  return out;
+}
+
+export function observationTokensTotal(turns: UiTurn[]): number {
+  return turns.reduce((n, t) => n + turnObsTokens(t), 0);
+}
+
+/** Real provider input tokens summed over turns — the actual context the model
+ * was billed for (already reflects any OpenCode compaction/truncation). */
+export function realInputTokensTotal(turns: UiTurn[]): number {
+  return turns.reduce((n, t) => n + (t.tokensIn ?? 0), 0);
 }

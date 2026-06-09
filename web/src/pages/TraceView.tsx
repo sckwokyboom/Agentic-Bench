@@ -1,7 +1,10 @@
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Stack, Typography, CircularProgress, Alert, Box } from "@mui/material";
 import { useTrace, useEvents, useRuns, useMetrics } from "../api/queries";
-import { turnsFromTrace } from "../lib/traceModel";
+import {
+  turnsFromTrace, observationTokensByTool, observationTokensTotal, realInputTokensTotal,
+} from "../lib/traceModel";
+import { formatTokens } from "../lib/formatTokens";
 import VerdictBanner from "../components/VerdictBanner";
 import ValiditySignals from "../components/ValiditySignals";
 import AggregateStatsBar from "../components/AggregateStatsBar";
@@ -33,6 +36,16 @@ export default function TraceView() {
   const uiTurns = turnsFromTrace(trace.data);
   const rawByMsg = (mid: string | null) =>
     (events.data ?? []).filter((e: any) => e?.part?.messageID === mid);
+
+  // How much context the agent's tool outputs poured in (estimate), and the real
+  // provider input total for contrast (the gap ≈ what OpenCode compacted away).
+  const obsByTool = observationTokensByTool(uiTurns);
+  const obsTotal = observationTokensTotal(uiTurns);
+  const realIn = realInputTokensTotal(uiTurns);
+  const obsStr = Object.entries(obsByTool)
+    .sort((a, b) => b[1] - a[1])
+    .map(([n, v]) => `${n} ≈${formatTokens(v)}`)
+    .join(" · ");
 
   // Validity signals: metrics is the authoritative source for counts/flags;
   // trace carries the human-readable service-error messages. `made_source_changes`
@@ -76,6 +89,11 @@ export default function TraceView() {
           </Alert>
         )}
         {metrics.data && <AggregateStatsBar metrics={metrics.data} />}
+        {obsTotal > 0 && (
+          <Typography variant="caption" color="text.secondary">
+            Context from tool outputs: ≈{formatTokens(obsTotal)} tok ({obsStr}) · real Σ input {formatTokens(realIn)}
+          </Typography>
+        )}
         {uiTurns.map((t) => (
           <TurnCard key={t.messageId ?? t.index} turn={t} index={t.index} rawEvents={rawByMsg(t.messageId)} />
         ))}

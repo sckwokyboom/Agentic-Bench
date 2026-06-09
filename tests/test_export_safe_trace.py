@@ -143,3 +143,19 @@ def test_non_digest_keeps_patch_body():
     trace = {"steps": [{"kind": "file_edit", "path": "x", "patch": "+code line\n"}]}
     s = build_bundle([(trace, {})])["traces"][0]["steps"][0]
     assert "patch" in s and "edit" not in s
+
+
+def test_safe_export_counts_observation_tokens_even_in_digest():
+    from abench.safe_trace import build_bundle
+    trace = {"steps": [
+        {"kind": "tool_call", "tool_name": "read", "tool_call_id": "c1", "tool_args": {"path": "f"}},
+        {"kind": "tool_result", "tool_call_id": "c1", "output": "x" * 400},  # ≈100 tok
+        {"kind": "tool_call", "tool_name": "grep", "tool_call_id": "c2", "tool_args": {"pattern": "p"}},
+        {"kind": "tool_result", "tool_call_id": "c2", "output": "y" * 40},   # ≈10 tok
+    ]}
+    tr = build_bundle([(trace, {"condition": "augmented", "rep": 0})], digest=True)["traces"][0]
+    assert tr["obs_tokens_total"] == 110
+    assert tr["obs_tokens_by_tool"] == {"read": 100, "grep": 10}
+    res = [s for s in tr["steps"] if s["kind"] == "tool_result"]
+    # size kept, raw text dropped (digest)
+    assert res[0]["obs_tokens"] == 100 and "output" not in res[0]

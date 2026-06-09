@@ -68,6 +68,8 @@ def list_runs(root_runs_dir: Path) -> list[dict]:
                 "n_searches": m.get("n_searches"),
                 "n_files_edited": m.get("n_files_edited"),
                 "tool_calls_by_name": m.get("tool_calls_by_name"),
+                "obs_tokens_total": m.get("obs_tokens_total"),
+                "obs_tokens_by_tool": m.get("obs_tokens_by_tool"),
                 "n_service_errors": m.get("n_service_errors", 0),
                 "made_source_changes": m.get("made_source_changes", False),
                 "verify_insensitive": m.get("verify_insensitive", False),

@@ -268,3 +268,22 @@ def test_default_test_patterns_cover_gradle_and_maven():
     assert matches("./mvnw verify")
     assert not matches("./gradlew build")  # not a test task
     assert not matches("git status")
+
+
+def test_obs_tokens_attributed_by_tool():
+    """Observation (tool-result) token cost is estimated (≈chars/4) and attributed
+    to the calling tool by tool_call_id."""
+    from abench.metrics import extract, MetricsConfig
+    from abench.trace_model import Step, StepKind, Trace
+    cfg = MetricsConfig(test_command_patterns=["pytest"], shell_tool_names=["bash"],
+                        read_tool_names=["read"], search_tool_names=["grep"],
+                        command_arg_keys=["command"])
+    tr = Trace(steps=[
+        Step(kind=StepKind.TOOL_CALL, tool_name="grep", tool_call_id="c1", tool_args={"pattern": "x"}),
+        Step(kind=StepKind.TOOL_RESULT, tool_call_id="c1", output="a" * 400),  # ≈100 tok
+        Step(kind=StepKind.TOOL_CALL, tool_name="read", tool_call_id="c2", tool_args={"path": "f"}),
+        Step(kind=StepKind.TOOL_RESULT, tool_call_id="c2", output="b" * 40),   # ≈10 tok
+    ])
+    m = extract(tr, "", cfg)
+    assert m["obs_tokens_by_tool"] == {"grep": 100, "read": 10}
+    assert m["obs_tokens_total"] == 110

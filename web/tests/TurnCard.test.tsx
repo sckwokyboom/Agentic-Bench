@@ -9,8 +9,8 @@ const turn: UiTurn = {
   tokensIn: 11700, tokensOut: 118, tokensReasoning: 5, cost: 0.0017, durationS: 62,
   parts: [
     { kind: "reasoning", text: "thinking about it" },
-    { kind: "tool", name: "read", args: { path: "a.py" }, output: "file body", exitCode: 0, ok: true },
-    { kind: "tool", name: "grep", args: { pattern: "foo" }, output: "match", exitCode: 0, ok: true },
+    { kind: "tool", name: "read", args: { path: "a.py" }, output: "file body", outputTokens: 250, exitCode: 0, ok: true },
+    { kind: "tool", name: "grep", args: { pattern: "foo" }, output: "match", outputTokens: 30, exitCode: 0, ok: true },
     { kind: "edit", path: "a.py", patch: "@@\n-x\n+y\n" },
   ],
 };
@@ -36,6 +36,9 @@ test("renders tool calls with name+args+result, edits, and a real-name breakdown
   expect(container.querySelector('[data-testid="PsychologyOutlinedIcon"]')).not.toBeNull();
   expect(screen.getByText(/read ×1 · grep ×1 · edit ×1/)).toBeInTheDocument();
   expect(screen.getByText(/in 11\.7k · out 118/)).toBeInTheDocument();
+  // observation (tool-output) token cost: per-tool label + per-turn total in header
+  expect(screen.getByText(/obs ≈280/)).toBeInTheDocument();
+  expect(screen.getByText(/≈250 tok ctx/)).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /show raw/i }));
   expect(screen.getByText(/"type":"tool"/)).toBeInTheDocument();
 });

@@ -50,6 +50,8 @@ export interface RunSummary {
   n_searches?: number | null;
   n_files_edited?: number | null;
   tool_calls_by_name?: Record<string, number> | null;
+  obs_tokens_total?: number | null;                       // est. tokens of tool outputs (context cost)
+  obs_tokens_by_tool?: Record<string, number> | null;     // est. observation tokens per tool
   // Validity signals (Tasks A/B): surfaced so the table/results can flag runs
   // that scored without doing meaningful work (proxy errors, no edits, an
   // insensitive verify).

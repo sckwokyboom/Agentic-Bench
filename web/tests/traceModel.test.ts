@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { turnsFromTrace, turnsFromRawEvents } from "../src/lib/traceModel";
+import {
+  turnsFromTrace, turnsFromRawEvents, estimateTokens,
+  observationTokensByTool, observationTokensTotal,
+} from "../src/lib/traceModel";
 import type { Step } from "../src/api/types";
 
 const steps: Step[] = [
@@ -23,6 +26,15 @@ test("turnsFromTrace groups steps by turn, pairs tool call+result, joins TurnInf
   expect(turns[0]!.parts.some((p) => p.kind === "edit")).toBe(true);
   expect(turns[0]!.reason).toBe("tool-calls");
   expect(turns[0]!.tokensIn).toBe(100);
+});
+
+test("observation token cost: estimate + per-tool aggregation", () => {
+  const turns = turnsFromTrace({ steps, turns: turnInfos } as any);
+  // read result "file body" = 9 chars → ceil(9/4) = 3 tokens, attributed to read
+  expect(observationTokensTotal(turns)).toBe(3);
+  expect(observationTokensByTool(turns)).toEqual({ read: 3 });
+  expect(estimateTokens("a".repeat(400))).toBe(100);
+  expect(estimateTokens(null)).toBe(0);
 });
 
 test("turnsFromTrace joins TurnInfo by message_id, not array index (turn without step-finish)", () => {
