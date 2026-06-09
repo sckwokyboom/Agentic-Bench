@@ -194,3 +194,75 @@ export function observationTokensTotal(turns: UiTurn[]): number {
 export function realInputTokensTotal(turns: UiTurn[]): number {
   return turns.reduce((n, t) => n + (t.tokensIn ?? 0), 0);
 }
+
+// ── Readable per-tool argument summary ───────────────────────────────────────
+// Strip the temp workdir prefix (/tmp/abench-<nonce>/…) to the repo-relative tail.
+function shortenToolPath(p: string): string {
+  const m = /abench-[^/\s]+\/(.+)$/.exec(p);
+  return m ? m[1]! : p;
+}
+
+/**
+ * A readable summary of a tool call's inputs, per tool — NOT first-key-wins (the
+ * old picker showed grep's `path` and dropped its `pattern`). Shows the field(s)
+ * that actually matter for each tool and never dumps bulky args (edit's
+ * oldString/newString, write's content, task's prompt).
+ */
+export function formatToolArgs(name: string, args: Record<string, unknown> | null | undefined): string {
+  const a = args ?? {};
+  const s = (k: string): string => (typeof a[k] === "string" ? (a[k] as string) : "");
+  const numOf = (k: string): number | null => (typeof a[k] === "number" ? (a[k] as number) : null);
+  const rawPath = s("filePath") || s("path") || s("file");
+  const rel = rawPath ? shortenToolPath(rawPath) : "";
+  const t = (name || "").toLowerCase();
+  let out = "";
+  switch (t) {
+    case "grep": {
+      const pat = s("pattern") || s("query");
+      const quals = [s("include") && `include:${s("include")}`, rel && `in:${rel}`].filter(Boolean).join(" ");
+      out = [pat, quals].filter(Boolean).join("  ");
+      break;
+    }
+    case "glob":
+      out = [s("pattern"), rel && `in:${rel}`].filter(Boolean).join("  ");
+      break;
+    case "read": {
+      const off = numOf("offset");
+      const lim = numOf("limit");
+      const span = off != null ? `@${off}${lim != null ? `+${lim}` : ""}` : (lim != null ? `(${lim} lines)` : "");
+      out = [rel, span].filter(Boolean).join("  ");
+      break;
+    }
+    case "list":
+      out = rel;
+      break;
+    case "bash":
+      out = s("command") || s("cmd") || s("script");
+      break;
+    case "edit":
+    case "write":
+    case "patch":
+      out = rel;  // never dump oldString / newString / content
+      break;
+    case "task":
+      out = [s("description"), s("subagent_type") && `(${s("subagent_type")})`].filter(Boolean).join(" ");
+      break;
+    case "todowrite":
+      out = Array.isArray(a.todos) ? `${(a.todos as unknown[]).length} todos` : "";
+      break;
+    case "webfetch":
+    case "fetch":
+    case "websearch":
+      out = s("url") || s("query");
+      break;
+    default: {
+      const primary = s("command") || s("pattern") || s("query") || rel || s("url") || s("description");
+      if (primary) { out = primary; break; }
+      const compact = Object.fromEntries(
+        Object.entries(a).filter(([k]) => !["oldString", "newString", "content", "prompt", "todos"].includes(k)));
+      const j = JSON.stringify(compact);
+      out = j === "{}" ? "" : j;
+    }
+  }
+  return out.length > 280 ? out.slice(0, 280) + "…" : out;
+}

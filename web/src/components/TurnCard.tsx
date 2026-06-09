@@ -9,20 +9,11 @@ import PendingOutlinedIcon from "@mui/icons-material/PendingOutlined";
 import RawEventsToggle from "./RawEventsToggle";
 import { formatTokens } from "../lib/formatTokens";
 import { selectable } from "../theme";
-import { toolBreakdown, turnObsTokens, type UiPart, type UiTurn } from "../lib/traceModel";
+import { toolBreakdown, turnObsTokens, formatToolArgs, type UiPart, type UiTurn } from "../lib/traceModel";
 
 interface Props { turn: UiTurn; index: number; rawEvents: unknown[]; }
 
 const COLLAPSE = 600;
-
-function argSummary(args: Record<string, unknown>): string {
-  for (const k of ["command", "filePath", "path", "pattern", "query"]) {
-    const v = args[k];
-    if (typeof v === "string") return v.slice(0, 160);
-  }
-  const j = JSON.stringify(args);
-  return j === "{}" ? "" : j.slice(0, 160);
-}
 
 // Inline glyph rendered before a Typography's text: inherits the font size and
 // sits on the text baseline so it reads as a leading marker, not a standalone icon.
@@ -57,7 +48,7 @@ function ToolPart({ p }: { p: Extract<UiPart, { kind: "tool" }> }) {
               ? <CheckCircleIcon color="success" sx={inlineIcon} />
               : <PendingOutlinedIcon color="disabled" sx={inlineIcon} />}
           {p.name}
-        </b> {argSummary(p.args)}
+        </b> {formatToolArgs(p.name, p.args)}
         {p.exitCode != null && p.exitCode !== 0 && <> · exit {p.exitCode}</>}
         {p.outputTokens > 0 && (
           <Typography component="span" variant="caption" color="text.secondary">

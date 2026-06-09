@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import {
   turnsFromTrace, turnsFromRawEvents, estimateTokens,
-  observationTokensByTool, observationTokensTotal,
+  observationTokensByTool, observationTokensTotal, formatToolArgs,
 } from "../src/lib/traceModel";
 import type { Step } from "../src/api/types";
 
@@ -50,6 +50,23 @@ test("turnsFromTrace joins TurnInfo by message_id, not array index (turn without
   const b = ui.find((t) => t.messageId === "MB")!;
   expect(a.tokensIn).toBeNull();   // MUST NOT inherit MB's tokens
   expect(b.tokensIn).toBe(99);
+});
+
+test("formatToolArgs renders the meaningful input per tool (grep shows the pattern)", () => {
+  // the bug: grep used to show `path` and drop `pattern`
+  expect(formatToolArgs("grep", { pattern: "putValue", include: "*.java", path: "/tmp/abench-xy/src" }))
+    .toBe("putValue  include:*.java in:src");
+  expect(formatToolArgs("grep", { pattern: "TextTable" })).toBe("TextTable");
+  expect(formatToolArgs("read", { filePath: "/tmp/abench-xy/src/X.java", offset: 17350, limit: 150 }))
+    .toBe("src/X.java  @17350+150");
+  expect(formatToolArgs("glob", { pattern: "**/*Test.java" })).toBe("**/*Test.java");
+  expect(formatToolArgs("bash", { command: "./gradlew test", description: "run" })).toBe("./gradlew test");
+  // edit must NEVER dump the huge oldString/newString — just the path
+  expect(formatToolArgs("edit", { filePath: "/tmp/abench-xy/A.java", oldString: "x".repeat(999), newString: "y".repeat(999) }))
+    .toBe("A.java");
+  expect(formatToolArgs("todowrite", { todos: [1, 2, 3] })).toBe("3 todos");
+  expect(formatToolArgs("task", { description: "research X", subagent_type: "explore", prompt: "z".repeat(999) }))
+    .toBe("research X (explore)");
 });
 
 test("turnsFromRawEvents coalesces repeated parts by id (running → completed)", () => {
