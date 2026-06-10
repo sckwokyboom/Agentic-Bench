@@ -140,7 +140,16 @@ Include all files (condition subdirs, `run_manifest.json`, logs).
 
 ---
 
-## Known machine-specific findings (2026-06-10, macOS)
+## Known machine-specific findings
+
+- **macOS + python.org Python: TLS errors on downloads.** python.org builds ship
+  without root certificates, so the joern bootstrap (`tools/get_joern.py`) fails
+  with `CERTIFICATE_VERIFY_FAILED`. Fix once per machine: run
+  `Install Certificates.command` from the Python app folder, or per-session:
+
+  ```bash
+  export SSL_CERT_FILE=$(python3 -c 'import certifi; print(certifi.where())')
+  ``` (2026-06-10, macOS)
 
 ### JDK version
 
