@@ -2,9 +2,12 @@
 import json
 import threading
 from pathlib import Path
+from typing import Callable
 
 from abench.config import Condition, Experiment, MetricsCfg, OpenCodeCfg
+from abench.opencode_client import RunResult
 from abench.runner import run_experiment
+from abench.trace_model import Trace
 from tests.fakes import FakeOpenCodeClient
 
 
@@ -199,3 +202,66 @@ def test_run_experiment_populates_final_diff_summary(tmp_path):
     assert fds is not None
     assert fds["total_added"] >= 1  # FakeOpenCodeClient writes GENERATED.txt
     assert any(f["path"] for f in fds["files"])
+
+
+def test_run_experiment_overlay_rendered_in_workdir(tmp_path, monkeypatch):
+    """overlay_env {env:NAME} is expanded and *.tmpl is rendered into the workdir
+    the fake client receives — asserts end-to-end wiring from run_experiment.
+
+    The workdir is cleaned up after the run, so we read the rendered file *inside*
+    run_task (while the workdir is still alive) and store the content for later
+    assertion.
+    """
+    # Build a small overlay directory with one .tmpl file.
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    (overlay / "tool_config.txt.tmpl").write_text("endpoint=${TOOL_ENDPOINT}\n")
+
+    # Fixture source dir.
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    (fixture / "a.py").write_text("x = 1\n")
+
+    reference = tmp_path / "reference"
+    reference.mkdir()
+
+    monkeypatch.setenv("TOOL_ENDPOINT", "http://localhost:9999")
+
+    captured: dict = {}
+
+    class _CapturingClient:
+        """Reads the rendered overlay file from the live workdir during run_task."""
+
+        def run_task(self, *, workdir: str, system_prompt: str, model: str,
+                     user_message: str, timeout_s: int,
+                     on_event: Callable[[dict], None],
+                     log_sink: Callable[[str], None] | None = None,
+                     debug_sink: Callable[[str], None] | None = None,
+                     cancel_event=None) -> RunResult:
+            rendered = Path(workdir) / "tool_config.txt"
+            captured["exists"] = rendered.exists()
+            if captured["exists"]:
+                captured["content"] = rendered.read_text()
+            on_event({"type": "message.start"})
+            trace = Trace(started_at=0.0, ended_at=1.0, finished=True)
+            return RunResult(trace=trace, raw_session=None)
+
+    exp = Experiment(
+        name="overlay-exp",
+        fixture_path=fixture,
+        reference_path=reference,
+        task_prompt="Do nothing.",
+        system_prompt="s",
+        model="fake/model",
+        output_dir=tmp_path / "runs",
+        repetitions=1,
+        conditions=[Condition(name="with-overlay", augmentation=None,
+                              overlay=str(overlay))],
+        opencode=OpenCodeCfg(),
+        metrics=MetricsCfg(),
+        overlay_env={"TOOL_ENDPOINT": "{env:TOOL_ENDPOINT}"},
+    )
+    run_experiment(exp, lambda e: _CapturingClient())
+
+    assert captured.get("exists"), "rendered overlay file must exist in workdir"
+    assert captured["content"] == "endpoint=http://localhost:9999\n"

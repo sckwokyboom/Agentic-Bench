@@ -18,6 +18,7 @@ import yaml
 from . import fixture as fx
 from .config import Condition, Experiment
 from .diffstat import parse_diffstat
+from .envutil import expand_env_refs
 from .methods import best_method_similarity
 from .metrics import MetricsConfig, extract
 from .opencode_client import OpenCodeClient
@@ -94,6 +95,9 @@ def run_experiment(
 
     client = client_factory(exp)
 
+    # Resolve overlay_env once before any run starts — fail-fast on missing host env.
+    overlay_env = {k: expand_env_refs(v) for k, v in exp.overlay_env.items()}
+
     plan = _plan if _plan is not None else compute_plan(exp)
 
     # Baseline pre-flight verify
@@ -124,8 +128,8 @@ def run_experiment(
             f"[abench] ───── run {idx}/{total}: condition={cond.name} rep={rep} ─────"
         )
         t_run = time.time()
-        _run_one(exp, cond, rep, root, client, mcfg, cancel_event=cancel_event,
-                 idx=idx, total=total, progress=emit)
+        _run_one(exp, cond, rep, root, client, mcfg, overlay_env=overlay_env,
+                 cancel_event=cancel_event, idx=idx, total=total, progress=emit)
         _log(f"[abench] run {idx}/{total} done in {time.time() - t_run:.1f}s")
         if exp.min_seconds_between_runs:
             _log(f"[abench] cooldown {exp.min_seconds_between_runs}s")
@@ -136,6 +140,7 @@ def run_experiment(
 
 def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
              client: OpenCodeClient, mcfg: MetricsConfig,
+             overlay_env: "dict[str, str] | None" = None,
              cancel_event: "threading.Event | None" = None,
              idx: int = 0, total: int = 0,
              progress: "Callable[[dict], None] | None" = None) -> None:
@@ -222,7 +227,11 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         "and initializing git…"
                     ),
                 })
-                workdir, sha = fx.create_workdir(exp.fixture_path)
+                workdir, sha = fx.create_workdir(
+                    exp.fixture_path,
+                    overlay_dir=cond.overlay,
+                    overlay_env=overlay_env,
+                )
 
                 # Isolation: grounding guard + nonce-prefix in system_prompt
                 # (rebuilt per attempt so each gets a fresh nonce).
