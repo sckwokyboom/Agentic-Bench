@@ -74,7 +74,8 @@ export GRAPH_TIPPER_HOME=/absolute/path/to/Graph-Tipper
 # Windows PowerShell
 $env:GRAPH_TIPPER_HOME = "C:\absolute\path\to\Graph-Tipper"
 # Also needed so {env:HOME}/.gradle cache-mount resolves:
-set HOME=%USERPROFILE%
+$env:HOME = $env:USERPROFILE          # PowerShell
+# (cmd.exe equivalent: set HOME=%USERPROFILE%)
 ```
 
 The `cache_mounts` in `experiment.yaml` reference `{env:GRAPH_TIPPER_HOME}` and
