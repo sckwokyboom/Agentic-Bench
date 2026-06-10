@@ -20,6 +20,9 @@ GROUNDING_GUARD = (
     "internet access.\n"
     "- Write the solution yourself from the project's sources and tests; do not "
     "paste it from an external or remembered copy."
+    "\n- Custom tools provided by the harness in this session (e.g. project-local "
+    "tools like `impact`) ARE allowed — use them freely; they are part of the task "
+    "environment, not an external source."
 )
 
 

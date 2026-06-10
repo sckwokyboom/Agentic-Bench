@@ -47,3 +47,8 @@ def test_build_system_prompt_nonce_only_when_guard_off():
 def test_build_system_prompt_handles_empty_base():
     out = build_system_prompt("", forbid_external_sources=True)
     assert out == GROUNDING_GUARD
+
+
+def test_guard_allows_harness_provided_tools():
+    from abench.prompt import GROUNDING_GUARD
+    assert "provided by the harness" in GROUNDING_GUARD
