@@ -45,3 +45,28 @@ def test_impact_dir_excluded_from_diff(tmp_path):
         assert fx.made_source_changes(wd) is False
     finally:
         fx.cleanup(wd)
+
+
+def test_failed_overlay_leaves_no_workdir(tmp_path):
+    src, ov = _mkfixture(tmp_path), _mkoverlay(tmp_path)
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    with pytest.raises(RuntimeError):
+        fx.create_workdir(src, parent=parent, overlay_dir=ov, overlay_env={})
+    assert list(parent.iterdir()) == []
+
+
+import os
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics differ on Windows")
+def test_overlay_symlink_rejected(tmp_path):
+    src, ov = _mkfixture(tmp_path), _mkoverlay(tmp_path)
+    (ov / "link.ts").symlink_to(ov / ".opencode" / "tools" / "impact.ts")
+    with pytest.raises(RuntimeError, match="symlink"):
+        fx.create_workdir(src, overlay_dir=ov, overlay_env={"GT_HOME": "/x"})
+
+
+def test_missing_overlay_dir_raises(tmp_path):
+    src = _mkfixture(tmp_path)
+    with pytest.raises(RuntimeError, match="overlay dir not found"):
+        fx.create_workdir(src, overlay_dir=tmp_path / "nope", overlay_env={})

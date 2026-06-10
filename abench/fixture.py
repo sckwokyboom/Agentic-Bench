@@ -29,8 +29,12 @@ def _render_tmpl(text: str, env: dict[str, str], origin: str) -> str:
 
 
 def _apply_overlay(workdir: Path, overlay_dir: Path, env: dict[str, str]) -> None:
+    if not Path(overlay_dir).is_dir():
+        raise RuntimeError(f"overlay dir not found: {overlay_dir}")
     for item in sorted(Path(overlay_dir).rglob("*")):
         rel = item.relative_to(overlay_dir)
+        if item.is_symlink():
+            raise RuntimeError(f"overlay contains a symlink: {rel} — materialize it (symlinked dirs would copy empty)")
         if item.is_dir():
             (workdir / rel).mkdir(parents=True, exist_ok=True)
             continue
@@ -66,24 +70,28 @@ def create_workdir(fixture_path: Path, parent: Path | None = None,
                    overlay_env: dict[str, str] | None = None) -> tuple[Path, str]:
     fixture_path = Path(fixture_path)
     workdir = Path(tempfile.mkdtemp(prefix="abench-", dir=parent))
-    _copy_tree(fixture_path, workdir)
+    try:
+        _copy_tree(fixture_path, workdir)
 
-    git_dir = workdir / ".git"
-    if git_dir.exists():
-        shutil.rmtree(git_dir)
-    if (workdir / ".git").exists():  # leak guard
-        raise RuntimeError("failed to strip .git from workdir")
+        git_dir = workdir / ".git"
+        if git_dir.exists():
+            shutil.rmtree(git_dir)
+        if (workdir / ".git").exists():  # leak guard
+            raise RuntimeError("failed to strip .git from workdir")
 
-    if overlay_dir is not None:
-        _apply_overlay(workdir, Path(overlay_dir), overlay_env or {})
+        if overlay_dir is not None:
+            _apply_overlay(workdir, Path(overlay_dir), overlay_env or {})
 
-    subprocess.run(["git", "init", "-q"], cwd=workdir, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=workdir, check=True)
-    subprocess.run(["git", *_GIT_ID, "commit", "-q", "-m", "fixture"],
-                   cwd=workdir, check=True)
-    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=workdir,
-                         capture_output=True, text=True, check=True).stdout.strip()
-    return workdir, sha
+        subprocess.run(["git", "init", "-q"], cwd=workdir, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=workdir, check=True)
+        subprocess.run(["git", *_GIT_ID, "commit", "-q", "-m", "fixture"],
+                       cwd=workdir, check=True)
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=workdir,
+                             capture_output=True, text=True, check=True).stdout.strip()
+        return workdir, sha
+    except BaseException:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
 
 
 def diff_workdir(workdir: Path) -> str:
