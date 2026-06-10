@@ -443,10 +443,8 @@ def load_experiment(path: str | Path) -> Experiment:
     data["system_prompt"] = _resolve_text(data["system_prompt"], base)
     for cond in data.get("conditions", []):
         cond["augmentation"] = _resolve_text(cond.get("augmentation"), base)
-
-    for cond in data.get("conditions", []):
-        if cond.get("overlay"):
-            cond["overlay"] = str((base / cond["overlay"]).resolve())
+        overlay = cond.get("overlay")
+        cond["overlay"] = str((base / overlay).resolve()) if overlay else None
 
     data["fixture_path"] = str((base / data["fixture_path"]).resolve())
     data["reference_path"] = str((base / data["reference_path"]).resolve())

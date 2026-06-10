@@ -30,3 +30,12 @@ def test_json_schema_exposes_custom_providers_and_small_model():
     oc = defs["OpenCodeCfg"]["properties"]
     assert oc["small_model"].get("description")
     assert oc["providers"].get("description")
+
+
+def test_json_schema_guards_overlay_fields():
+    s = Experiment.model_json_schema()
+    defs = s.get("$defs", {})
+    props = s["properties"]
+    assert props["overlay_env"].get("description")
+    cond = defs["Condition"]["properties"]
+    assert cond["overlay"].get("description")

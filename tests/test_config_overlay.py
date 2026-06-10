@@ -32,3 +32,9 @@ def test_missing_overlay_dir_fails_at_load(tmp_path):
 def test_overlay_env_defaults_empty(tmp_path):
     exp = load_experiment(_write(tmp_path, dict(BASE)))
     assert exp.overlay_env == {}
+
+def test_empty_overlay_treated_as_none(tmp_path):
+    data = dict(BASE)
+    data["conditions"] = [{"name": "aug", "augmentation": None, "overlay": ""}]
+    exp = load_experiment(_write(tmp_path, data))
+    assert exp.conditions[0].overlay is None
