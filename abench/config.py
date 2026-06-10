@@ -228,6 +228,14 @@ class MetricsCfg(BaseModel):
         title="Search tool names",
         description="Tool names counted as code search (grep/glob/list).",
     )
+    edit_tool_names: list[str] = Field(
+        default_factory=lambda: ["edit", "write", "patch"],
+        title="Edit tool names",
+        description=(
+            "Tool names counted as file edits — drives time_to_first_edit_s "
+            "(opencode emits no patch parts, so edit tool calls are the signal)."
+        ),
+    )
     command_arg_keys: list[str] = Field(
         default_factory=lambda: ["command", "cmd", "script"],
         title="Command arg keys",

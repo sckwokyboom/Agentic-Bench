@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .cheating import detect_cheating
 from .diffstat import parse_diffstat
@@ -27,6 +27,8 @@ class MetricsConfig:
     read_tool_names: list[str]
     search_tool_names: list[str]
     command_arg_keys: list[str]
+    edit_tool_names: list[str] = field(
+        default_factory=lambda: ["edit", "write", "patch"])
 
 
 def _command_of(step, keys: list[str]) -> str:
@@ -103,9 +105,15 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
 
     n_files, added, removed = parse_diffstat(patch_text)
 
+    # First edit: FILE_EDIT steps exist only when the event stream carries
+    # part.type=="patch" — opencode 1.15.x never emits those, so the edit tool
+    # calls themselves are the primary signal. ts is truthy-filtered because
+    # normalize() maps a missing state.time.start to 0.0, not None.
     ttfe = None
     edits = [s for s in trace.steps
-             if s.kind == StepKind.FILE_EDIT and s.ts is not None]
+             if s.kind == StepKind.FILE_EDIT and s.ts]
+    edits += [s for s in tool_calls
+              if s.tool_name in cfg.edit_tool_names and s.ts]
     if edits and trace.started_at is not None:
         ttfe = min(e.ts for e in edits) - trace.started_at
 

@@ -64,6 +64,8 @@ Observed event types (`type` at envelope level — snake_case):
 
 Other types likely emitted (seen in binary literals; confirm if encountered): `reasoning`, `patch`, `snapshot`, plus persisted-only `tool-call` / `tool-result` split forms. The captured sample only triggers `step_start`/`step_finish`/`tool_use`/`text`; an end-of-turn `step_finish` may be omitted when the final part is plain text with no further tool round-trip.
 
+Confirmed on a real 1.15.11 run with a file edit (picocli putValue, 2026-06-10): the `edit` tool produces only a `tool` part — **no `patch` part appears in the run stream**. So normalize's `patch`→`FILE_EDIT` branch never fires there, and `metrics.time_to_first_edit_s` is keyed off edit-named tool calls (`metrics.edit_tool_names`, default `edit`/`write`/`patch`) with FILE_EDIT kept as a secondary source.
+
 Important naming gotcha: **stream event types use snake_case** (`step_start`, `tool_use`) while **`part.type` inside them uses hyphenated form** (`step-start`, `tool`, `text`). The normalizer must handle both.
 
 ### Part shapes (verified against Mistral and opencode-native runs)

@@ -56,6 +56,55 @@ def test_extract_counts_metrics():
     assert m["success"] is None
 
 
+def test_time_to_first_edit_from_edit_tool_call_when_no_patch_parts():
+    # Regression: opencode 1.15.x emits no part.type=="patch" events, so the
+    # normalized trace carries the edit only as a TOOL_CALL named "edit" —
+    # there are no FILE_EDIT steps to time against.
+    trace = Trace(
+        started_at=100.0,
+        ended_at=700.0,
+        finished=False,
+        interrupted_reason="timeout",
+        steps=[
+            Step(kind=StepKind.TOOL_CALL, ts=110.0, turn=0,
+                 tool_name="read", tool_args={"path": "a.py"}),
+            Step(kind=StepKind.TOOL_CALL, ts=510.0, turn=1,
+                 tool_name="edit", tool_args={"filePath": "a.py"},
+                 tool_call_id="c1"),
+            Step(kind=StepKind.TOOL_RESULT, ts=511.0, turn=1, tool_call_id="c1"),
+        ],
+    )
+    m = extract(trace, "", _cfg())
+    assert m["time_to_first_edit_s"] == 410.0
+
+
+def test_time_to_first_edit_ignores_zero_ts_edit_calls():
+    # normalize() maps a missing state.time.start to ts=0.0 (epoch zero);
+    # that must not yield a bogus negative time_to_first_edit_s.
+    trace = Trace(
+        started_at=100.0,
+        steps=[
+            Step(kind=StepKind.TOOL_CALL, ts=0.0, turn=0,
+                 tool_name="edit", tool_args={}),
+        ],
+    )
+    m = extract(trace, "", _cfg())
+    assert m["time_to_first_edit_s"] is None
+
+
+def test_time_to_first_edit_takes_earliest_of_file_edit_and_edit_call():
+    trace = Trace(
+        started_at=0.0,
+        steps=[
+            Step(kind=StepKind.TOOL_CALL, ts=3.0, turn=0,
+                 tool_name="write", tool_args={}),
+            Step(kind=StepKind.FILE_EDIT, ts=5.0, turn=1, path="a.py", patch="x"),
+        ],
+    )
+    m = extract(trace, "", _cfg())
+    assert m["time_to_first_edit_s"] == 3.0
+
+
 def test_extract_copies_verify_fields_and_auto_success_passed():
     cfg = _cfg()
     trace = Trace(
