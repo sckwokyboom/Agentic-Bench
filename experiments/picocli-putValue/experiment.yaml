@@ -4,23 +4,37 @@ reference_path: ./original
 task_prompt: ./prompts/task.md
 system_prompt: ./prompts/system.md
 
-# Bundled default: free, no extra credentials.
-# After `opencode providers login` you can switch to:
-#   model: deepseek/deepseek-chat
-# Or route DeepSeek through the already-configured OpenRouter:
-#   model: openrouter/deepseek/deepseek-chat-v3.1
+# Free default; OpenRouter key on this machine has no credits (checked 2026-06-10).
 model: opencode/deepseek-v4-flash-free
 
 repetitions: 3
 output_dir: ./runs
-timeout_s: 600
+timeout_s: 900
 
 opencode:
   agent: abench
+  sandbox:
+    mode: container
+    cache_mounts:
+      - "{env:GRAPH_TIPPER_HOME}:/opt/graph-tipper:ro"
+      - "{env:HOME}/.gradle:/root/.gradle:ro"
 
 conditions:
-  - {name: baseline,  augmentation: null}
-  - {name: augmented, augmentation: ./slices/putValue-graph-slice.md}
+  - {name: baseline,          augmentation: null}
+  - {name: augmented,         augmentation: ./slices/putValue-graph-slice.md}
+  - {name: augmented-verbose, augmentation: ./slices/putValue-graph-slice-verbose.md}
+  - name: augmented-tool
+    augmentation: ./slices/impact-tool-briefing.md
+    overlay: ./overlays/impact
+
+overlay_env:
+  GRAPH_TIPPER_HOME: /opt/graph-tipper
+
+target_file: src/main/java/picocli/CommandLine.java
+target_methods: [putValue]
+
+verify:
+  timeout_s: 900
 
 metrics:
   test_command_patterns:

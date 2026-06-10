@@ -1,0 +1,5 @@
+repo=https://github.com/remkop/picocli.git
+sha=a89996315c3fe26b457e89443e3034e3e5967c49
+file=src/main/java/picocli/CommandLine.java
+signature=public Cell putValue(int row, int col, Text value)
+stub=throw new UnsupportedOperationException("TODO: implement putValue");

@@ -17,3 +17,6 @@ experiments/*/stripped/
 web/node_modules
 web/dist
 abench_ui/static/
+
+experiments/*/overlays/impact/.impact/
+experiments/*/overlays/impact/.opencode/tools/
