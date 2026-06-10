@@ -33,6 +33,15 @@ class Condition(BaseModel):
             "blank = no augmentation (baseline)."
         ),
     )
+    overlay: str | None = Field(
+        default=None,
+        title="Overlay",
+        description=(
+            "Directory copied into the run workdir before the seed commit "
+            "(per-session tool files); blank = none. '*.tmpl' files are "
+            "rendered with overlay_env and written without the suffix."
+        ),
+    )
 
 
 class ProviderCfg(BaseModel):
@@ -395,6 +404,15 @@ class Experiment(BaseModel):
         title="Isolation",
         description="Run-isolation configuration (cache busting, ordering).",
     )
+    overlay_env: dict[str, str] = Field(
+        default_factory=dict,
+        title="Overlay env",
+        description=(
+            "Variables substituted into overlay '*.tmpl' files as ${NAME}. "
+            "Values may use the '{env:NAME}' indirection, resolved from the "
+            "process environment at run start."
+        ),
+    )
     target_file: str | None = Field(
         default=None,
         title="Target file",
@@ -426,6 +444,10 @@ def load_experiment(path: str | Path) -> Experiment:
     for cond in data.get("conditions", []):
         cond["augmentation"] = _resolve_text(cond.get("augmentation"), base)
 
+    for cond in data.get("conditions", []):
+        if cond.get("overlay"):
+            cond["overlay"] = str((base / cond["overlay"]).resolve())
+
     data["fixture_path"] = str((base / data["fixture_path"]).resolve())
     data["reference_path"] = str((base / data["reference_path"]).resolve())
     data["output_dir"] = str((base / data["output_dir"]).resolve())
@@ -452,3 +474,6 @@ def _validate(exp: Experiment) -> None:
             raise ValueError(
                 f"target_file not found relative to fixture_path: {exp.target_file}"
             )
+    for cond in exp.conditions:
+        if cond.overlay is not None and not Path(cond.overlay).is_dir():
+            raise ValueError(f"overlay dir not found: {cond.overlay} (condition {cond.name})")
