@@ -9,6 +9,7 @@ runs/
 # Tracked-by-git parts of an experiment are: experiment.yaml, prompts/, slices/.
 experiments/*/original/
 experiments/*/stripped/
+experiments/*/gt-out/
 
 # Brainstorming companion artefacts (mockups, UI state — per-session)
 .superpowers/
