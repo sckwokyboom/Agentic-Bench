@@ -152,3 +152,19 @@ def test_container_forwards_explicit_env_passthrough_too():
     cmd = build_run_command(cfg, workdir="/wd", model="m", user_message="x",
                             config_data={})
     assert "EXTRA_ENV" in cmd
+
+
+def test_cache_mounts_expand_env_refs(monkeypatch):
+    """cache_mounts with {env:NAME} references must be expanded before
+    passing to the docker/podman -v flag. The expanded path must appear in
+    argv; the raw {env:...} form must not."""
+    monkeypatch.setenv("GT_HOME", "/x")
+    cfg = OpenCodeCfg(sandbox=SandboxCfg(
+        mode="container", cache_mounts=["{env:GT_HOME}:/opt/gt:ro"]))
+    cmd = build_run_command(cfg, workdir="/wd", model="m", user_message="x",
+                            config_data={})
+
+    # The expanded value must be in argv
+    assert "/x:/opt/gt:ro" in cmd
+    # The raw {env:...} form must NOT be in argv
+    assert "{env:GT_HOME}:/opt/gt:ro" not in cmd

@@ -16,7 +16,7 @@ FROM eclipse-temurin:17-jdk
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl git unzip ca-certificates maven \
+        curl git unzip ca-certificates maven python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Gradle (projects shipping a ./gradlew wrapper will use their own version).
