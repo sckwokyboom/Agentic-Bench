@@ -8,15 +8,15 @@ Target audience: a colleague with Python 3.11+, git, and internet access.
 ## 1. Clone both repos
 
 ```bash
-# macOS / Linux
-git clone https://github.com/your-org/Agentic-Bench.git
-git clone https://github.com/your-org/Graph-Tipper.git   # adjust URL
+# macOS / Linux  (the Graph-Tipper repo is named Graph-Augmentator on GitHub)
+git clone https://github.com/sckwokyboom/Agentic-Bench.git
+git clone https://github.com/sckwokyboom/Graph-Augmentator.git Graph-Tipper
 ```
 
 ```powershell
 # Windows — disable CRLF mangling so the fixture diff stays clean
-git clone -c core.autocrlf=false https://github.com/your-org/Agentic-Bench.git
-git clone -c core.autocrlf=false https://github.com/your-org/Graph-Tipper.git
+git clone -c core.autocrlf=false https://github.com/sckwokyboom/Agentic-Bench.git
+git clone -c core.autocrlf=false https://github.com/sckwokyboom/Graph-Augmentator.git Graph-Tipper
 ```
 
 ---
