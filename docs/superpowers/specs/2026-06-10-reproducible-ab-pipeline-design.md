@@ -14,9 +14,9 @@
 1. **Условия полного A/B:** `baseline` / `augmented` (компактный GT-артефакт) / `augmented-verbose` (сырой срез) / `augmented-tool` (компактный артефакт-брифинг + per-session тул `impact`).
 2. **Механизм per-session тула — workdir-overlay** с готовым opencode custom tool из GT (`integrations/opencode/tools/impact.ts`). MCP-сервер — будущая эволюция, не сейчас; overlay останется полезным и при MCP (доставка данных `.impact/`).
 3. **Joern-производные артефакты регенерируются на месте** (полный from-scratch пайплайн, Joern ставится скриптом). Закоммиченные срезы остаются эталоном для сверки на дрифт, не источником.
-4. **Форма — скрипты в обоих репо.** GT получает один вход «произведи все артефакты для (проект, таргет)»; бенч — `setup.sh` (раз на машину) и per-experiment `prepare.sh`. Харнесс abench не знает про GT.
+4. **Форма — скрипты в обоих репо, Python-stdlib, кроссплатформенно (macOS/Linux/Windows).** GT получает один вход «произведи все артефакты для (проект, таргет)»; бенч — `scripts/setup_check.py` (раз на машину) и per-experiment `prepare.py`. Bash не используется (Windows): gradle зовётся через wrapper (`gradlew`/`gradlew.bat`), внешние процессы — `subprocess` без shell, пути — `pathlib`, временные файлы — `tempfile`. Харнесс abench не знает про GT.
 5. **Прогон — в sandbox-контейнере** (`opencode.sandbox.mode=container`): закрывает вектор «агент читает эталон с хост-диска». GT монтируется в контейнер read-only; verify остаётся на хосте.
-6. Граница ответственности: производство артефактов — домен GT; инжекция, изоляция и замер — домен бенча; склейка — `prepare.sh` эксперимента; единственный шов — `GRAPH_TIPPER_HOME` и фиксированная раскладка каталога-выхода GT.
+6. Граница ответственности: производство артефактов — домен GT; инжекция, изоляция и замер — домен бенча; склейка — `prepare.py` эксперимента; единственный шов — `GRAPH_TIPPER_HOME` и фиксированная раскладка каталога-выхода GT.
 
 ## 3. Вне области
 
@@ -31,8 +31,8 @@
 ```
 Graph-Tipper (внешний, $GRAPH_TIPPER_HOME)         Agentic-Bench
 ┌─────────────────────────────────────┐   ┌─────────────────────────────────────┐
-│ harness/impact/produce_artifacts    │   │ setup.sh            (раз на машину) │
-│   joern → CPG → slice → capture →   │ ← │ experiments/<exp>/prepare.sh        │
+│ harness/impact/produce_artifacts    │   │ scripts/setup_check.py (раз/машину) │
+│   joern → CPG → slice → capture →   │ ← │ experiments/<exp>/prepare.py        │
 │   gen_artifact → impact-данные      │   │   фикстуры → GT-артефакты → overlay │
 │ → out/: slices/*.md                 │ → │   → смоук                           │
 │         impact/*.json               │   │ abench run          (4 усл. × N)    │
@@ -41,7 +41,7 @@ Graph-Tipper (внешний, $GRAPH_TIPPER_HOME)         Agentic-Bench
                                           └─────────────────────────────────────┘
 ```
 
-Поток данных: `prepare.sh` клонирует фикстуры по пину → зовёт GT-producer на интактном `original/` → раскладывает срезы в `slices/` и данные тула в `overlays/impact/` → `abench run` инжектит срезы в промпт (как сейчас) и overlay в ворк-дир (новое).
+Поток данных: `prepare.py` клонирует фикстуры по пину → зовёт GT-producer на интактном `original/` → раскладывает срезы в `slices/` и данные тула в `overlays/impact/` → `abench run` инжектит срезы в промпт (как сейчас) и overlay в ворк-дир (новое).
 
 ## 5. abench: per-condition overlay (единственная правка харнесса)
 
@@ -75,12 +75,12 @@ Graph-Tipper (внешний, $GRAPH_TIPPER_HOME)         Agentic-Bench
 --out <dir>  [--with-mutation] [--force] [--only <stage>] [--java-home <jdk>]
 ```
 
-Стадии (идемпотентные: скип при свежем выходе, `--force` пересоздаёт):
-1. `joern` — проверка/бутстрап через `tools/get-joern.sh` (пин версии, override `JOERN_VERSION`);
+Стадии (идемпотентные: скип при свежем выходе, `--force` пересоздаёт; все — Python-stdlib, без bash):
+1. `joern` — проверка/бутстрап через `tools/get_joern.py` (скачивание+распаковка joern-cli по пину версии, override `JOERN_VERSION`; на Windows используется штатный `joern.bat` дистрибутива);
 2. `export` — CPG-экспорт проекта (кэш по content-SHA, как сейчас в `slice/.cache`);
-3. `slice` — `graph-tipper slice` → `budget.md` (сборка JVM CLI `./gradlew installDist` входит в стадию);
-4. `agent` — сборка gtcov (`build_agent.sh`);
-5. `capture` — init-script, single-fork, `--tests` из аргумента → `values.tsv`;
+3. `slice` — `graph-tipper slice` → `budget.md` (сборка JVM CLI `gradlew installDist` входит в стадию; на Windows зовётся `bin/graph-tipper.bat`, который генерит gradle application plugin);
+4. `agent` — сборка gtcov **внутри стадии на Python**: byte-buddy 1.14.18 скачивается с Maven Central при отсутствии в кэше, `javac`+`jar` зовутся subprocess'ом (`build_agent.sh` остаётся как unix-удобство, пайплайн от него не зависит);
+5. `capture` — init-script пишется в `tempfile.gettempdir()`, single-fork, `--tests` из аргумента → `values.tsv`;
 6. `gen` — компактный артефакт (`gen_artifact`) + verbose (= `budget.md`); **скраб абсолютных путей встроен** и завершается assert'ом «в выходных md нет `/Users/`, `/home/`, `$HOME`-путей»;
 7. `impact-data` — `methods.json` (из export) + `coverage.json` (полносьютный gtcov-прогон); `mutation.json` — только при `--with-mutation`;
 8. `provenance` — `provenance.json`: SHA проекта и GT, версия Joern, аргументы, хэши всех выходов.
@@ -91,9 +91,9 @@ Gradle-вызовы стадий получают `-Dorg.gradle.java.home` из 
 
 ## 7. Бенч-сторона: скрипты и файлы эксперимента
 
-**`setup.sh`** (корень, раз на машину): venv + `pip install -e ".[dev]"`, проверки `opencode --version` (1.15.x), JDK 17–21, `docker`/`podman` при контейнерном режиме, сборка sandbox-образа.
+**`scripts/setup_check.py`** (корень, раз на машину; запуск из активной venv): проверки `opencode --version` (1.15.x), JDK 17–21 (`JAVA_HOME`), `git`, `docker`/`podman` при контейнерном режиме + сборка sandbox-образа. Создание venv остаётся одной документированной командой (`python -m venv .venv` + активация по-ОС-ному).
 
-**`experiments/picocli-putValue/prepare.sh`** — стадии (`--only <stage>`, `--force`):
+**`experiments/picocli-putValue/prepare.py`** — стадии (`--only <stage>`, `--force`):
 1. `deps` — чек-лист зависимостей; каждая нехватка печатает «что отсутствует → какой командой получить» (в т.ч. `GRAPH_TIPPER_HOME` не задан/не собран);
 2. `fixtures` — клон по `fixture.lock` → `original/`, копия → `stripped/`, стрип через `strip_target.py`, компиляционная проверка `./gradlew compileJava`;
 3. `artifacts` — вызов GT-producer на `original/`; раскладка `slices/` + `overlays/impact/.impact/`; сверка свежих срезов с закоммиченными эталонами — дрифт печатается как **warning**, не ошибка (канон — регенерация);
@@ -114,7 +114,7 @@ stub=throw new UnsupportedOperationException("TODO: implement putValue");
 
 **`slices/impact-tool-briefing.md`** (коммитится, пишется руками один раз): краткий брифинг для условия `augmented-tool` — что делает тул `impact`, что он разрешён, когда его звать (после правок, перед прогоном тестов). Это аугментация условия; сами данные тула едут overlay'ем.
 
-**`REPRODUCE.md`** эксперимента — машинный чеклист: `setup.sh` → `export GRAPH_TIPPER_HOME=...` (+ клон/сборка GT) → `prepare.sh` → выбрать `model:` (free → `timeout_s: 900`) → `abench run` → прислать `runs/picocli-putValue/<batch>/` целиком на анализ.
+**`REPRODUCE.md`** эксперимента — машинный чеклист с per-OS блоками (macOS/Linux: bash; Windows: PowerShell — `.venv\Scripts\activate`, `$env:GRAPH_TIPPER_HOME=...`, `set HOME=%USERPROFILE%` для `{env:HOME}`-маунта): setup_check → клон/указание GT → `prepare.py` → выбрать `model:` (free → `timeout_s: 900`) → `abench run` → прислать `runs/picocli-putValue/<batch>/` целиком на анализ. Для фикстур рекомендован `git clone -c core.autocrlf=false` — иначе CRLF-чекаут на Windows зашумит reference-дифф.
 
 **Гит-гигиена:** коммитятся скрипты, lock, briefing, шаблон `overlays/impact/.opencode/impact.json.tmpl`, эталонные срезы, REPRODUCE.md, yaml; генерируемое (`original/`, `stripped/`, `overlays/impact/.impact/`, скопированный `impact.ts`, `runs/`) — в `.gitignore`.
 
@@ -152,7 +152,7 @@ timeout_s: 900
 
 ## 10. Обработка ошибок
 
-Скрипты: `set -euo pipefail`, каждая стадия атомарна, падение печатает имя стадии + диагностику «чего не хватает и как получить». Producer: assert на скраб путей; отсутствие Joern/JDK — понятное сообщение со ссылкой на bootstrap. abench: отсутствующий overlay-каталог и нерезолвящиеся `{env:}`/`${}` — ошибки конфигурации до первого рана, не посреди батча.
+Скрипты — Python, fail-fast исключениями: каждая стадия атомарна, падение печатает имя стадии + диагностику «чего не хватает и как получить». Producer: assert на скраб путей; отсутствие Joern/JDK — понятное сообщение со ссылкой на bootstrap. abench: отсутствующий overlay-каталог и нерезолвящиеся `{env:}`/`${}` — ошибки конфигурации до первого рана, не посреди батча.
 
 ## 11. Риски и проверки фазы 4
 
@@ -160,13 +160,14 @@ timeout_s: 900
 2. **JDK:** producer и verify зависят от JVM 17–21; передаём `-Dorg.gradle.java.home` явно, глобальные `~/.gradle/gradle.properties` другой машины не трогаем.
 3. **Полносьютная coverage-матрица** — минуты прогона; это штатно, в `deps`-чеке предупреждаем.
 4. **Модель** выбирается перед прогоном на той машине (free-tier валиден для относительных дельт; платная — сильнее сигнал); смоук-пинг ловит проблемы auth до батча.
+5. **Windows:** (а) Joern native (`joern.bat`) — risk-gate: если дистрибутив не заведётся нативно, документированный фолбэк — WSL для стадий `joern/export/slice` (артефакты — обычные файлы, остальной пайплайн нативный); (б) контейнерный режим = Docker Desktop (WSL2-backend), маунты Windows-путей поддерживаются; (в) CRLF — фикстуры клонируются с `core.autocrlf=false`; (г) субпроцессы без shell, имена бинарей резолвятся `shutil.which` (ловит `.bat`/`.cmd`-шимы opencode и gradle).
 
 ## 12. Порядок имплементации
 
 1. **Ф1 — abench overlay** (config + fixture/runner + guard-строка + `{env:}` в cache_mounts + Dockerfile python3), TDD, отдельный коммит.
-2. **Ф2 — GT producer** (`produce_artifacts` + `get-joern.sh`), в репо Graph-Tipper.
-3. **Ф3 — скрипты бенча** (`setup.sh`, `prepare.sh`, `strip_target.py`, `fixture.lock`, briefing, REPRODUCE.md, финальный yaml).
-4. **Ф4 — end-to-end на этой машине** (кэши тёплые): `prepare.sh` с чистого состояния → 1-реп смоук `augmented-tool` в контейнере → фиксация результатов risk-gate №1.
+2. **Ф2 — GT producer** (`produce_artifacts` + `tools/get_joern.py`), в репо Graph-Tipper.
+3. **Ф3 — скрипты бенча** (`scripts/setup_check.py`, `experiments/picocli-putValue/prepare.py`, `strip_target.py`, `fixture.lock`, briefing, REPRODUCE.md, финальный yaml).
+4. **Ф4 — end-to-end на этой машине** (кэши тёплые): `prepare.py` с чистого состояния → 1-реп смоук `augmented-tool` в контейнере → фиксация результатов risk-gate №1.
 
 ## 13. Будущие расширения
 
