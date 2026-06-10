@@ -50,5 +50,4 @@ def test_build_system_prompt_handles_empty_base():
 
 
 def test_guard_allows_harness_provided_tools():
-    from abench.prompt import GROUNDING_GUARD
     assert "provided by the harness" in GROUNDING_GUARD
