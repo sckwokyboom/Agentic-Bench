@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from abench import libraries
 
 
@@ -24,3 +26,27 @@ def test_load_registry_walks_up_from_start(tmp_path, monkeypatch):
 def test_load_registry_missing_returns_empty(tmp_path, monkeypatch):
     monkeypatch.delenv(libraries.ENV_OVERRIDE, raising=False)
     assert libraries.load_registry(start=tmp_path) == {}
+
+
+def test_resolve_lib_ref(tmp_path, monkeypatch):
+    f = tmp_path / ".abench.local.json"
+    f.write_text(json.dumps({"libraries": {"graph-tipper": "/opt/gt"}}))
+    monkeypatch.setenv(libraries.ENV_OVERRIDE, str(f))
+    out = libraries.resolve_path_refs("{lib:graph-tipper}:/opt/graph-tipper:ro")
+    assert out == "/opt/gt:/opt/graph-tipper:ro"
+
+
+def test_resolve_mixes_lib_and_env(tmp_path, monkeypatch):
+    f = tmp_path / ".abench.local.json"
+    f.write_text(json.dumps({"libraries": {"gt": "/opt/gt"}}))
+    monkeypatch.setenv(libraries.ENV_OVERRIDE, str(f))
+    monkeypatch.setenv("HOME", "/home/me")
+    assert libraries.resolve_path_refs("{lib:gt}:{env:HOME}/.g") == "/opt/gt:/home/me/.g"
+
+
+def test_resolve_missing_lib_raises_with_hint(tmp_path, monkeypatch):
+    monkeypatch.delenv(libraries.ENV_OVERRIDE, raising=False)
+    with pytest.raises(ValueError) as ei:
+        libraries.resolve_path_refs("{lib:graph-tipper}:/x", start=tmp_path)
+    msg = str(ei.value)
+    assert "graph-tipper" in msg and ".abench.local.json" in msg
