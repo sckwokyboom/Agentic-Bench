@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from .config import load_experiment
@@ -51,10 +52,30 @@ def main(argv: list[str] | None = None) -> int:
         from .runner import run_experiment
 
         exp = load_experiment(args.experiment)
+
+        # Surface the quiet startup phases (baseline verify, image build,
+        # workdir prep) that otherwise only reach the UI — one line each, no
+        # per-step agent noise (that already streams via the runner's logger).
+        _seen_phases: set = set()
+
+        def _cli_progress(p: dict) -> None:
+            phase = p.get("phase")
+            if phase not in (
+                "baseline_verify", "building_sandbox_image", "preparing_workdir"
+            ):
+                return
+            key = (phase, p.get("run_idx"))
+            if key in _seen_phases:
+                return
+            _seen_phases.add(key)
+            sys.stderr.write(f"[abench] {p.get('message', phase)}\n")
+            sys.stderr.flush()
+
         root = run_experiment(
             exp,
             lambda e: RealOpenCodeClient(e.opencode, e.timeout_s),
             batch_id=args.batch_id,
+            progress=_cli_progress,
         )
         print(f"batch: {root.name}")
         write_report(root)
