@@ -1,0 +1,12 @@
+Per-machine extra root CAs for the sandbox image (TLS-intercepting proxies).
+
+Drop PEM certificates here as *.crt before building; they are gitignored and
+never committed. Use neutral file names (ca-1.crt, ca-2.crt, ...) if the
+originals carry identifying names. Typical source on a host that already
+trusts the interceptor:
+
+    i=0; find /usr/local/share/ca-certificates -name '*.crt' | while read f; do
+      i=$((i+1)); cp "$f" docker/extra-ca/ca-$i.crt; done
+
+Then rebuild:  python scripts/setup_check.py --container --build-image
+A successful build prints "[extra-ca] registered N extra cert(s)".

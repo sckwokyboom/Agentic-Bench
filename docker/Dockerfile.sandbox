@@ -19,19 +19,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl git unzip ca-certificates maven python3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Optional root CA for TLS-intercepting proxies (corporate/AV MITM): drop the
-# PEM at docker/extra-ca.crt before building (gitignored). The wildcard makes
-# the COPY a no-op when the file is absent. Registered for the system store
-# (curl/git), the JVM keystore (gradle/maven), and Node (opencode).
-COPY docker/extra-ca.crt* /usr/local/share/ca-certificates/
-RUN if [ -s /usr/local/share/ca-certificates/extra-ca.crt ]; then \
-        update-ca-certificates \
-        && keytool -importcert -noprompt -cacerts -storepass changeit \
-             -alias extra-ca -file /usr/local/share/ca-certificates/extra-ca.crt; \
-    else \
-        touch /usr/local/share/ca-certificates/extra-ca.crt; \
-    fi
-ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/extra-ca.crt
+# Optional extra root CAs for TLS-intercepting proxies (corporate/AV MITM):
+# drop PEM files into docker/extra-ca/ before building (the *.crt files are
+# gitignored; use neutral names — the dir ships only a README). Each cert is
+# registered for the system store (curl/git) and the JVM keystore
+# (gradle/maven); Node (opencode) reads the rebuilt system bundle.
+COPY docker/extra-ca/ /usr/local/share/ca-certificates/extra/
+RUN update-ca-certificates && \
+    n=0; for f in /usr/local/share/ca-certificates/extra/*.crt; do \
+        [ -e "$f" ] || continue; n=$((n+1)); \
+        keytool -importcert -noprompt -cacerts -storepass changeit \
+            -alias "extra-ca-$n" -file "$f"; \
+    done; echo "[extra-ca] registered $n extra cert(s)"
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
 # Gradle (projects shipping a ./gradlew wrapper will use their own version).
 ARG GRADLE_VERSION=8.7

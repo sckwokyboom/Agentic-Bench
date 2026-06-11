@@ -145,14 +145,14 @@ Include all files (condition subdirs, `run_manifest.json`, logs).
 - **TLS-intercepting proxy (corporate/AV MITM): docker build and sandbox runs
   fail with `unable to get local issuer certificate`.** Symptom check:
   `curl -sI https://services.gradle.org | head -1` printing
-  `200 Connection established` means your traffic goes through a proxy. Export
-  the proxy's root CA (Windows: `certmgr.msc` → Trusted Root → export as
-  Base64 .cer; or take the top cert from
-  `openssl s_client -connect services.gradle.org:443 -showcerts`), save it as
-  `docker/extra-ca.crt` (gitignored), then rebuild:
-  `python scripts/setup_check.py --container --build-image`. The image wires it
-  into the system store (curl/git), the JVM keystore (gradle/maven), and Node
-  (opencode) automatically.
+  `200 Connection established` means your traffic goes through a proxy. If the
+  host already trusts the interceptor, its CA usually sits in
+  `/usr/local/share/ca-certificates/` — copy every `*.crt` from there into
+  `docker/extra-ca/` under neutral names (`ca-1.crt`, ...; the dir's README has
+  a one-liner) and rebuild: `python scripts/setup_check.py --container
+  --build-image`. The certs are gitignored and registered into the image's
+  system store (curl/git), JVM keystore (gradle/maven), and Node bundle
+  (opencode). A good build prints `[extra-ca] registered N extra cert(s)`.
 
 - **macOS + python.org Python: TLS errors on downloads.** python.org builds ship
   without root certificates, so the joern bootstrap (`tools/get_joern.py`) fails
