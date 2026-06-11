@@ -82,6 +82,34 @@ def discover_opencode_tools(lib_path: str | Path) -> list[str]:
     return sorted(p.stem for p in tools_dir.glob("*.ts"))
 
 
+def registry_path(start: Path | None = None) -> Path:
+    """Where to write the registry: the override, an existing file walking up,
+    or `<cwd>/.abench.local.json` as the create-here default."""
+    override = os.environ.get(ENV_OVERRIDE)
+    if override:
+        return Path(override)
+    found = find_registry_file(start)
+    return found if found is not None else (start or Path.cwd()) / FILENAME
+
+
+def save_library(name: str, path: str, start: Path | None = None) -> Path:
+    """Upsert one {name: path} into the registry, creating the file if needed.
+    Returns the registry file path."""
+    f = registry_path(start)
+    data: dict = {}
+    if f.is_file():
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("libraries", {})
+    data["libraries"][name] = path
+    f.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return f
+
+
 def lib_names_in(value: str) -> list[str]:
     """The {lib:NAME} names referenced in a string (DRY: the one regex lives
     here; the runner pre-flight reuses this instead of duplicating it)."""
