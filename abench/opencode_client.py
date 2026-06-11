@@ -124,6 +124,7 @@ def build_opencode_config(
     cfg: OpenCodeCfg,
     model: str,
     system_prompt: str,
+    agent_tools: dict[str, bool] | None = None,
 ) -> dict:
     """Build the workdir-local ``opencode.json`` payload.
 
@@ -139,11 +140,14 @@ def build_opencode_config(
     ``OpenCodeCfg.small_model`` to use a cheaper helper.
     """
     small = cfg.small_model or model
+    agent_block: dict = {"prompt": system_prompt, "model": model}
+    if agent_tools:
+        agent_block["tools"] = agent_tools
     config: dict = {
         "$schema": "https://opencode.ai/config.json",
         "model": model,
         "small_model": small,
-        "agent": {cfg.agent: {"prompt": system_prompt, "model": model}},
+        "agent": {cfg.agent: agent_block},
     }
     if cfg.providers:
         prov: dict = {}
