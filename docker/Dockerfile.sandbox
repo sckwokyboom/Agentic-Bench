@@ -19,6 +19,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl git unzip ca-certificates maven python3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Optional root CA for TLS-intercepting proxies (corporate/AV MITM): drop the
+# PEM at docker/extra-ca.crt before building (gitignored). The wildcard makes
+# the COPY a no-op when the file is absent. Registered for the system store
+# (curl/git), the JVM keystore (gradle/maven), and Node (opencode).
+COPY docker/extra-ca.crt* /usr/local/share/ca-certificates/
+RUN if [ -s /usr/local/share/ca-certificates/extra-ca.crt ]; then \
+        update-ca-certificates \
+        && keytool -importcert -noprompt -cacerts -storepass changeit \
+             -alias extra-ca -file /usr/local/share/ca-certificates/extra-ca.crt; \
+    else \
+        touch /usr/local/share/ca-certificates/extra-ca.crt; \
+    fi
+ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/extra-ca.crt
+
 # Gradle (projects shipping a ./gradlew wrapper will use their own version).
 ARG GRADLE_VERSION=8.7
 RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip \
