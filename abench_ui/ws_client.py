@@ -19,10 +19,11 @@ class WSPublishingClient:
         system_prompt: str,
         model: str,
         user_message: str,
-        timeout_s: int,
+        timeout_s: int | None,
         agent_tools: "dict[str, bool] | None" = None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
+        debug_sink: Callable[[str], None] | None = None,
         cancel_event=None,
     ) -> RunResult:
         def on_event_relay(event: dict) -> None:
@@ -31,5 +32,6 @@ class WSPublishingClient:
         return self._inner.run_task(
             workdir=workdir, system_prompt=system_prompt, model=model,
             user_message=user_message, timeout_s=timeout_s, agent_tools=agent_tools,
-            on_event=on_event_relay, log_sink=log_sink, cancel_event=cancel_event,
+            on_event=on_event_relay, log_sink=log_sink, debug_sink=debug_sink,
+            cancel_event=cancel_event,
         )
