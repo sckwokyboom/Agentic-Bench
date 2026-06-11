@@ -71,3 +71,18 @@ def resolve_path_refs(value: str, *, start: Path | None = None) -> str:
         return registry[name]
 
     return expand_env_refs(_LIB_REF.sub(sub, value))
+
+
+def discover_opencode_tools(lib_path: str | Path) -> list[str]:
+    """Sorted tool names GT ships at <lib_path>/integrations/opencode/tools/*.ts
+    (the OpenCode tool name is the filename stem). [] if the dir is absent."""
+    tools_dir = Path(lib_path) / "integrations" / "opencode" / "tools"
+    if not tools_dir.is_dir():
+        return []
+    return sorted(p.stem for p in tools_dir.glob("*.ts"))
+
+
+def lib_names_in(value: str) -> list[str]:
+    """The {lib:NAME} names referenced in a string (DRY: the one regex lives
+    here; the runner pre-flight reuses this instead of duplicating it)."""
+    return _LIB_REF.findall(value)

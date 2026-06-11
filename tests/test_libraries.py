@@ -50,3 +50,16 @@ def test_resolve_missing_lib_raises_with_hint(tmp_path, monkeypatch):
         libraries.resolve_path_refs("{lib:graph-tipper}:/x", start=tmp_path)
     msg = str(ei.value)
     assert "graph-tipper" in msg and ".abench.local.json" in msg
+
+
+def test_discover_opencode_tools(tmp_path):
+    tools = tmp_path / "integrations" / "opencode" / "tools"
+    tools.mkdir(parents=True)
+    (tools / "impact.ts").write_text("export default {}")
+    (tools / "crash_slice.ts").write_text("export default {}")
+    (tools / "README.md").write_text("not a tool")
+    assert libraries.discover_opencode_tools(tmp_path) == ["crash_slice", "impact"]
+
+
+def test_discover_opencode_tools_missing_dir(tmp_path):
+    assert libraries.discover_opencode_tools(tmp_path) == []
