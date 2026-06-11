@@ -1,0 +1,14 @@
+# Keep POSIX scripts LF even when cloned by Git-for-Windows with
+# core.autocrlf=true — a CRLF shebang makes the kernel look for the
+# interpreter with a trailing `\r` and the script dies with a confusing
+# "No such file or directory".
+*.sh         text eol=lf
+*.py         text eol=lf
+gradlew      text eol=lf
+# Windows batch wrappers must stay CRLF.
+*.bat        text eol=crlf
+gradlew.bat  text eol=crlf
+# Never touch binaries.
+*.jar        binary
+*.zip        binary
+*.class      binary
