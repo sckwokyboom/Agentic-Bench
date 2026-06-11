@@ -14,7 +14,7 @@ public Cell putValue(int row, int col, Text value)
 **Current body:**
 ```java
             public Cell putValue(int row, int col, Text value) {
-                throw new UnsupportedOperationException("TODO");
+                throw new UnsupportedOperationException("TODO: implement putValue");
             }
 ```
 
@@ -256,6 +256,8 @@ void addRowValues(Text...) {
                 return forDefaultColumns(Help.defaultColorScheme(ansi), longOptionsColumnWidth, usageHelpWidth);
             }
                 public Cell(int column, int row) { this.column = column; this.row = row; }
+picocli.CommandLine$Help$Column[] columns
+int indentWrappedLines
 ```
 
 ## Observed behaviour (baseline runtime examples — NOT an oracle)

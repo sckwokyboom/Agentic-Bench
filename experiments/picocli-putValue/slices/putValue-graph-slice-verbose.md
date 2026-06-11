@@ -1,8 +1,8 @@
 # Graph-Tipper Augmentation
 
-> Generated for: picocli @ 75550581bf63e13f79a330776e9eea3b94f4e5a0379e8cca4a0186d0f148c60e
+> Generated for: original @ 75550581bf63e13f79a330776e9eea3b94f4e5a0379e8cca4a0186d0f148c60e
 > Target: picocli.CommandLine$Help$TextTable.putValue
-> Budget: 9820 / 20000 tokens
+> Budget: 10484 / 20000 tokens
 > Consumers: 1 · Path clusters: 10 (covering 1256/1526 chains, 82%)
 > Direct tests: 2 · Long-tail singletons: 76
 
@@ -18,7 +18,7 @@ public Cell putValue(int row, int col, Text value)
 **Current body:**
 ```java
             public Cell putValue(int row, int col, Text value) {
-                throw new UnsupportedOperationException("TODO");
+                throw new UnsupportedOperationException("TODO: implement putValue");
             }
 ```
 
@@ -661,6 +661,8 @@ picocli.CommandLine$Help$TextTable(picocli.CommandLine$Help$Ansi,int,int)
             }
 void(int,int)
                 public Cell(int column, int row) { this.column = column; this.row = row; }
+picocli.CommandLine$Help$Column[] columns
+int indentWrappedLines
 ```
 
 ## Negative Memory
