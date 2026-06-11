@@ -85,10 +85,17 @@ def s_artifacts(force):
     run([sys.executable, "-m", "harness.impact.produce_artifacts",
          "--project", HERE / "original", "--target-fqn", TARGET_FQN,
          "--slice-target", SLICE_TARGET, "--tests", CAPTURE_TESTS,
-         "--out", out, *(["--force"] if force else [])],
+         # graph context comes from the full tree; the artifact's "Current
+         # body" must show the agent-visible stub — the full body is the answer.
+         "--out", out, "--body-from", HERE / "stripped",
+         *(["--force"] if force else [])],
         cwd=GT, env={"PYTHONPATH": GT})
     for name in ("putValue-graph-slice.md", "putValue-graph-slice-verbose.md"):
         fresh = (out / "slices" / name).read_text(encoding="utf-8")
+        if 'UnsupportedOperationException("TODO' not in fresh:
+            sys.exit(f"[prepare:artifacts] LEAK GUARD: {name} does not show the "
+                     "stub body — refusing to publish a slice that may contain "
+                     "the reference solution")
         committed = HERE / "slices" / name
         committed_text = committed.read_text(encoding="utf-8") if committed.exists() else None
         if committed_text != fresh:
