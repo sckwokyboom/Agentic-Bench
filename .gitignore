@@ -5,6 +5,9 @@ runs/
 .pytest_cache/
 .idea
 
+# Git worktrees for feature work (never tracked).
+.worktrees/
+
 # Heavy experiment artefacts (your project copies; never committed).
 # Tracked-by-git parts of an experiment are: experiment.yaml, prompts/, slices/.
 experiments/*/original/

@@ -1057,7 +1057,18 @@ And the stage list (line ~4): `Stages: deps -> fixtures -> artifacts -> smoke.`
 
 - [ ] **Step 4: gitignore + example registry**
 
-Append to `.gitignore`:
+In `.gitignore`, retarget the two stale overlay lines to the renamed dir AND drop
+the tool-glue ignore (the glue no longer lives in the overlay). Replace:
+```
+experiments/*/overlays/impact/.impact/
+experiments/*/overlays/impact/.opencode/tools/
+```
+with (keep ignoring the regenerated artifacts; the static `.opencode/impact.json`
+is intentionally NOT ignored — it is committed):
+```
+experiments/*/overlays/impact-artifacts/.impact/
+```
+Then append:
 ```
 # machine-local library paths (never commit; per-machine)
 .abench.local.json
