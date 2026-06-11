@@ -7,6 +7,7 @@ Run from an ACTIVATED venv at the repo root:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -48,10 +49,18 @@ def main() -> int:
     check("opencode 1.15.x on PATH", bool(re.search(r"\b1\.15\.", ver)),
           "npm i -g opencode-ai")
     check("git on PATH", shutil.which("git") is not None, "install git")
-    jver = out_of(["java", "-version"])
+    # prepare.py runs the JDK from JAVA_HOME, so check THAT java when set —
+    # not whatever happens to be first on PATH.
+    java_home = os.environ.get("JAVA_HOME")
+    java_bin = str(Path(java_home) / "bin" / "java") if java_home else "java"
+    jver = out_of([java_bin, "-version"])
     m = re.search(r'version "(\d+)', jver)
-    check("JDK 17-21 (java on PATH / JAVA_HOME)", bool(m and 17 <= int(m.group(1)) <= 21),
-          "install Temurin 21 and set JAVA_HOME")
+    src = "JAVA_HOME" if java_home else "PATH"
+    # 21 is the single safe target: the GT CLI is built by a toolchain pinned to
+    # 21 (so it CANNOT run on 17–20), and picocli's gradle 8.14 tops out at 24.
+    check(f"JDK 21–24 ({src} java; 21 recommended)",
+          bool(m and 21 <= int(m.group(1)) <= 24),
+          "install Temurin 21 and point JAVA_HOME at it")
     if a.container:
         docker = shutil.which("docker") or shutil.which("podman")
         check("docker/podman", docker is not None, "install Docker Desktop (WSL2 on Windows)")
