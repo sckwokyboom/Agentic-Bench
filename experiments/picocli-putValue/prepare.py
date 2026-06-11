@@ -1,9 +1,10 @@
 # experiments/picocli-putValue/prepare.py
 """Prepare the picocli-putValue experiment end-to-end on a fresh machine.
 
-Stages: deps -> fixtures -> artifacts -> overlay -> smoke.
+Stages: deps -> fixtures -> artifacts -> smoke.
   python prepare.py [--only STAGE] [--force]
-Needs: activated venv, GRAPH_TIPPER_HOME env, JDK 17-21, opencode 1.15.x.
+Needs: activated venv, Graph-Tipper registered (abench lib add graph-tipper <path>)
+or GRAPH_TIPPER_HOME env, JDK 21+, opencode 1.15.x.
 """
 from __future__ import annotations
 
@@ -20,7 +21,19 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 LOCK = dict(line.split("=", 1) for line in
             (HERE / "fixture.lock").read_text().strip().splitlines())
-GT = os.environ.get("GRAPH_TIPPER_HOME")
+def _resolve_gt():
+    """GT host path: local registry ('graph-tipper') first, then GRAPH_TIPPER_HOME."""
+    try:
+        from abench.libraries import load_registry
+        p = load_registry().get("graph-tipper")
+        if p:
+            return p
+    except Exception:
+        pass
+    return os.environ.get("GRAPH_TIPPER_HOME")
+
+
+GT = _resolve_gt()
 TARGET_FQN = "picocli.CommandLine$Help$TextTable.putValue"
 SLICE_TARGET = "src/main/java/picocli/CommandLine.java#TextTable.putValue(int,int,Text)"
 CAPTURE_TESTS = "picocli.HelpTest,picocli.TextTableTest"
@@ -48,8 +61,8 @@ def run(cmd, cwd=HERE, env=None):
 def s_deps(force):
     missing = []
     if GT is None or not (Path(GT) / "harness" / "impact").is_dir():
-        missing.append("GRAPH_TIPPER_HOME must point at a Graph-Tipper checkout "
-                       "(git clone https://github.com/<you>/Graph-Tipper)")
+        missing.append("Graph-Tipper path not found — set it with "
+                       "`abench lib add graph-tipper <path>` or GRAPH_TIPPER_HOME")
     if shutil.which("opencode") is None:
         missing.append("opencode: npm i -g opencode-ai")
     if shutil.which("git") is None:
@@ -105,24 +118,16 @@ def s_artifacts(force):
                     f"committed/{name}", f"fresh/{name}"))[:2000]
                 print(f"[prepare:artifacts] WARNING: drift vs committed {name}:\n{diff}")
             committed.write_text(fresh, encoding="utf-8")
-    impact_dst = HERE / "overlays" / "impact" / ".impact"
+    impact_dst = HERE / "overlays" / "impact-artifacts" / ".impact"
     _rmtree(impact_dst)
     shutil.copytree(out / "impact", impact_dst)
     universe = impact_dst / "executed_tests.txt"
-    tmpl = json.loads((HERE / "overlays" / "impact" / ".opencode" / "impact.json.tmpl")
-                      .read_text(encoding="utf-8").replace("${GRAPH_TIPPER_HOME}", "/x"))
     n = len(universe.read_text(encoding="utf-8").strip().splitlines())
-    if n != tmpl["total_tests"]:
-        print(f"[prepare:artifacts] WARNING: total_tests in tmpl={tmpl['total_tests']} "
-              f"vs executed universe={n} — update the tmpl")
-
-
-def s_overlay(force):
-    src = Path(GT) / "integrations" / "opencode" / "tools" / "impact.ts"
-    dst = HERE / "overlays" / "impact" / ".opencode" / "tools" / "impact.ts"
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dst)
-    print(f"[prepare:overlay] copied {src.name} from GRAPH_TIPPER_HOME")
+    cfg = json.loads((HERE / "overlays" / "impact-artifacts" / ".opencode" / "impact.json")
+                     .read_text(encoding="utf-8"))
+    if n != cfg["total_tests"]:
+        print(f"[prepare:artifacts] WARNING: total_tests in impact.json={cfg['total_tests']} "
+              f"but executed universe has {n} tests")
 
 
 def s_smoke(force):
@@ -141,7 +146,7 @@ def s_smoke(force):
 
 
 STAGES = [("deps", s_deps), ("fixtures", s_fixtures), ("artifacts", s_artifacts),
-          ("overlay", s_overlay), ("smoke", s_smoke)]
+          ("smoke", s_smoke)]
 
 
 def main():
