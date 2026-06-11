@@ -4,7 +4,9 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import os
 import random
+import re
 import sys
 import threading
 import time
@@ -54,6 +56,69 @@ def _log(msg: str) -> None:
     sys.stderr.flush()
 
 
+_ENV_REF = re.compile(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _required_env_refs(exp: Experiment) -> dict[str, list[str]]:
+    """Map each HOST env var the run needs → the config places that reference it.
+
+    A run resolves ``{env:NAME}`` against the OS environment of the *process
+    running abench* (CLI shell or the uvicorn server) — never the web UI's form
+    fields. Three sources need a host var present before launch:
+      * ``sandbox.cache_mounts`` — host-side bind mounts (container mode only;
+        in ``mode='none'`` they are never used);
+      * ``overlay_env`` values — expanded when rendering overlay ``*.tmpl``;
+      * a provider's ``api_key_env`` — the model key, forwarded into the
+        container by name (``-e NAME``) or read directly on the host.
+
+    Returning every reference (not just the first) lets the caller fail fast
+    with the COMPLETE list instead of dying on one var deep in the first run.
+    """
+    refs: dict[str, list[str]] = {}
+
+    def add(name: str, where: str) -> None:
+        slots = refs.setdefault(name, [])
+        if where not in slots:
+            slots.append(where)
+
+    if exp.opencode.sandbox.mode == "container":
+        for mount in exp.opencode.sandbox.cache_mounts:
+            for name in _ENV_REF.findall(mount):
+                add(name, "sandbox.cache_mounts")
+    for key, value in exp.overlay_env.items():
+        for name in _ENV_REF.findall(value):
+            add(name, f"overlay_env[{key}]")
+    for prov in exp.opencode.providers:
+        if prov.api_key_env:
+            add(prov.api_key_env, f"provider '{prov.id}' api key")
+    return refs
+
+
+def _preflight_env(exp: Experiment) -> None:
+    """Raise a single, oriented error if any required host env var is missing or
+    empty — BEFORE the slow startup (image build, baseline verify) or any run."""
+    refs = _required_env_refs(exp)
+    missing = {n: w for n, w in refs.items() if not os.environ.get(n)}
+    if not missing:
+        return
+    lines = "\n".join(
+        f"  - {name}  (used by {', '.join(where)})"
+        for name, where in sorted(missing.items())
+    )
+    example = " ".join(f"{n}=..." for n in sorted(missing))
+    raise RuntimeError(
+        "Missing required environment variable(s):\n"
+        f"{lines}\n\n"
+        "These are OS environment variables read from the process running "
+        "abench — they must be exported in the shell that launches `abench` or "
+        "`abench-ui`, NOT entered in the web UI (the UI's key button only writes "
+        "opencode's auth.json). For example:\n"
+        f"  {example} abench run <experiment.yaml>\n"
+        "or, when using the UI, export them before starting the server:\n"
+        f"  {example} abench-ui --experiments-dir experiments"
+    )
+
+
 def _dump_resolved(exp: Experiment) -> str:
     def conv(obj):
         if isinstance(obj, Path):
@@ -78,6 +143,12 @@ def run_experiment(
     # otherwise-silent startup window (baseline verify, workdir prep, 429
     # backoff). It is optional so the CLI path is unaffected; default to no-op.
     emit = progress or (lambda _payload: None)
+
+    # Fail fast on a misconfigured environment: resolve every {env:NAME} the run
+    # needs on the host BEFORE the (slow) image build / baseline verify, so a
+    # missing OS env var surfaces as one clear up-front error rather than a
+    # cryptic ValueError minutes into the first run.
+    _preflight_env(exp)
 
     if batch_id is None:
         batch_id = default_batch_id()
