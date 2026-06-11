@@ -135,3 +135,15 @@ def test_preflight_reports_missing_lib(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError) as ei:
         run_experiment(exp, _factory)
     assert "graph-tipper" in str(ei.value)
+
+
+def test_preflight_reports_unregistered_tools_lib(tmp_path, monkeypatch):
+    """tools_lib naming a library absent from the registry must fail fast."""
+    monkeypatch.setenv("ABENCH_LOCAL_CONFIG", str(tmp_path / "none.json"))
+    exp = _exp(tmp_path)
+    exp.opencode.tools_lib = "graph-tipper"  # set but never registered
+    def _factory(_e):
+        raise AssertionError("client built despite unregistered tools_lib")
+    with pytest.raises(RuntimeError) as ei:
+        run_experiment(exp, _factory)
+    assert "graph-tipper" in str(ei.value)

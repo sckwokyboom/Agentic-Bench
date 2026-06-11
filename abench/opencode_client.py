@@ -141,6 +141,8 @@ def build_opencode_config(
     """
     small = cfg.small_model or model
     agent_block: dict = {"prompt": system_prompt, "model": model}
+    # Truthiness (not "is not None") on purpose: an empty map is a no-op for
+    # opencode (no overrides) so we skip writing a useless "tools": {} key.
     if agent_tools:
         agent_block["tools"] = agent_tools
     config: dict = {

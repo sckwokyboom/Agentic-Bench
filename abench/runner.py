@@ -113,6 +113,8 @@ def _required_lib_refs(exp: Experiment) -> dict[str, list[str]]:
     for key, value in exp.overlay_env.items():
         for name in libraries.lib_names_in(value):
             add(name, f"overlay_env[{key}]")
+    if exp.opencode.tools_lib:
+        add(exp.opencode.tools_lib, "opencode.tools_lib")
     return refs
 
 
@@ -161,7 +163,9 @@ def _agent_tools_for(exp: Experiment, cond: Condition) -> dict[str, bool] | None
     registry = libraries.load_registry()
     lib_path = registry.get(exp.opencode.tools_lib)
     if not lib_path:
-        return None  # pre-flight already reported a missing {lib:} path
+        # Unreachable on a configured run: pre-flight requires tools_lib be
+        # registered. Defensive only.
+        return None
     universe = libraries.discover_opencode_tools(lib_path)
     enabled = set(cond.tools)
     gate = {name: (name in enabled) for name in universe}
@@ -337,6 +341,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
         system_prompt_eff = exp.system_prompt
         sha = ""
         result = None
+        agent_tools = _agent_tools_for(exp, cond)
         try:
             for attempt in range(1, exp.rate_limit_retries + 2):
                 emit({
@@ -363,7 +368,6 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     forbid_external_sources=exp.isolation.forbid_external_sources,
                 )
 
-                agent_tools = _agent_tools_for(exp, cond)
                 result = client.run_task(
                     workdir=str(workdir),
                     system_prompt=system_prompt_eff,
