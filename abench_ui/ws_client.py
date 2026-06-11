@@ -20,6 +20,7 @@ class WSPublishingClient:
         model: str,
         user_message: str,
         timeout_s: int,
+        agent_tools: "dict[str, bool] | None" = None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         cancel_event=None,
@@ -29,6 +30,6 @@ class WSPublishingClient:
             on_event(event)
         return self._inner.run_task(
             workdir=workdir, system_prompt=system_prompt, model=model,
-            user_message=user_message, timeout_s=timeout_s, on_event=on_event_relay,
-            log_sink=log_sink, cancel_event=cancel_event,
+            user_message=user_message, timeout_s=timeout_s, agent_tools=agent_tools,
+            on_event=on_event_relay, log_sink=log_sink, cancel_event=cancel_event,
         )

@@ -39,7 +39,7 @@ class _SequenceClient:
         self.calls = 0
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         self.calls += 1
         on_event({"type": "message.start", "attempt": self.calls})
         idx = min(self.calls - 1, len(self._results) - 1)
