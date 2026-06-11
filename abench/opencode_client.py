@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from .config import OpenCodeCfg
-from .envutil import expand_env_refs
+from .libraries import resolve_path_refs
 from .trace_model import Trace
 from .trace_normalize import normalize
 
@@ -255,7 +255,7 @@ def build_run_command(
             seen.add(name)
             argv += ["-e", name]
     for mount in sb.cache_mounts:
-        argv += ["-v", expand_env_refs(mount)]
+        argv += ["-v", resolve_path_refs(mount)]
     argv.append(sb.image)
     argv += inner
     return argv
