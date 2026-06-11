@@ -152,6 +152,22 @@ def _preflight_env(exp: Experiment) -> None:
     raise RuntimeError("\n\n".join(parts))
 
 
+def _agent_tools_for(exp: Experiment, cond: Condition) -> dict[str, bool] | None:
+    """Per-condition OpenCode agent tools map: disable every tool the tools_lib
+    ships that this condition does NOT enable. None when no tools_lib is set."""
+    if not exp.opencode.tools_lib:
+        return None
+    from . import libraries
+    registry = libraries.load_registry()
+    lib_path = registry.get(exp.opencode.tools_lib)
+    if not lib_path:
+        return None  # pre-flight already reported a missing {lib:} path
+    universe = libraries.discover_opencode_tools(lib_path)
+    enabled = set(cond.tools)
+    gate = {name: (name in enabled) for name in universe}
+    return gate or None
+
+
 def _dump_resolved(exp: Experiment) -> str:
     def conv(obj):
         if isinstance(obj, Path):
@@ -347,12 +363,14 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     forbid_external_sources=exp.isolation.forbid_external_sources,
                 )
 
+                agent_tools = _agent_tools_for(exp, cond)
                 result = client.run_task(
                     workdir=str(workdir),
                     system_prompt=system_prompt_eff,
                     model=exp.model,
                     user_message=user_message,
                     timeout_s=exp.timeout_s,
+                    agent_tools=agent_tools,
                     on_event=on_event,
                     log_sink=readable_sink,
                     debug_sink=debug_sink,
