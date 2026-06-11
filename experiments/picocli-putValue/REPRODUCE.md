@@ -166,15 +166,21 @@ Include all files (condition subdirs, `run_manifest.json`, logs).
 ### JDK version
 
 `/usr/bin/java` (PATH default) may point to a newer JDK than the pipeline needs.
-The pipeline requires **JDK 17–21** for picocli's Gradle build; it picks up
-`JAVA_HOME` and `produce_artifacts` also accepts `--java-home`.
+Use **JDK 21** — it is the only version that satisfies the whole chain with a
+single `JAVA_HOME`: the Graph-Tipper CLI is built with a Gradle toolchain
+pinned to 21 (`build.gradle.kts`), while picocli's Gradle 8.14 runs on JDKs up
+to 24 (so the PATH-default 25 is too new, and 17 cannot run the GT CLI).
+`prepare.py` picks up `JAVA_HOME`; `produce_artifacts` also accepts
+`--java-home`.
 
 ```bash
-# macOS — set JAVA_HOME to Temurin 17 (17.0.18 is present on this machine)
-export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+# macOS — set JAVA_HOME to a JDK 21
+export JAVA_HOME=$(/usr/libexec/java_home -v 21)
+# Tip: if Graph-Tipper was ever built on this machine, Gradle has likely
+# auto-provisioned a Temurin 21 under ~/.gradle/jdks/ — usable directly.
 ```
 
-On Windows set `JAVA_HOME` to a JDK 17–21 installation directory before running
+On Windows set `JAVA_HOME` to a JDK 21 installation directory before running
 `prepare.py`.
 
 ### Docker not installed
