@@ -48,4 +48,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && (npm install -g opencode-ai || curl -fsSL https://opencode.ai/install | bash)
 ENV PATH="/root/.opencode/bin:${PATH}"
 
+# Install GT's OpenCode tools at container start from the mounted GT (no-op if
+# GT isn't mounted). Keeps GT the single source of truth — no vendored copy.
+COPY docker/sandbox-entrypoint.sh /usr/local/bin/sandbox-entrypoint.sh
+RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh
+
 WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint.sh"]
