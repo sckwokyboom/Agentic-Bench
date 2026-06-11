@@ -1,0 +1,47 @@
+# Risk-gate 18.3 smoke: ONE container rep of the tool condition only.
+# Validates that opencode inside the docker sandbox discovers the overlay's
+# .opencode/tools/impact.ts, renders impact.json from the tmpl, and the impact
+# tool returns markdown — before committing to the full 4×3 run. Identical to
+# experiment.yaml except: single condition, repetitions 1. Run with the same
+# env the real run needs:
+#   GRAPH_TIPPER_HOME=... HOME=$HOME JAVA_HOME=<jdk21> \
+#     abench run experiments/picocli-putValue/experiment-tool-smoke.yaml
+name: picocli-putValue-tool-smoke
+fixture_path: ./stripped
+reference_path: ./original
+task_prompt: ./prompts/task.md
+system_prompt: ./prompts/system.md
+
+model: opencode/deepseek-v4-flash-free
+
+repetitions: 1
+output_dir: ./runs
+timeout_s: 900
+
+opencode:
+  agent: abench
+  sandbox:
+    mode: container
+    cache_mounts:
+      - "{env:GRAPH_TIPPER_HOME}:/opt/graph-tipper:ro"
+      - "{env:HOME}/.gradle:/root/.gradle:ro"
+
+conditions:
+  - name: augmented-tool
+    augmentation: ./slices/impact-tool-briefing.md
+    overlay: ./overlays/impact
+
+overlay_env:
+  GRAPH_TIPPER_HOME: /opt/graph-tipper
+
+target_file: src/main/java/picocli/CommandLine.java
+target_methods: [putValue]
+
+verify:
+  timeout_s: 900
+
+metrics:
+  test_command_patterns:
+    - "(mvn|mvnw)( |$)"
+    - "(gradle|gradlew)( |$)"
+    - "junit"
