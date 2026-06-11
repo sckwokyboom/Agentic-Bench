@@ -1,0 +1,7 @@
+# The sandbox image COPYes only docker/extra-ca.crt* — keep the build context
+# tiny (the legacy builder re-uploads the whole context on every build).
+*
+!docker
+docker/*
+!docker/extra-ca.crt
+!docker/extra-ca.crt.example
