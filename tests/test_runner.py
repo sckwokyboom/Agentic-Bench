@@ -65,7 +65,7 @@ class _ServiceErrorClient:
     raw events (429 + 503), and writes a line through log_sink."""
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         from abench.opencode_client import _count_service_errors
         from abench.opencode_client import RunResult
         from abench.trace_model import Trace
@@ -139,7 +139,7 @@ class _CancelAfterFirstClient(FakeOpenCodeClient):
         self._calls = 0
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         self._calls += 1
         result = super().run_task(
             workdir=workdir, system_prompt=system_prompt, model=model,
@@ -234,6 +234,7 @@ def test_run_experiment_overlay_rendered_in_workdir(tmp_path, monkeypatch):
 
         def run_task(self, *, workdir: str, system_prompt: str, model: str,
                      user_message: str, timeout_s: int,
+                     agent_tools=None,
                      on_event: Callable[[dict], None],
                      log_sink: Callable[[str], None] | None = None,
                      debug_sink: Callable[[str], None] | None = None,

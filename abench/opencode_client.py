@@ -280,6 +280,7 @@ class OpenCodeClient(Protocol):
         model: str,
         user_message: str,
         timeout_s: int | None,
+        agent_tools: "dict[str, bool] | None" = None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         debug_sink: Callable[[str], None] | None = None,
@@ -326,6 +327,7 @@ class RealOpenCodeClient:
         model: str,
         user_message: str,
         timeout_s: int | None,
+        agent_tools: "dict[str, bool] | None" = None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         debug_sink: Callable[[str], None] | None = None,
@@ -354,7 +356,7 @@ class RealOpenCodeClient:
         # ── Approach A: write workdir-local config ────────────────────────
         workdir_path = Path(workdir)
         config_data = build_opencode_config(
-            self._cfg, model, system_prompt
+            self._cfg, model, system_prompt, agent_tools=agent_tools
         )
         (workdir_path / "opencode.json").write_text(
             json.dumps(config_data, indent=2), encoding="utf-8"
