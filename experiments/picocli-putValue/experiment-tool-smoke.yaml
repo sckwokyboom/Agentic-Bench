@@ -1,10 +1,13 @@
 # Risk-gate 18.3 smoke: ONE container rep of the tool condition only.
 # Validates that opencode inside the docker sandbox discovers the overlay's
 # .opencode/tools/impact.ts, renders impact.json from the tmpl, and the impact
-# tool returns markdown — before committing to the full 4×3 run. Identical to
-# experiment.yaml except: single condition, repetitions 1. Run with the same
-# env the real run needs:
-#   GRAPH_TIPPER_HOME=... HOME=$HOME JAVA_HOME=<jdk21> \
+# tool returns markdown analysis of the agent's diff — before committing to the
+# full 4×3 run. Identical to experiment.yaml except: single condition,
+# repetitions 1.
+#
+# Needs DEEPSEEK_API_KEY in the environment (forwarded into the container
+# automatically). Run:
+#   DEEPSEEK_API_KEY=sk-... GRAPH_TIPPER_HOME=... HOME=$HOME JAVA_HOME=<jdk21> \
 #     abench run experiments/picocli-putValue/experiment-tool-smoke.yaml
 name: picocli-putValue-tool-smoke
 fixture_path: ./stripped
@@ -12,14 +15,24 @@ reference_path: ./original
 task_prompt: ./prompts/task.md
 system_prompt: ./prompts/system.md
 
-model: opencode/deepseek-v4-flash-free
+# Direct DeepSeek API (OpenAI-compatible endpoint, key from DEEPSEEK_API_KEY).
+model: deepseek/deepseek-chat
+
+# No per-run timeout: the agent works as long as it needs (cancel manually if
+# it wedges). Verify keeps a bound — it's the harness's measurement step.
+timeout_s: null
 
 repetitions: 1
 output_dir: ./runs
-timeout_s: 900
 
 opencode:
   agent: abench
+  providers:
+    - id: deepseek
+      name: DeepSeek API
+      base_url: https://api.deepseek.com/v1
+      models: [deepseek-chat, deepseek-reasoner]
+      api_key_env: DEEPSEEK_API_KEY
   sandbox:
     mode: container
     cache_mounts:
@@ -38,7 +51,7 @@ target_file: src/main/java/picocli/CommandLine.java
 target_methods: [putValue]
 
 verify:
-  timeout_s: 900
+  timeout_s: 1800
 
 metrics:
   test_command_patterns:

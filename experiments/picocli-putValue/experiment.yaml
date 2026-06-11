@@ -4,15 +4,24 @@ reference_path: ./original
 task_prompt: ./prompts/task.md
 system_prompt: ./prompts/system.md
 
-# Free default; OpenRouter key on this machine has no credits (checked 2026-06-10).
-model: opencode/deepseek-v4-flash-free
+# Direct DeepSeek API (OpenAI-compatible endpoint, key from DEEPSEEK_API_KEY —
+# forwarded into the sandbox container automatically).
+model: deepseek/deepseek-chat
 
 repetitions: 3
 output_dir: ./runs
-timeout_s: 900
+# No per-run timeout: the agent works as long as it needs (cancel a wedged run
+# manually). Verify below keeps its own bound.
+timeout_s: null
 
 opencode:
   agent: abench
+  providers:
+    - id: deepseek
+      name: DeepSeek API
+      base_url: https://api.deepseek.com/v1
+      models: [deepseek-chat, deepseek-reasoner]
+      api_key_env: DEEPSEEK_API_KEY
   sandbox:
     mode: container
     cache_mounts:
@@ -34,7 +43,7 @@ target_file: src/main/java/picocli/CommandLine.java
 target_methods: [putValue]
 
 verify:
-  timeout_s: 900
+  timeout_s: 1800
 
 metrics:
   test_command_patterns:
