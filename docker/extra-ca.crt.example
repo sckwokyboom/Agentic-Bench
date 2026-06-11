@@ -1,0 +1,7 @@
+This is a placeholder so that `COPY docker/extra-ca.crt*` in Dockerfile.sandbox
+always has at least one match on builders that reject empty wildcards.
+
+To trust a TLS-intercepting (corporate/AV) proxy inside the sandbox image, put
+its root CA in PEM form next to this file as `extra-ca.crt` (gitignored) and
+rebuild:  python scripts/setup_check.py --container --build-image
+See experiments/picocli-putValue/REPRODUCE.md, "Known machine-specific findings".
