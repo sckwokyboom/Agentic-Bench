@@ -25,5 +25,5 @@ abench_ui/static/
 experiments/*/overlays/impact/.impact/
 experiments/*/overlays/impact/.opencode/tools/
 
-# Per-machine corporate/AV root CAs for the sandbox image (never commit).
+# Per-machine extra root CA certs for the sandbox image (never commit).
 docker/extra-ca/*.crt

@@ -1,9 +1,9 @@
-Per-machine extra root CAs for the sandbox image (TLS-intercepting proxies).
+Per-machine extra root CA certificates for the sandbox image.
 
 Drop PEM certificates here as *.crt before building; they are gitignored and
 never committed. Use neutral file names (ca-1.crt, ca-2.crt, ...) if the
 originals carry identifying names. Typical source on a host that already
-trusts the interceptor:
+trusts the CA:
 
     i=0; find /usr/local/share/ca-certificates -name '*.crt' | while read f; do
       i=$((i+1)); cp "$f" docker/extra-ca/ca-$i.crt; done

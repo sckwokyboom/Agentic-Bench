@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl git unzip ca-certificates maven python3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Optional extra root CAs for TLS-intercepting proxies (corporate/AV MITM):
+# Optional extra/custom root CAs (e.g. a private registry or internal mirror):
 # drop PEM files into docker/extra-ca/ before building (the *.crt files are
 # gitignored; use neutral names — the dir ships only a README). Each cert is
 # registered for the system store (curl/git) and the JVM keystore

@@ -142,12 +142,9 @@ Include all files (condition subdirs, `run_manifest.json`, logs).
 
 ## Known machine-specific findings
 
-- **TLS-intercepting proxy (corporate/AV MITM): docker build and sandbox runs
-  fail with `unable to get local issuer certificate`.** Symptom check:
-  `curl -sI https://services.gradle.org | head -1` printing
-  `200 Connection established` means your traffic goes through a proxy. If the
-  host already trusts the interceptor, its CA usually sits in
-  `/usr/local/share/ca-certificates/` — copy every `*.crt` from there into
+- **Custom/self-signed root CA in your network: docker build and sandbox runs
+  fail with `unable to get local issuer certificate`.** If your environment uses
+  a private or internal root CA, drop the relevant `*.crt` files into
   `docker/extra-ca/` under neutral names (`ca-1.crt`, ...; the dir's README has
   a one-liner) and rebuild: `python scripts/setup_check.py --container
   --build-image`. The certs are gitignored and registered into the image's
