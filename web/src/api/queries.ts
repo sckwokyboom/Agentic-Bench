@@ -266,6 +266,17 @@ export function useValidateModel() {
   });
 }
 
+// Real reachability probe (POST /api/validate/reachability): runs a 1-token
+// probe of the configured endpoint INSIDE the experiment's sandbox. Operates on
+// the SAVED experiment (the server loads experiment.yaml by name).
+export function useValidateReachability() {
+  return useMutation({
+    mutationFn: (experiment_name: string) =>
+      apiPostJson<t.ValidateReachabilityResp>(
+        `/api/validate/reachability`, { experiment_name }),
+  });
+}
+
 export const useProviders = () =>
   useQuery({
     queryKey: qk.providers,
