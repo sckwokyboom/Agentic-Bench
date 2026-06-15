@@ -5,10 +5,12 @@ from pathlib import Path
 
 import pytest
 
+from abench import tool_validation
 from abench.config import SandboxCfg
 from abench.tool_validation import (
     ToolValidation,
     _build_probe_workdir,
+    _cleanup_workdir,
     _parse_probe,
     _probe_command,
     validate_tool,
@@ -120,3 +122,81 @@ def test_validate_tool_integration_good_and_broken(tmp_path):
     rb = validate_tool(bad, sandbox=SandboxCfg(mode="none"), agent="abench")
     assert rb.registered is False
     assert rb.errors
+
+
+# --- cleanup robustness (regression for the WSL2 container crash) -------------
+# In container mode opencode runs as root and writes .opencode/node_modules into
+# the bind-mounted host tempdir; a host rmtree then hits EPERM. The original code
+# used `with TemporaryDirectory(...)`, whose __exit__ rmtree CRASHED — discarding
+# the already-computed verdict. These pin the fix: the verdict survives, the
+# root-owned files are reclaimed via a throwaway root container, and cleanup
+# never raises.
+
+def test_validate_tool_returns_verdict_even_if_cleanup_fails(tmp_path, monkeypatch):
+    """Reproduces the crash: the workdir holds files the host user can't remove,
+    so rmtree raises. validate_tool must still RETURN the verdict, not propagate
+    the cleanup error."""
+    tool = tmp_path / "impact.ts"
+    tool.write_text("export default {}\n")
+
+    class _CP:
+        returncode = 0
+        stdout = json.dumps({"tools": {"impact": True}})
+        stderr = ""
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _CP())
+
+    def boom(*a, **k):  # EPERM/EACCES on a root-owned tree, even with ignore_errors
+        raise PermissionError(13, "Permission denied")
+    monkeypatch.setattr(tool_validation.shutil, "rmtree", boom)
+
+    r = validate_tool(tool, sandbox=SandboxCfg(mode="none"), agent="abench")
+    assert r.registered is True  # verdict survived the cleanup failure
+
+
+def test_validate_tool_container_reclaims_root_owned_files(tmp_path, monkeypatch):
+    """Container mode: after the probe, a throwaway root container deletes the
+    (root-owned) mounted contents so they don't leak in /tmp."""
+    tool = tmp_path / "impact.ts"
+    tool.write_text("export default {}\n")
+    calls = []
+
+    def fake_run(cmd, *a, **k):
+        calls.append(cmd)
+
+        class _R:
+            returncode = 0
+            stdout = json.dumps({"tools": {"impact": True}}) if "agent" in cmd else ""
+            stderr = ""
+        return _R()
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    # don't actually touch the real fs in the host-rmtree tail
+    monkeypatch.setattr(tool_validation.shutil, "rmtree", lambda *a, **k: None)
+
+    sb = SandboxCfg(mode="container", image="abench-sandbox:latest",
+                    runtime="docker", workdir_mount="/work")
+    r = validate_tool(tool, sandbox=sb, agent="abench")
+    assert r.registered is True
+    cleanup = [c for c in calls if "find" in c and "-delete" in c]
+    assert cleanup, "expected a root-container cleanup of the mounted workdir"
+    c = cleanup[0]
+    assert c[:3] == ["docker", "run", "--rm"]
+    assert "abench-sandbox:latest" in c and "/work" in c
+
+
+def test_cleanup_workdir_never_raises(tmp_path, monkeypatch):
+    """The cleanup helper must swallow every error (so it can never mask a
+    verdict), in both host and container modes."""
+    def boom(*a, **k):
+        raise PermissionError(13, "nope")
+    monkeypatch.setattr(tool_validation.shutil, "rmtree", boom)
+
+    def explode(*a, **k):
+        raise OSError("docker gone")
+    monkeypatch.setattr(subprocess, "run", explode)
+
+    _cleanup_workdir(SandboxCfg(mode="none"), str(tmp_path))  # no raise
+    _cleanup_workdir(
+        SandboxCfg(mode="container", image="img", runtime="docker",
+                   workdir_mount="/work"),
+        str(tmp_path))  # no raise
