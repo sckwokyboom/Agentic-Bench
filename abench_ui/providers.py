@@ -6,13 +6,11 @@ import os
 import tempfile
 from pathlib import Path
 
-
-def _auth_path() -> Path:
-    return Path.home() / ".local" / "share" / "opencode" / "auth.json"
+from abench.credentials import auth_path
 
 
 def list_providers() -> list[dict]:
-    path = _auth_path()
+    path = auth_path()
     if not path.is_file():
         return []
     try:
@@ -23,7 +21,7 @@ def list_providers() -> list[dict]:
 
 
 def write_credentials(provider: str, api_key: str) -> None:
-    path = _auth_path()
+    path = auth_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     existing: dict = {}
     if path.is_file():
