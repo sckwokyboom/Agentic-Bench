@@ -221,6 +221,19 @@ class OpenCodeCfg(BaseModel):
             "such tool not in the condition's `tools` list. None = no GT tools."
         ),
     )
+    allow_subagents: bool = Field(
+        default=False,
+        title="Allow sub-agent spawning",
+        description=(
+            "Let the agent spawn sub-agents via opencode's built-in `task` tool. "
+            "OFF by default: a sub-agent's individual steps never reach the "
+            "exported trace (so the cheating detector can't audit them) and it "
+            "doesn't inherit this run's grounding guard (so it's unconstrained re: "
+            "network / outside-FS). Disabling keeps every run a single, "
+            "fully-traced, guard-bound agent. Turn on only if delegation is "
+            "deliberately part of what you're measuring."
+        ),
+    )
     sandbox: SandboxCfg = Field(
         default_factory=lambda: SandboxCfg(),
         title="Sandbox",
