@@ -6,7 +6,7 @@ system_prompt: ./prompts/system.md
 
 # Direct DeepSeek API (OpenAI-compatible endpoint, key from DEEPSEEK_API_KEY —
 # forwarded into the sandbox container automatically).
-model: deepseek/deepseek-chat
+model: deepseek/deepseek-v4-flash
 
 repetitions: 3
 output_dir: ./runs
@@ -21,7 +21,7 @@ opencode:
     - id: deepseek
       name: DeepSeek API
       base_url: https://api.deepseek.com/v1
-      models: [deepseek-chat, deepseek-reasoner]
+      models: [deepseek-v4-flash, deepseek-chat, deepseek-reasoner]
       api_key_env: DEEPSEEK_API_KEY
   sandbox:
     mode: container
