@@ -136,7 +136,7 @@ def build_opencode_config(
     ``small_model`` defaults to the run's main ``model`` (so the bench talks to
     the SAME provider that the operator's interactive opencode uses) — NOT to an
     opencode-native model, which would inject a second gateway/domain that a
-    corporate proxy may forbid even when the main model works. Override via
+    restrictive network may forbid even when the main model works. Override via
     ``OpenCodeCfg.small_model`` to use a cheaper helper.
     """
     small = cfg.small_model or model
@@ -302,7 +302,7 @@ class RealOpenCodeClient:
     ``small_model`` to that SAME model (overridable via ``OpenCodeCfg``) so the
     bench uses one provider — the one the operator's interactive opencode
     already reaches — instead of injecting an opencode-native gateway a
-    corporate proxy may forbid.
+    restrictive network may forbid.
 
     Probe evidence (run during Task 13):
         $ mkdir /tmp/oc-probe2

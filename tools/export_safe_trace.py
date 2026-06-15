@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export a REDACTED, share-safe view of an agent run's trace (standalone, stdlib-only).
 
-Built to run on a locked-down / corporate machine and emit a file you can review
+Built to run on a locked-down / restricted machine and emit a file you can review
 and hand off for trace analysis. It carries only what's needed to study the agent
 loop — tool calls, their arguments, the diffs the agent produced, and the agent's
 own text/reasoning — and nothing else.

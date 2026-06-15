@@ -7,7 +7,7 @@ from abench.opencode_client import build_opencode_config
 def test_default_small_model_falls_back_to_main_model():
     """Default small_model must be the run's MAIN model — NOT an opencode-native
     gateway — so the bench uses the same provider the operator's interactive
-    opencode reaches (a corporate proxy may forbid the opencode gateway even
+    opencode reaches (a restrictive network may forbid the opencode gateway even
     when the main model works)."""
     cfg = OpenCodeCfg()
     config = build_opencode_config(cfg, "openrouter/x", "sys")
