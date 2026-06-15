@@ -5,6 +5,7 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import AddLinkIcon from "@mui/icons-material/AddLink";
+import VpnKeyIcon from "@mui/icons-material/VpnKey";
 import { useValidateModel, useModelCatalog } from "../api/queries";
 import type { ValidateModelResp, ModelCatalogEntry } from "../api/types";
 import AddApiKeyDialog from "./AddApiKeyDialog";
@@ -35,6 +36,10 @@ export default function ModelValidationChip({ value, onChange, label = "Model", 
   const mut = useValidateModel();
   const catalog = useModelCatalog();
   const options: ModelCatalogEntry[] = catalog.data ?? [];
+  // Provider parsed straight from the model id (e.g. "deepseek/…" → "deepseek")
+  // so the API-key action is ALWAYS available — not gated behind the advisory
+  // validate status (which is unreliable for custom providers).
+  const modelProvider = (draft.split("/")[0] || "").trim();
 
   useEffect(() => { setDraft(value); }, [value]);
 
@@ -104,6 +109,17 @@ export default function ModelValidationChip({ value, onChange, label = "Model", 
           />
         )}
       />
+      {modelProvider && (
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+          <Button size="small" variant="outlined" startIcon={<VpnKeyIcon />}
+                  onClick={() => setDlgOpen(true)}>
+            Set API key ({modelProvider})
+          </Button>
+          <Typography variant="caption" color="text.secondary">
+            stored in opencode auth.json — auto-used for runs (no export needed)
+          </Typography>
+        </Stack>
+      )}
       {result && (
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           {result.status === "ok" && (
@@ -158,7 +174,7 @@ export default function ModelValidationChip({ value, onChange, label = "Model", 
       )}
       <AddApiKeyDialog
         open={dlgOpen}
-        provider={result?.provider ?? ""}
+        provider={modelProvider || result?.provider || ""}
         onClose={() => setDlgOpen(false)}
         onSaved={() => {
           // Retrigger validation after saving the key.
