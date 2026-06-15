@@ -17,10 +17,11 @@ experiments/*/gt-out/
 # Brainstorming companion artefacts (mockups, UI state — per-session)
 .superpowers/
 
-# Web frontend build artefacts
+# Web frontend build artefacts (sources). The SERVED bundle (abench_ui/static/)
+# is intentionally COMMITTED so the server can run the UI via `git pull` without
+# an npm build behind a corporate proxy.
 web/node_modules
 web/dist
-abench_ui/static/
 
 experiments/*/overlays/impact-artifacts/.impact/
 
