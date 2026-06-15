@@ -101,6 +101,29 @@ def test_run_experiment_fails_fast_on_missing_env(tmp_path, monkeypatch):
     assert "environment variable" in msg.lower()
 
 
+def test_preflight_accepts_authjson_key(tmp_path, monkeypatch):
+    """A provider whose api_key_env is NOT in os.environ but IS in auth.json
+    must pass pre-flight (no false 'missing env var')."""
+    import json as _json
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    authdir = tmp_path / "opencode"
+    authdir.mkdir(parents=True)
+    (authdir / "auth.json").write_text(
+        _json.dumps({"deepseek": {"type": "api", "key": "sk-x"}}))
+    exp = _exp(
+        tmp_path,
+        providers=[ProviderCfg(id="deepseek",
+                               base_url="https://api.deepseek.com/v1",
+                               models=["deepseek-chat"],
+                               api_key_env="DEEPSEEK_API_KEY")],
+    )
+    exp.verify.enabled = False
+    from tests.fakes import FakeOpenCodeClient
+    root = run_experiment(exp, lambda e: FakeOpenCodeClient())  # must NOT raise
+    assert (root / "baseline" / "rep_0" / "trace.json").exists()
+
+
 def test_run_experiment_proceeds_when_env_present(tmp_path, monkeypatch):
     """With the referenced var set, the pre-flight passes and the run executes."""
     from tests.fakes import FakeOpenCodeClient

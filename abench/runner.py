@@ -126,6 +126,15 @@ def _preflight_env(exp: Experiment) -> None:
     refs = _required_env_refs(exp)
     missing_env = {n: w for n, w in refs.items() if not os.environ.get(n)}
 
+    # A provider key in opencode auth.json satisfies its api_key_env even when
+    # the OS env var is unset (the runner forwards it from auth.json into the
+    # run/probe subprocess env).
+    from . import credentials
+    for prov in exp.opencode.providers:
+        if (prov.api_key_env and prov.api_key_env in missing_env
+                and credentials.has_credential(prov.id)):
+            del missing_env[prov.api_key_env]
+
     lib_refs = _required_lib_refs(exp)
     registry = libraries.load_registry()
     missing_lib = {n: w for n, w in lib_refs.items() if n not in registry}
