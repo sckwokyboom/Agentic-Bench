@@ -47,6 +47,12 @@ def main(argv: list[str] | None = None) -> int:
     lib_add.add_argument("path")
     lib_sub.add_parser("list", help="list registered library paths")
 
+    vt_p = sub.add_parser(
+        "validate-tool",
+        help="check that an OpenCode custom tool loads in the experiment's sandbox")
+    vt_p.add_argument("experiment", help="path to experiment YAML")
+    vt_p.add_argument("tool", help="path to the tool .ts file")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "report":
@@ -120,6 +126,20 @@ def main(argv: list[str] | None = None) -> int:
             for name, path in sorted(reg.items()):
                 print(f"{name}\t{path}")
             return 0
+        return 1
+
+    if args.cmd == "validate-tool":
+        from . import tool_validation
+        exp = load_experiment(args.experiment)  # module-level import
+        r = tool_validation.validate_tool(
+            Path(args.tool), sandbox=exp.opencode.sandbox,
+            agent=exp.opencode.agent, model=exp.model)
+        if r.registered:
+            print(f"✓ {r.tool_name} registered")
+            return 0
+        print(f"✗ {r.tool_name} NOT registered (exit {r.exit_code})")
+        for e in r.errors:
+            print(f"  - {e}")
         return 1
 
     if args.cmd == "recompute":
