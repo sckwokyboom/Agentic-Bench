@@ -61,25 +61,29 @@ Errors print what is missing and how to get it.
 
 ---
 
-## 5. Set GRAPH_TIPPER_HOME
+## 5. Register Graph-Tipper (no env var needed)
 
-Point to the Graph-Tipper clone from step 1.
+Tell abench where the Graph-Tipper clone from step 1 lives. This writes a
+machine-local, gitignored `.abench.local.json` — no OS env var to export, no
+editing the committed experiment:
 
 ```bash
-# macOS / Linux — add to shell rc or export per-session
-export GRAPH_TIPPER_HOME=/absolute/path/to/Graph-Tipper
+# macOS / Linux — from the Agentic-Bench repo root, venv active
+abench lib add graph-tipper /absolute/path/to/Graph-Tipper
+abench lib list            # confirm it's registered
 ```
 
 ```powershell
 # Windows PowerShell
-$env:GRAPH_TIPPER_HOME = "C:\absolute\path\to\Graph-Tipper"
-# Also needed so {env:HOME}/.gradle cache-mount resolves:
-$env:HOME = $env:USERPROFILE          # PowerShell
-# (cmd.exe equivalent: set HOME=%USERPROFILE%)
+abench lib add graph-tipper "C:\absolute\path\to\Graph-Tipper"
+# Still needed so the {env:HOME}/.gradle cache-mount resolves:
+$env:HOME = $env:USERPROFILE          # (cmd.exe: set HOME=%USERPROFILE%)
 ```
 
-The `cache_mounts` in `experiment.yaml` reference `{env:GRAPH_TIPPER_HOME}` and
-`{env:HOME}` — both must be set before running the experiment.
+The `cache_mounts` in `experiment.yaml` reference `{lib:graph-tipper}` (resolved
+from the registry above) and `{env:HOME}`. `GRAPH_TIPPER_HOME` still works as a
+fallback if you prefer an env var. A missing registry entry fails fast at startup
+with the exact `abench lib add …` command to run.
 
 ---
 
@@ -93,11 +97,14 @@ python prepare.py
 Stages (idempotent; re-run with `--force` to regenerate):
 - `deps` — dependency check; prints what is missing
 - `fixtures` — clones picocli @ `fixture.lock` sha, strips `putValue` body
-- `artifacts` — calls GT producer; places slices + tool data under `overlays/`
-- `overlay` — copies `impact.ts` from `$GRAPH_TIPPER_HOME/integrations/opencode/tools/`
+- `artifacts` — calls GT producer; places slices + impact data under `overlays/impact-artifacts/`
 - `smoke` — validates config, pings model, checks sandbox image
 
 Run a single stage: `python prepare.py --only artifacts`
+
+The `impact` OpenCode tool itself is no longer copied per-experiment: the sandbox
+image installs Graph-Tipper's `integrations/opencode/tools/*.ts` at container start
+(from the mounted GT), and abench enables it only for the tool condition.
 
 ---
 
@@ -117,7 +124,7 @@ confirm your API key is set and smoke passes (`python prepare.py --only smoke`).
 
 ## 8. Run the experiment
 
-From the repo root (venv active, `GRAPH_TIPPER_HOME` set):
+From the repo root (venv active, `graph-tipper` registered — step 5):
 
 ```bash
 abench run experiments/picocli-putValue/experiment.yaml

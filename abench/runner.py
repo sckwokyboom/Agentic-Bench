@@ -94,29 +94,82 @@ def _required_env_refs(exp: Experiment) -> dict[str, list[str]]:
     return refs
 
 
+def _required_lib_refs(exp: Experiment) -> dict[str, list[str]]:
+    """{lib:NAME} references the run needs resolved from the local registry.
+    Mirrors _required_env_refs but for library paths (cache_mounts, overlay_env)."""
+    from . import libraries
+
+    refs: dict[str, list[str]] = {}
+
+    def add(name: str, where: str) -> None:
+        slots = refs.setdefault(name, [])
+        if where not in slots:
+            slots.append(where)
+
+    if exp.opencode.sandbox.mode == "container":
+        for mount in exp.opencode.sandbox.cache_mounts:
+            for name in libraries.lib_names_in(mount):
+                add(name, "sandbox.cache_mounts")
+    for key, value in exp.overlay_env.items():
+        for name in libraries.lib_names_in(value):
+            add(name, f"overlay_env[{key}]")
+    if exp.opencode.tools_lib:
+        add(exp.opencode.tools_lib, "opencode.tools_lib")
+    return refs
+
+
 def _preflight_env(exp: Experiment) -> None:
-    """Raise a single, oriented error if any required host env var is missing or
-    empty — BEFORE the slow startup (image build, baseline verify) or any run."""
+    """Raise a single, oriented error if any required host env var OR local
+    library path is missing — BEFORE the slow startup or any run."""
+    from . import libraries
+
     refs = _required_env_refs(exp)
-    missing = {n: w for n, w in refs.items() if not os.environ.get(n)}
-    if not missing:
+    missing_env = {n: w for n, w in refs.items() if not os.environ.get(n)}
+
+    lib_refs = _required_lib_refs(exp)
+    registry = libraries.load_registry()
+    missing_lib = {n: w for n, w in lib_refs.items() if n not in registry}
+
+    if not missing_env and not missing_lib:
         return
-    lines = "\n".join(
-        f"  - {name}  (used by {', '.join(where)})"
-        for name, where in sorted(missing.items())
-    )
-    example = " ".join(f"{n}=..." for n in sorted(missing))
-    raise RuntimeError(
-        "Missing required environment variable(s):\n"
-        f"{lines}\n\n"
-        "These are OS environment variables read from the process running "
-        "abench — they must be exported in the shell that launches `abench` or "
-        "`abench-ui`, NOT entered in the web UI (the UI's key button only writes "
-        "opencode's auth.json). For example:\n"
-        f"  {example} abench run <experiment.yaml>\n"
-        "or, when using the UI, export them before starting the server:\n"
-        f"  {example} abench-ui --experiments-dir experiments"
-    )
+
+    parts: list[str] = []
+    if missing_env:
+        lines = "\n".join(
+            f"  - {n}  (used by {', '.join(w)})" for n, w in sorted(missing_env.items()))
+        example = " ".join(f"{n}=..." for n in sorted(missing_env))
+        parts.append(
+            "Missing required environment variable(s):\n" + lines + "\n\n"
+            "These are OS environment variables read from the process running "
+            "abench — export them in the shell that launches `abench`/`abench-ui` "
+            "(NOT the web UI). Example:\n"
+            f"  {example} abench run <experiment.yaml>")
+    if missing_lib:
+        lines = "\n".join(
+            f"  - {n}  (used by {', '.join(w)})" for n, w in sorted(missing_lib.items()))
+        adds = "\n".join(f"  abench lib add {n} <path>" for n in sorted(missing_lib))
+        parts.append(
+            "Missing local library path(s) in the registry "
+            f"({libraries.FILENAME}):\n" + lines + "\n\nRegister them once:\n" + adds)
+    raise RuntimeError("\n\n".join(parts))
+
+
+def _agent_tools_for(exp: Experiment, cond: Condition) -> dict[str, bool] | None:
+    """Per-condition OpenCode agent tools map: disable every tool the tools_lib
+    ships that this condition does NOT enable. None when no tools_lib is set."""
+    if not exp.opencode.tools_lib:
+        return None
+    from . import libraries
+    registry = libraries.load_registry()
+    lib_path = registry.get(exp.opencode.tools_lib)
+    if not lib_path:
+        # Unreachable on a configured run: pre-flight requires tools_lib be
+        # registered. Defensive only.
+        return None
+    universe = libraries.discover_opencode_tools(lib_path)
+    enabled = set(cond.tools)
+    gate = {name: (name in enabled) for name in universe}
+    return gate or None
 
 
 def _dump_resolved(exp: Experiment) -> str:
@@ -288,6 +341,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
         system_prompt_eff = exp.system_prompt
         sha = ""
         result = None
+        agent_tools = _agent_tools_for(exp, cond)
         try:
             for attempt in range(1, exp.rate_limit_retries + 2):
                 emit({
@@ -320,6 +374,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     model=exp.model,
                     user_message=user_message,
                     timeout_s=exp.timeout_s,
+                    agent_tools=agent_tools,
                     on_event=on_event,
                     log_sink=readable_sink,
                     debug_sink=debug_sink,

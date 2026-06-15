@@ -1,13 +1,12 @@
 # Risk-gate 18.3 smoke: ONE container rep of the tool condition only.
-# Validates that opencode inside the docker sandbox discovers the overlay's
-# .opencode/tools/impact.ts, renders impact.json from the tmpl, and the impact
-# tool returns markdown analysis of the agent's diff — before committing to the
-# full 4×3 run. Identical to experiment.yaml except: single condition,
-# repetitions 1.
+# Validates that opencode inside the docker sandbox discovers the installed
+# impact tool, reads the static overlay impact.json, and the impact tool returns
+# markdown analysis of the agent's diff — before committing to the full 4×3
+# run. Identical to experiment.yaml except: single condition, repetitions 1.
 #
 # Needs DEEPSEEK_API_KEY in the environment (forwarded into the container
 # automatically). Run:
-#   DEEPSEEK_API_KEY=sk-... GRAPH_TIPPER_HOME=... HOME=$HOME JAVA_HOME=<jdk21> \
+#   DEEPSEEK_API_KEY=sk-... HOME=$HOME JAVA_HOME=<jdk21> \
 #     abench run experiments/picocli-putValue/experiment-tool-smoke.yaml
 name: picocli-putValue-tool-smoke
 fixture_path: ./stripped
@@ -27,6 +26,7 @@ output_dir: ./runs
 
 opencode:
   agent: abench
+  tools_lib: graph-tipper
   providers:
     - id: deepseek
       name: DeepSeek API
@@ -36,16 +36,14 @@ opencode:
   sandbox:
     mode: container
     cache_mounts:
-      - "{env:GRAPH_TIPPER_HOME}:/opt/graph-tipper:ro"
+      - "{lib:graph-tipper}:/opt/graph-tipper:ro"
       - "{env:HOME}/.gradle:/root/.gradle:ro"
 
 conditions:
   - name: augmented-tool
     augmentation: ./slices/impact-tool-briefing.md
-    overlay: ./overlays/impact
-
-overlay_env:
-  GRAPH_TIPPER_HOME: /opt/graph-tipper
+    overlay: ./overlays/impact-artifacts
+    tools: [impact]
 
 target_file: src/main/java/picocli/CommandLine.java
 target_methods: [putValue]

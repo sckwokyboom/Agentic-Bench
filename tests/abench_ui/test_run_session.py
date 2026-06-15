@@ -114,7 +114,7 @@ class _BlockUntilCancelClient:
         self._started = started
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         self._started.set()
         while not (cancel_event is not None and cancel_event.is_set()):
             time.sleep(0.01)
@@ -173,7 +173,7 @@ class _ValidityClient:
     validity fields."""
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         from pathlib import Path as _Path
 
         from abench.opencode_client import RunResult

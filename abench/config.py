@@ -42,6 +42,16 @@ class Condition(BaseModel):
             "rendered with overlay_env and written without the suffix."
         ),
     )
+    tools: list[str] = Field(
+        default_factory=list,
+        title="Enabled tools",
+        description=(
+            "OpenCode tool names this condition enables (e.g. ['impact']). Tools "
+            "shipped by opencode.tools_lib that are NOT listed are disabled for "
+            "this condition's agent — so baseline (tools: []) never sees them, "
+            "preserving the A/B contrast."
+        ),
+    )
 
 
 class ProviderCfg(BaseModel):
@@ -200,6 +210,15 @@ class OpenCodeCfg(BaseModel):
         description=(
             "Register OpenAI-compatible / custom endpoints so you can use "
             "'<id>/<model>' in Model."
+        ),
+    )
+    tools_lib: str | None = Field(
+        default=None,
+        title="Tools library",
+        description=(
+            "Registry library name whose integrations/opencode/tools/*.ts define "
+            "the gateable tool universe. The runner disables, per condition, every "
+            "such tool not in the condition's `tools` list. None = no GT tools."
         ),
     )
     sandbox: SandboxCfg = Field(

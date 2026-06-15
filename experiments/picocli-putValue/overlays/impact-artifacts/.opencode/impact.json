@@ -1,5 +1,5 @@
 {
-  "harness_path": "${GRAPH_TIPPER_HOME}",
+  "harness_path": "/opt/graph-tipper",
   "methods": "../.impact/methods.json",
   "coverage": "../.impact/coverage.json",
   "mutation": "../.impact/mutation.json",

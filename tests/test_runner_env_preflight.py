@@ -118,3 +118,32 @@ def test_run_experiment_proceeds_when_env_present(tmp_path, monkeypatch):
     exp.verify.enabled = False  # keep the test hermetic (no gradle/pytest)
     root = run_experiment(exp, lambda e: FakeOpenCodeClient())
     assert (root / "baseline" / "rep_0" / "trace.json").exists()
+
+
+def test_preflight_reports_missing_lib(tmp_path, monkeypatch):
+    monkeypatch.setenv("ABENCH_LOCAL_CONFIG", str(tmp_path / "nope.json"))
+    exp = _exp(
+        tmp_path,
+        sandbox=SandboxCfg(
+            mode="container",
+            cache_mounts=["{lib:graph-tipper}:/opt/graph-tipper:ro"]),
+    )
+
+    def _factory(_e):
+        raise AssertionError("client built despite missing library path")
+
+    with pytest.raises(RuntimeError) as ei:
+        run_experiment(exp, _factory)
+    assert "graph-tipper" in str(ei.value)
+
+
+def test_preflight_reports_unregistered_tools_lib(tmp_path, monkeypatch):
+    """tools_lib naming a library absent from the registry must fail fast."""
+    monkeypatch.setenv("ABENCH_LOCAL_CONFIG", str(tmp_path / "none.json"))
+    exp = _exp(tmp_path)
+    exp.opencode.tools_lib = "graph-tipper"  # set but never registered
+    def _factory(_e):
+        raise AssertionError("client built despite unregistered tools_lib")
+    with pytest.raises(RuntimeError) as ei:
+        run_experiment(exp, _factory)
+    assert "graph-tipper" in str(ei.value)

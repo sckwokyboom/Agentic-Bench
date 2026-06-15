@@ -65,7 +65,7 @@ class _ServiceErrorClient:
     raw events (429 + 503), and writes a line through log_sink."""
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         from abench.opencode_client import _count_service_errors
         from abench.opencode_client import RunResult
         from abench.trace_model import Trace
@@ -139,7 +139,7 @@ class _CancelAfterFirstClient(FakeOpenCodeClient):
         self._calls = 0
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
         self._calls += 1
         result = super().run_task(
             workdir=workdir, system_prompt=system_prompt, model=model,
@@ -234,6 +234,7 @@ def test_run_experiment_overlay_rendered_in_workdir(tmp_path, monkeypatch):
 
         def run_task(self, *, workdir: str, system_prompt: str, model: str,
                      user_message: str, timeout_s: int,
+                     agent_tools=None,
                      on_event: Callable[[dict], None],
                      log_sink: Callable[[str], None] | None = None,
                      debug_sink: Callable[[str], None] | None = None,
@@ -265,3 +266,50 @@ def test_run_experiment_overlay_rendered_in_workdir(tmp_path, monkeypatch):
 
     assert captured.get("exists"), "rendered overlay file must exist in workdir"
     assert captured["content"] == "endpoint=http://localhost:9999\n"
+
+
+# add to tests/test_runner.py
+def test_baseline_disables_gated_tools(tmp_path, monkeypatch):
+    """With tools_lib set, baseline (tools=[]) disables every GT tool; the
+    captured agent_tools map proves the gate."""
+    import json
+    from abench.config import (Condition, Experiment, MetricsCfg,
+                               OpenCodeCfg, SandboxCfg)
+    from abench.opencode_client import RunResult
+    from abench.trace_model import Trace
+
+    # Fake GT checkout shipping two tools.
+    gt = tmp_path / "gt"
+    (gt / "integrations" / "opencode" / "tools").mkdir(parents=True)
+    for t in ("impact", "crash_slice"):
+        (gt / "integrations" / "opencode" / "tools" / f"{t}.ts").write_text("x")
+    reg = tmp_path / ".abench.local.json"
+    reg.write_text(json.dumps({"libraries": {"graph-tipper": str(gt)}}))
+    monkeypatch.setenv("ABENCH_LOCAL_CONFIG", str(reg))
+
+    fixture = tmp_path / "fix"; fixture.mkdir(); (fixture / "a.py").write_text("x=1\n")
+    reference = tmp_path / "ref"; reference.mkdir()
+
+    captured = {}
+
+    class _CaptureTools:
+        def run_task(self, *, workdir, system_prompt, model, user_message,
+                     timeout_s, agent_tools=None, on_event, log_sink=None,
+                     debug_sink=None, cancel_event=None):
+            captured["tools"] = agent_tools
+            on_event({"type": "message.start"})
+            return RunResult(trace=Trace(started_at=0.0, ended_at=1.0, finished=True),
+                             raw_session=None)
+
+    exp = Experiment(
+        name="gate", fixture_path=fixture, reference_path=reference,
+        task_prompt="t", system_prompt="s", model="m",
+        output_dir=tmp_path / "runs", repetitions=1,
+        conditions=[Condition(name="baseline", tools=[])],
+        opencode=OpenCodeCfg(tools_lib="graph-tipper",
+                             sandbox=SandboxCfg(mode="none")),
+        metrics=MetricsCfg())
+    exp.isolation.shuffle_order = False
+    exp.verify.enabled = False
+    run_experiment(exp, lambda e: _CaptureTools())
+    assert captured["tools"] == {"crash_slice": False, "impact": False}

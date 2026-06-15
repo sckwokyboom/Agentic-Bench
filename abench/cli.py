@@ -40,6 +40,13 @@ def main(argv: list[str] | None = None) -> int:
         "--batch", default=None,
         help="batch dir name (default: newest batch / legacy layout)")
 
+    lib_p = sub.add_parser("lib", help="manage the local library path registry")
+    lib_sub = lib_p.add_subparsers(dest="lib_cmd", required=True)
+    lib_add = lib_sub.add_parser("add", help="register/update a library path")
+    lib_add.add_argument("name")
+    lib_add.add_argument("path")
+    lib_sub.add_parser("list", help="list registered library paths")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "report":
@@ -99,6 +106,21 @@ def main(argv: list[str] | None = None) -> int:
                 counts = ""
             print(f"{cond}/rep_{rep} → {v.status}/{v.reason}{counts}")
         return 0
+
+    if args.cmd == "lib":
+        from . import libraries
+        if args.lib_cmd == "add":
+            f = libraries.save_library(args.name, args.path)
+            print(f"registered {args.name} -> {args.path} in {f}")
+            return 0
+        if args.lib_cmd == "list":
+            reg = libraries.load_registry()
+            if not reg:
+                print("(no libraries registered)")
+            for name, path in sorted(reg.items()):
+                print(f"{name}\t{path}")
+            return 0
+        return 1
 
     if args.cmd == "recompute":
         from .metrics import MetricsConfig

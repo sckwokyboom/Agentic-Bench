@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from .config import OpenCodeCfg
-from .envutil import expand_env_refs
+from .libraries import resolve_path_refs
 from .trace_model import Trace
 from .trace_normalize import normalize
 
@@ -124,6 +124,7 @@ def build_opencode_config(
     cfg: OpenCodeCfg,
     model: str,
     system_prompt: str,
+    agent_tools: dict[str, bool] | None = None,
 ) -> dict:
     """Build the workdir-local ``opencode.json`` payload.
 
@@ -139,11 +140,16 @@ def build_opencode_config(
     ``OpenCodeCfg.small_model`` to use a cheaper helper.
     """
     small = cfg.small_model or model
+    agent_block: dict = {"prompt": system_prompt, "model": model}
+    # Truthiness (not "is not None") on purpose: an empty map is a no-op for
+    # opencode (no overrides) so we skip writing a useless "tools": {} key.
+    if agent_tools:
+        agent_block["tools"] = agent_tools
     config: dict = {
         "$schema": "https://opencode.ai/config.json",
         "model": model,
         "small_model": small,
-        "agent": {cfg.agent: {"prompt": system_prompt, "model": model}},
+        "agent": {cfg.agent: agent_block},
     }
     if cfg.providers:
         prov: dict = {}
@@ -255,7 +261,7 @@ def build_run_command(
             seen.add(name)
             argv += ["-e", name]
     for mount in sb.cache_mounts:
-        argv += ["-v", expand_env_refs(mount)]
+        argv += ["-v", resolve_path_refs(mount)]
     argv.append(sb.image)
     argv += inner
     return argv
@@ -276,6 +282,7 @@ class OpenCodeClient(Protocol):
         model: str,
         user_message: str,
         timeout_s: int | None,
+        agent_tools: "dict[str, bool] | None" = None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         debug_sink: Callable[[str], None] | None = None,
@@ -322,6 +329,7 @@ class RealOpenCodeClient:
         model: str,
         user_message: str,
         timeout_s: int | None,
+        agent_tools: "dict[str, bool] | None" = None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         debug_sink: Callable[[str], None] | None = None,
@@ -350,7 +358,7 @@ class RealOpenCodeClient:
         # ── Approach A: write workdir-local config ────────────────────────
         workdir_path = Path(workdir)
         config_data = build_opencode_config(
-            self._cfg, model, system_prompt
+            self._cfg, model, system_prompt, agent_tools=agent_tools
         )
         (workdir_path / "opencode.json").write_text(
             json.dumps(config_data, indent=2), encoding="utf-8"

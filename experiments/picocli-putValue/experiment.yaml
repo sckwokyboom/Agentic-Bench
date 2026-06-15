@@ -16,6 +16,7 @@ timeout_s: null
 
 opencode:
   agent: abench
+  tools_lib: graph-tipper
   providers:
     - id: deepseek
       name: DeepSeek API
@@ -25,19 +26,17 @@ opencode:
   sandbox:
     mode: container
     cache_mounts:
-      - "{env:GRAPH_TIPPER_HOME}:/opt/graph-tipper:ro"
+      - "{lib:graph-tipper}:/opt/graph-tipper:ro"
       - "{env:HOME}/.gradle:/root/.gradle:ro"
 
 conditions:
-  - {name: baseline,          augmentation: null}
-  - {name: augmented,         augmentation: ./slices/putValue-graph-slice.md}
-  - {name: augmented-verbose, augmentation: ./slices/putValue-graph-slice-verbose.md}
+  - {name: baseline,          augmentation: null, tools: []}
+  - {name: augmented,         augmentation: ./slices/putValue-graph-slice.md, tools: []}
+  - {name: augmented-verbose, augmentation: ./slices/putValue-graph-slice-verbose.md, tools: []}
   - name: augmented-tool
     augmentation: ./slices/impact-tool-briefing.md
-    overlay: ./overlays/impact
-
-overlay_env:
-  GRAPH_TIPPER_HOME: /opt/graph-tipper
+    overlay: ./overlays/impact-artifacts
+    tools: [impact]
 
 target_file: src/main/java/picocli/CommandLine.java
 target_methods: [putValue]

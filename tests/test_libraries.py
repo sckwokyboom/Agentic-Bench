@@ -1,0 +1,65 @@
+# tests/test_libraries.py
+import json
+from pathlib import Path
+
+import pytest
+
+from abench import libraries
+
+
+def test_load_registry_from_explicit_file(tmp_path, monkeypatch):
+    f = tmp_path / ".abench.local.json"
+    f.write_text(json.dumps({"libraries": {"graph-tipper": "/opt/gt"}}))
+    monkeypatch.setenv(libraries.ENV_OVERRIDE, str(f))
+    assert libraries.load_registry() == {"graph-tipper": "/opt/gt"}
+
+
+def test_load_registry_walks_up_from_start(tmp_path, monkeypatch):
+    monkeypatch.delenv(libraries.ENV_OVERRIDE, raising=False)
+    (tmp_path / ".abench.local.json").write_text(
+        json.dumps({"libraries": {"x": "/p"}}))
+    deep = tmp_path / "a" / "b"
+    deep.mkdir(parents=True)
+    assert libraries.load_registry(start=deep) == {"x": "/p"}
+
+
+def test_load_registry_missing_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.delenv(libraries.ENV_OVERRIDE, raising=False)
+    assert libraries.load_registry(start=tmp_path) == {}
+
+
+def test_resolve_lib_ref(tmp_path, monkeypatch):
+    f = tmp_path / ".abench.local.json"
+    f.write_text(json.dumps({"libraries": {"graph-tipper": "/opt/gt"}}))
+    monkeypatch.setenv(libraries.ENV_OVERRIDE, str(f))
+    out = libraries.resolve_path_refs("{lib:graph-tipper}:/opt/graph-tipper:ro")
+    assert out == "/opt/gt:/opt/graph-tipper:ro"
+
+
+def test_resolve_mixes_lib_and_env(tmp_path, monkeypatch):
+    f = tmp_path / ".abench.local.json"
+    f.write_text(json.dumps({"libraries": {"gt": "/opt/gt"}}))
+    monkeypatch.setenv(libraries.ENV_OVERRIDE, str(f))
+    monkeypatch.setenv("HOME", "/home/me")
+    assert libraries.resolve_path_refs("{lib:gt}:{env:HOME}/.g") == "/opt/gt:/home/me/.g"
+
+
+def test_resolve_missing_lib_raises_with_hint(tmp_path, monkeypatch):
+    monkeypatch.delenv(libraries.ENV_OVERRIDE, raising=False)
+    with pytest.raises(ValueError) as ei:
+        libraries.resolve_path_refs("{lib:graph-tipper}:/x", start=tmp_path)
+    msg = str(ei.value)
+    assert "graph-tipper" in msg and ".abench.local.json" in msg
+
+
+def test_discover_opencode_tools(tmp_path):
+    tools = tmp_path / "integrations" / "opencode" / "tools"
+    tools.mkdir(parents=True)
+    (tools / "impact.ts").write_text("export default {}")
+    (tools / "crash_slice.ts").write_text("export default {}")
+    (tools / "README.md").write_text("not a tool")
+    assert libraries.discover_opencode_tools(tmp_path) == ["crash_slice", "impact"]
+
+
+def test_discover_opencode_tools_missing_dir(tmp_path):
+    assert libraries.discover_opencode_tools(tmp_path) == []
