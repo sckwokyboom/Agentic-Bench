@@ -44,3 +44,16 @@ def test_validate_reachability_probe_failed_on_garbage(monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _CP())
     r = validate_reachability(PROV, "deepseek-chat", sandbox=SandboxCfg(mode="none"))
     assert r.reachable is False and r.reason == "probe_failed"
+
+
+def test_key_never_in_probe_command_argv():
+    """The key VALUE must never appear in argv — only the env NAME is forwarded."""
+    sb = SandboxCfg(mode="container", image="abench-sandbox:latest", runtime="docker")
+    cmd = _probe_command(sb, PROV, "deepseek-chat", "/p/model_probe.py")
+    SECRET = "sk-THIS-MUST-NOT-LEAK"
+    assert all(SECRET not in str(a) for a in cmd)
+
+
+def test_result_has_no_key_field():
+    r = ReachabilityResult(False, "auth", "scrubbed")
+    assert not hasattr(r, "key") and "key" not in r.__dict__
