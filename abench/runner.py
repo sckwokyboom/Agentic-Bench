@@ -163,21 +163,46 @@ def _preflight_env(exp: Experiment) -> None:
     raise RuntimeError("\n\n".join(parts))
 
 
+# opencode's built-in sub-agent spawners. A sub-agent's individual steps never
+# reach our exported trace (so the cheating detector can't audit them) and it
+# doesn't inherit the run's grounding guard (so it's unconstrained re: network /
+# outside-FS). The bench disables these for every run unless an experiment opts
+# in via `opencode.allow_subagents`, keeping each run a single, fully-traced,
+# guard-bound agent.
+SUBAGENT_TOOLS = ("task",)
+
+# Built-in tools that reach the network / outside world. Disabled when the run
+# forbids external sources, so the grounding guard's "no internet" rule is
+# enforced at the tool level, not merely requested in the prompt. NOTE: `bash`
+# can still curl, so on host-mode runs this is a PARTIAL control — the container
+# sandbox is the real network boundary and the cheating detector is the post-hoc
+# backstop. This removes the obvious, explicitly-network tool.
+NETWORK_TOOLS = ("webfetch",)
+
+
 def _agent_tools_for(exp: Experiment, cond: Condition) -> dict[str, bool] | None:
-    """Per-condition OpenCode agent tools map: disable every tool the tools_lib
-    ships that this condition does NOT enable. None when no tools_lib is set."""
-    if not exp.opencode.tools_lib:
-        return None
-    from . import libraries
-    registry = libraries.load_registry()
-    lib_path = registry.get(exp.opencode.tools_lib)
-    if not lib_path:
-        # Unreachable on a configured run: pre-flight requires tools_lib be
-        # registered. Defensive only.
-        return None
-    universe = libraries.discover_opencode_tools(lib_path)
-    enabled = set(cond.tools)
-    gate = {name: (name in enabled) for name in universe}
+    """Per-condition OpenCode agent tools map, composing three gates: (a) disable
+    every tool the tools_lib ships that this condition does NOT enable, (b)
+    disable the built-in sub-agent spawners unless `allow_subagents` is set, and
+    (c) disable the built-in network tools when `forbid_external_sources` is on.
+    None when no gate has anything to override."""
+    gate: dict[str, bool] = {}
+    if exp.opencode.tools_lib:
+        from . import libraries
+        registry = libraries.load_registry()
+        lib_path = registry.get(exp.opencode.tools_lib)
+        if lib_path:
+            universe = libraries.discover_opencode_tools(lib_path)
+            enabled = set(cond.tools)
+            gate.update({name: (name in enabled) for name in universe})
+        # else: unreachable on a configured run (pre-flight requires the
+        # tools_lib be registered); defensive — fall through with no GT gate.
+    if not exp.opencode.allow_subagents:
+        for name in SUBAGENT_TOOLS:
+            gate[name] = False
+    if exp.isolation.forbid_external_sources:
+        for name in NETWORK_TOOLS:
+            gate[name] = False
     return gate or None
 
 
