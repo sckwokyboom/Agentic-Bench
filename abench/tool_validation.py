@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -71,17 +73,47 @@ def _build_probe_workdir(tool_src: Path, agent: str, model: str, dest: Path) -> 
 
 
 def _probe_command(sandbox, workdir: str, agent: str) -> list[str]:
-    """Argv to run ``opencode debug agent`` against ``workdir``.
+    """Argv to run ``opencode debug agent`` against the probe workdir.
 
-    Container mode wraps in ``<runtime> run --rm`` with ONLY the probe workdir
-    mounted — no provider ``-e`` env and no cache mounts, because registration
-    neither calls a model nor executes the tool body."""
-    dir_arg = sandbox.workdir_mount if sandbox.mode == "container" else workdir
+    ``opencode debug agent`` reads the project from the CWD (there is no ``--dir``
+    flag), so the caller runs it with ``cwd=workdir`` in host mode; in container
+    mode ``-w`` sets the in-container cwd to the mounted workdir. Container mode
+    mounts ONLY the probe workdir — no provider ``-e`` env and no cache mounts,
+    because registration neither calls a model nor executes the tool body."""
     inner = ["opencode", "debug", "agent", agent,
-             "--dir", dir_arg, "--print-logs", "--log-level", "DEBUG"]
+             "--print-logs", "--log-level", "DEBUG"]
     if sandbox.mode != "container":
         return inner
     return [sandbox.runtime, "run", "--rm",
             "-v", f"{workdir}:{sandbox.workdir_mount}",
             "-w", sandbox.workdir_mount,
             sandbox.image, *inner]
+
+
+def validate_tool(tool_src, *, sandbox, agent: str = "abench",
+                  model: str = "deepseek/deepseek-chat") -> ToolValidation:
+    """Validate one OpenCode custom tool in ``sandbox``. Returns a ToolValidation.
+
+    Builds a throwaway opencode project containing only this tool, runs
+    ``opencode debug agent`` against it (in the container for mode='container'),
+    and reports whether the tool is registered + any load errors. The ``model``
+    is only for agent-config resolution; ``debug agent`` never calls it.
+    """
+    tool_src = Path(tool_src)
+    tool_name = tool_src.stem
+    with tempfile.TemporaryDirectory(prefix="abench-toolval-") as tmp:
+        workdir = _build_probe_workdir(tool_src, agent, model, Path(tmp))
+        cmd = _probe_command(sandbox, str(workdir), agent)
+        # host mode: opencode reads the project from cwd; container mode: the
+        # in-container cwd is set by `-w`, so the host docker process needs none.
+        cwd = None if sandbox.mode == "container" else str(workdir)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=120, cwd=cwd)
+        except subprocess.TimeoutExpired:
+            return ToolValidation(tool_name, False,
+                                  ["opencode debug agent timed out after 120s"], -1, "")
+        except FileNotFoundError as exc:
+            return ToolValidation(tool_name, False,
+                                  [f"could not run probe: {exc}"], -1, "")
+        return _parse_probe(tool_name, proc.returncode, proc.stdout, proc.stderr)
