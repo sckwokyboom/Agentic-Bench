@@ -129,9 +129,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.cmd == "validate-tool":
-        from .config import load_experiment
         from . import tool_validation
-        exp = load_experiment(args.experiment)
+        exp = load_experiment(args.experiment)  # module-level import
         r = tool_validation.validate_tool(
             Path(args.tool), sandbox=exp.opencode.sandbox,
             agent=exp.opencode.agent, model=exp.model)
