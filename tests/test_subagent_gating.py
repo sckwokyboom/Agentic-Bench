@@ -10,7 +10,7 @@ from abench.runner import _agent_tools_for
 
 
 def _exp(tmp_path, *, tools_lib=None, allow_subagents=False, tools=()):
-    return Experiment(
+    exp = Experiment(
         name="x",
         fixture_path=tmp_path / "fix",
         reference_path=tmp_path / "ref",
@@ -20,6 +20,11 @@ def _exp(tmp_path, *, tools_lib=None, allow_subagents=False, tools=()):
         opencode=OpenCodeCfg(tools_lib=tools_lib, allow_subagents=allow_subagents),
         metrics=MetricsCfg(),
     )
+    # Isolate the sub-agent (`task`) axis: turn OFF the external-sources gate so
+    # the network-tool gate (webfetch) doesn't enter these expectations. The
+    # webfetch gate is covered in test_network_tool_gating.py.
+    exp.isolation.forbid_external_sources = False
+    return exp
 
 
 def test_task_disabled_by_default_without_tools_lib(tmp_path):

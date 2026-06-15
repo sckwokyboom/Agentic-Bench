@@ -270,9 +270,10 @@ def test_run_experiment_overlay_rendered_in_workdir(tmp_path, monkeypatch):
 
 # add to tests/test_runner.py
 def test_baseline_disables_gated_tools(tmp_path, monkeypatch):
-    """With tools_lib set, baseline (tools=[]) disables every GT tool AND the
-    built-in `task` sub-agent spawner (allow_subagents off by default); the
-    captured agent_tools map proves the gate."""
+    """With tools_lib set, baseline (tools=[]) disables every GT tool, the
+    built-in `task` sub-agent spawner (allow_subagents off by default), AND the
+    built-in `webfetch` network tool (forbid_external_sources on by default);
+    the captured agent_tools map proves the composed gate."""
     import json
     from abench.config import (Condition, Experiment, MetricsCfg,
                                OpenCodeCfg, SandboxCfg)
@@ -314,4 +315,4 @@ def test_baseline_disables_gated_tools(tmp_path, monkeypatch):
     exp.verify.enabled = False
     run_experiment(exp, lambda e: _CaptureTools())
     assert captured["tools"] == {"crash_slice": False, "impact": False,
-                                 "task": False}
+                                 "task": False, "webfetch": False}

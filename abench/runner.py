@@ -171,12 +171,21 @@ def _preflight_env(exp: Experiment) -> None:
 # guard-bound agent.
 SUBAGENT_TOOLS = ("task",)
 
+# Built-in tools that reach the network / outside world. Disabled when the run
+# forbids external sources, so the grounding guard's "no internet" rule is
+# enforced at the tool level, not merely requested in the prompt. NOTE: `bash`
+# can still curl, so on host-mode runs this is a PARTIAL control — the container
+# sandbox is the real network boundary and the cheating detector is the post-hoc
+# backstop. This removes the obvious, explicitly-network tool.
+NETWORK_TOOLS = ("webfetch",)
+
 
 def _agent_tools_for(exp: Experiment, cond: Condition) -> dict[str, bool] | None:
-    """Per-condition OpenCode agent tools map, composing two gates: (a) disable
-    every tool the tools_lib ships that this condition does NOT enable, and
-    (b) disable the built-in sub-agent spawners unless `allow_subagents` is set.
-    None when neither gate has anything to override."""
+    """Per-condition OpenCode agent tools map, composing three gates: (a) disable
+    every tool the tools_lib ships that this condition does NOT enable, (b)
+    disable the built-in sub-agent spawners unless `allow_subagents` is set, and
+    (c) disable the built-in network tools when `forbid_external_sources` is on.
+    None when no gate has anything to override."""
     gate: dict[str, bool] = {}
     if exp.opencode.tools_lib:
         from . import libraries
@@ -190,6 +199,9 @@ def _agent_tools_for(exp: Experiment, cond: Condition) -> dict[str, bool] | None
         # tools_lib be registered); defensive — fall through with no GT gate.
     if not exp.opencode.allow_subagents:
         for name in SUBAGENT_TOOLS:
+            gate[name] = False
+    if exp.isolation.forbid_external_sources:
+        for name in NETWORK_TOOLS:
             gate[name] = False
     return gate or None
 
