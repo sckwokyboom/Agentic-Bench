@@ -90,6 +90,34 @@ def _probe_command(sandbox, workdir: str, agent: str) -> list[str]:
             sandbox.image, *inner]
 
 
+def _cleanup_workdir(sandbox, tmp: str) -> None:
+    """Best-effort removal of the probe workdir; NEVER raises, so a cleanup
+    failure can't mask the validation verdict (it did, before this fix — a
+    `with TemporaryDirectory(...)` exit crashed on the root-owned tree).
+
+    In container mode opencode runs as root and writes ``.opencode/node_modules``
+    into the bind-mounted host dir, so a host-side rmtree hits EPERM on those
+    root-owned files. Delete the mounted contents via a throwaway root container
+    first (``find -mindepth 1 -delete`` leaves the mount point itself), then
+    rmtree whatever host-owned remainder is left."""
+    try:
+        if sandbox.mode == "container":
+            try:
+                # --entrypoint find bypasses the image's setup entrypoint (which
+                # would needlessly run, and expects a GT mount we don't provide).
+                subprocess.run(
+                    [sandbox.runtime, "run", "--rm", "--entrypoint", "find",
+                     "-v", f"{tmp}:{sandbox.workdir_mount}",
+                     sandbox.image,
+                     sandbox.workdir_mount, "-mindepth", "1", "-delete"],
+                    capture_output=True, timeout=60, check=False)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        shutil.rmtree(tmp, ignore_errors=True)
+    except Exception:
+        pass
+
+
 def validate_tool(tool_src, *, sandbox, agent: str = "abench",
                   model: str = "deepseek/deepseek-chat") -> ToolValidation:
     """Validate one OpenCode custom tool in ``sandbox``. Returns a ToolValidation.
@@ -101,7 +129,10 @@ def validate_tool(tool_src, *, sandbox, agent: str = "abench",
     """
     tool_src = Path(tool_src)
     tool_name = tool_src.stem
-    with tempfile.TemporaryDirectory(prefix="abench-toolval-") as tmp:
+    # mkdtemp + try/finally (not `with TemporaryDirectory`) so a cleanup error on
+    # the container's root-owned files can't discard the already-computed verdict.
+    tmp = tempfile.mkdtemp(prefix="abench-toolval-")
+    try:
         workdir = _build_probe_workdir(tool_src, agent, model, Path(tmp))
         cmd = _probe_command(sandbox, str(workdir), agent)
         # host mode: opencode reads the project from cwd; container mode: the
@@ -117,3 +148,5 @@ def validate_tool(tool_src, *, sandbox, agent: str = "abench",
             return ToolValidation(tool_name, False,
                                   [f"could not run probe: {exc}"], -1, "")
         return _parse_probe(tool_name, proc.returncode, proc.stdout, proc.stderr)
+    finally:
+        _cleanup_workdir(sandbox, tmp)
