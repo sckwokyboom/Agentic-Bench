@@ -1,6 +1,11 @@
 import json
+from pathlib import Path
 
-from abench.tool_validation import ToolValidation, _parse_probe
+from abench.tool_validation import (
+    ToolValidation,
+    _build_probe_workdir,
+    _parse_probe,
+)
 
 
 def test_parse_registered_when_tool_truthy_in_tools():
@@ -33,3 +38,16 @@ def test_parse_unparseable_stdout_is_not_registered():
     r = _parse_probe("impact", 0, "not json", "")
     assert r.registered is False
     assert r.errors
+
+
+def test_build_probe_workdir_lays_out_tool_and_config(tmp_path):
+    tool = tmp_path / "echofile.ts"
+    tool.write_text("export default {}\n")
+    dest = tmp_path / "probe"
+    out = _build_probe_workdir(tool, "abench", "deepseek/deepseek-chat", dest)
+    assert out == dest
+    copied = dest / ".opencode" / "tools" / "echofile.ts"
+    assert copied.is_file()
+    cfg = json.loads((dest / "opencode.json").read_text())
+    assert "abench" in cfg["agent"]
+    assert cfg["agent"]["abench"]["model"] == "deepseek/deepseek-chat"

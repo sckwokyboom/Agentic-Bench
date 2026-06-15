@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from dataclasses import dataclass, field
+from pathlib import Path
 
 # Matches opencode's build-failure summary, e.g.
 #   4 errors building "/work/.opencode/tools/impact.ts"
@@ -51,3 +53,18 @@ def _parse_probe(tool_name: str, exit_code: int, stdout: str, stderr: str) -> To
         tail = [ln for ln in stderr.strip().splitlines() if ln.strip()][-3:]
         errs = tail or ["opencode debug agent failed (no diagnostic output)"]
     return ToolValidation(tool_name, False, errs, exit_code, stdout)
+
+
+def _build_probe_workdir(tool_src: Path, agent: str, model: str, dest: Path) -> Path:
+    """Lay out a minimal opencode project under ``dest``: the tool at
+    ``.opencode/tools/<name>.ts`` plus an ``opencode.json`` defining ``agent``.
+    ``model`` is only for agent-config resolution — the probe never calls it."""
+    tools_dir = dest / ".opencode" / "tools"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(tool_src, tools_dir / tool_src.name)
+    config = {
+        "$schema": "https://opencode.ai/config.json",
+        "agent": {agent: {"prompt": "tool-validation probe", "model": model}},
+    }
+    (dest / "opencode.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+    return dest
