@@ -68,3 +68,20 @@ def _build_probe_workdir(tool_src: Path, agent: str, model: str, dest: Path) -> 
     }
     (dest / "opencode.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     return dest
+
+
+def _probe_command(sandbox, workdir: str, agent: str) -> list[str]:
+    """Argv to run ``opencode debug agent`` against ``workdir``.
+
+    Container mode wraps in ``<runtime> run --rm`` with ONLY the probe workdir
+    mounted — no provider ``-e`` env and no cache mounts, because registration
+    neither calls a model nor executes the tool body."""
+    dir_arg = sandbox.workdir_mount if sandbox.mode == "container" else workdir
+    inner = ["opencode", "debug", "agent", agent,
+             "--dir", dir_arg, "--print-logs", "--log-level", "DEBUG"]
+    if sandbox.mode != "container":
+        return inner
+    return [sandbox.runtime, "run", "--rm",
+            "-v", f"{workdir}:{sandbox.workdir_mount}",
+            "-w", sandbox.workdir_mount,
+            sandbox.image, *inner]

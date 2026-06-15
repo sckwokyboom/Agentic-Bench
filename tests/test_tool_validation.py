@@ -1,10 +1,12 @@
 import json
 from pathlib import Path
 
+from abench.config import SandboxCfg
 from abench.tool_validation import (
     ToolValidation,
     _build_probe_workdir,
     _parse_probe,
+    _probe_command,
 )
 
 
@@ -51,3 +53,22 @@ def test_build_probe_workdir_lays_out_tool_and_config(tmp_path):
     cfg = json.loads((dest / "opencode.json").read_text())
     assert "abench" in cfg["agent"]
     assert cfg["agent"]["abench"]["model"] == "deepseek/deepseek-chat"
+
+
+def test_probe_command_host_mode():
+    cmd = _probe_command(SandboxCfg(mode="none"), "/tmp/probe", "abench")
+    assert cmd[:4] == ["opencode", "debug", "agent", "abench"]
+    assert "--dir" in cmd and "/tmp/probe" in cmd
+    assert "docker" not in cmd and "run" not in cmd[:2]
+
+
+def test_probe_command_container_mode_wraps_docker():
+    sb = SandboxCfg(mode="container", image="abench-sandbox:latest",
+                    runtime="docker", workdir_mount="/work")
+    cmd = _probe_command(sb, "/tmp/probe", "abench")
+    assert cmd[:3] == ["docker", "run", "--rm"]
+    assert "-v" in cmd and "/tmp/probe:/work" in cmd
+    assert "abench-sandbox:latest" in cmd
+    # inner command targets the in-container mount, not the host path
+    assert "opencode" in cmd and "/work" in cmd
+    assert "/tmp/probe" not in cmd[cmd.index("abench-sandbox:latest"):]
