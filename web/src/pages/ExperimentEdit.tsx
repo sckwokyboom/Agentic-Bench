@@ -9,6 +9,8 @@ import ExperimentForm from "../components/ExperimentForm";
 import SavedExperimentCard from "../components/SavedExperimentCard";
 import { type CustomEndpointInput } from "../components/CustomEndpointDialog";
 import ValidationPanel from "../components/ValidationPanel";
+import ReachabilityPanel from "../components/ReachabilityPanel";
+import type { ValidateReachabilityResp } from "../api/types";
 import PlanPanel from "../components/PlanPanel";
 import FixturesPanel from "../components/FixturesPanel";
 import PreviousRunsPanel from "../components/PreviousRunsPanel";
@@ -48,6 +50,7 @@ export default function ExperimentEdit() {
   const [saved, setSaved] = useState(false);
   const [toastOpen, setToastOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
+  const [reach, setReach] = useState<ValidateReachabilityResp | null>(null);
 
   useEffect(() => { loadSchema().then(setSchema); }, []);
   useEffect(() => { if (exp.data && formData === null) setFormData(exp.data); }, [exp.data, formData]);
@@ -64,6 +67,13 @@ export default function ExperimentEdit() {
 
   async function handleRun() {
     if (!name) return;
+    // Gate-with-override: if a reachability test failed, confirm before a run.
+    if (reach && !reach.reachable) {
+      const ok = window.confirm(
+        `Model looks unreachable (${reach.reason}`
+        + `${reach.detail ? ": " + reach.detail : ""}). Run anyway?`);
+      if (!ok) return;
+    }
     const { session_id } = await start.mutateAsync(name);
     navigate(`/runs/sessions/${session_id}`, { state: { experimentName: name } });
   }
@@ -129,7 +139,7 @@ export default function ExperimentEdit() {
             formContext={{ detectedVerify: detected.data, onAddCustomEndpoint: handleAddEndpoint }}
             saving={save.isPending}
             onErrorsChange={setErrors}
-            onFormChange={(f) => { setFormData(f); setSaved(false); }}
+            onFormChange={(f) => { setFormData(f); setSaved(false); setReach(null); }}
             onSave={handleSave}
           />
         )}
@@ -148,6 +158,7 @@ export default function ExperimentEdit() {
             verifyAmbiguous={detected.data?.ambiguous ?? false}
             verifyCandidates={detected.data?.candidates ?? []}
           />
+          {name && <ReachabilityPanel name={name} onResult={setReach} />}
           {name && <PreviousRunsPanel name={name} />}
         </Stack>
       </Box>

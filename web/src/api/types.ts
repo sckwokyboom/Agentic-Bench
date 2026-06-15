@@ -193,6 +193,14 @@ export interface ValidateModelResp {
   suggestions: string[];
 }
 
+export interface ValidateReachabilityResp {
+  // From abench.reachability: a REAL probe of the configured endpoint+key+model
+  // run INSIDE the experiment's sandbox (never the key — only the verdict).
+  reachable: boolean;
+  reason: string;   // ok | auth | model_not_found | network | tls | http_<code> | probe_failed
+  detail: string;   // short, key-scrubbed
+}
+
 export interface DetectedVerify {
   command: string | null;
   system: "maven" | "gradle" | "pytest" | "custom" | null;
