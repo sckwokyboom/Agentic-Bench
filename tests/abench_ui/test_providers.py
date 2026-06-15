@@ -15,7 +15,7 @@ def test_list_providers_reads_auth_json(tmp_path, monkeypatch):
         "deepseek": {"type": "api", "key": "sk-xxx"},
         "openrouter": {"type": "api", "key": "sk-yyy"},
     }))
-    monkeypatch.setattr("abench_ui.providers._auth_path", lambda: auth)
+    monkeypatch.setattr("abench_ui.providers.auth_path", lambda: auth)
     items = list_providers()
     by_id = {it["id"]: it for it in items}
     assert by_id["deepseek"]["configured"] is True
@@ -23,13 +23,13 @@ def test_list_providers_reads_auth_json(tmp_path, monkeypatch):
 
 
 def test_list_providers_missing_file(tmp_path, monkeypatch):
-    monkeypatch.setattr("abench_ui.providers._auth_path", lambda: tmp_path / "nope.json")
+    monkeypatch.setattr("abench_ui.providers.auth_path", lambda: tmp_path / "nope.json")
     assert list_providers() == []
 
 
 def test_write_credentials_creates_file(tmp_path, monkeypatch):
     auth = tmp_path / "auth.json"
-    monkeypatch.setattr("abench_ui.providers._auth_path", lambda: auth)
+    monkeypatch.setattr("abench_ui.providers.auth_path", lambda: auth)
     write_credentials("deepseek", "sk-new")
     data = json.loads(auth.read_text())
     assert data == {"deepseek": {"type": "api", "key": "sk-new"}}
@@ -38,7 +38,7 @@ def test_write_credentials_creates_file(tmp_path, monkeypatch):
 def test_write_credentials_merges_existing(tmp_path, monkeypatch):
     auth = tmp_path / "auth.json"
     auth.write_text(json.dumps({"openrouter": {"type": "api", "key": "sk-yyy"}}))
-    monkeypatch.setattr("abench_ui.providers._auth_path", lambda: auth)
+    monkeypatch.setattr("abench_ui.providers.auth_path", lambda: auth)
     write_credentials("deepseek", "sk-new")
     data = json.loads(auth.read_text())
     assert data["openrouter"]["key"] == "sk-yyy"
@@ -50,7 +50,7 @@ def test_credentials_endpoint_clears_validate_caches(tmp_path, monkeypatch):
     model chip re-validates immediately instead of showing a stale 'no key'
     for up to 30s."""
     auth = tmp_path / "auth.json"
-    monkeypatch.setattr("abench_ui.providers._auth_path", lambda: auth)
+    monkeypatch.setattr("abench_ui.providers.auth_path", lambda: auth)
 
     # Seed the caches with stale data (simulate a prior validate call).
     validate_mod._PROVIDERS_CACHE[()] = {"opencode"}

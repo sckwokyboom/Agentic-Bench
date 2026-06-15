@@ -53,6 +53,11 @@ def main(argv: list[str] | None = None) -> int:
     vt_p.add_argument("experiment", help="path to experiment YAML")
     vt_p.add_argument("tool", help="path to the tool .ts file")
 
+    vm_p = sub.add_parser(
+        "validate-model",
+        help="check the experiment's model is reachable from its sandbox")
+    vm_p.add_argument("experiment", help="path to experiment YAML")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "report":
@@ -140,6 +145,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"✗ {r.tool_name} NOT registered (exit {r.exit_code})")
         for e in r.errors:
             print(f"  - {e}")
+        return 1
+
+    if args.cmd == "validate-model":
+        from . import reachability
+        exp = load_experiment(args.experiment)
+        prov = exp.opencode.providers[0] if exp.opencode.providers else None
+        model = exp.model.split("/", 1)[1] if "/" in exp.model else exp.model
+        if prov is None:
+            print("no provider configured in experiment.opencode.providers")
+            return 1
+        r = reachability.validate_reachability(prov, model, sandbox=exp.opencode.sandbox)
+        if r.reachable:
+            print(f"✓ {model} reachable")
+            return 0
+        print(f"✗ {model} unreachable — {r.reason}: {r.detail}")
         return 1
 
     if args.cmd == "recompute":

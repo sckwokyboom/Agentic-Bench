@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 
+from . import credentials
 from .config import OpenCodeCfg
 from .libraries import resolve_path_refs
 from .trace_model import Trace
@@ -385,7 +386,7 @@ class RealOpenCodeClient:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=workdir,
-            env=os.environ.copy(),
+            env=credentials.run_env(self._cfg.providers),
         )
 
         raw_events: list[dict] = []

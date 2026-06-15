@@ -43,6 +43,10 @@ class _ValidateModelBody(BaseModel):
     model: str
 
 
+class _ReachabilityBody(BaseModel):
+    experiment_name: str
+
+
 class _CredentialsBody(BaseModel):
     api_key: str
 
@@ -431,6 +435,22 @@ def create_app(
     def _validate(body: _ValidateModelBody):
         r = validate_model(body.model)
         return {"status": r.status, "provider": r.provider, "suggestions": r.suggestions}
+
+    @api.post("/validate/reachability")
+    def _validate_reachability(body: _ReachabilityBody):
+        from abench.config import load_experiment
+        from abench import reachability
+        exp_dir = _exp_dir_for(body.experiment_name)
+        yaml_path = exp_dir / "experiment.yaml"
+        if not yaml_path.is_file():
+            raise HTTPException(404, f"experiment '{body.experiment_name}' not found")
+        exp = load_experiment(yaml_path)
+        if not exp.opencode.providers:
+            raise HTTPException(400, "experiment has no providers configured")
+        prov = exp.opencode.providers[0]
+        model = exp.model.split("/", 1)[1] if "/" in exp.model else exp.model
+        res = reachability.validate_reachability(prov, model, sandbox=exp.opencode.sandbox)
+        return {"reachable": res.reachable, "reason": res.reason, "detail": res.detail}
 
     @api.get("/models")
     def _models_catalog():
