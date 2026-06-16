@@ -30,6 +30,24 @@ def test_extract_java_method_balances_braces():
     assert any("IllegalArgumentException" in ln for ln in body)
 
 
+def test_extract_java_method_ignores_earlier_call_of_same_name():
+    """A call (or comment) mentioning the name before the definition must not
+    derail extraction — guards the name pre-filter + the brace-requiring
+    signature match."""
+    src = (
+        "class C {\n"
+        "    void caller() { obj.putValue(1, 2); }   // a call, not the def\n"
+        "    public int putValue(int row, int col) {\n"
+        "        return row + col;\n"
+        "    }\n"
+        "}\n"
+    )
+    body = extract_java_method(src, "putValue")
+    assert body[0].strip().startswith("public int putValue")
+    assert body[-1].strip() == "}"
+    assert any("return row + col" in ln for ln in body)
+
+
 def test_similarity_identical_ignores_whitespace():
     assert method_similarity(_JAVA_REF, _JAVA_SAME, "X.java", "putValue") == 1.0
 

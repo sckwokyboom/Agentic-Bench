@@ -31,6 +31,12 @@ def extract_py_function(source: str, name: str) -> list[str]:
 def extract_java_method(source: str, name: str) -> list[str]:
     lines = source.splitlines()
     for i, line in enumerate(lines):
+        # Cheap pre-filter: a signature line for `name` must contain `name`, so
+        # skip the rest. This avoids running _JAVA_SIG (which backtracks badly on
+        # long lines) on every line of a large file — extracting putValue from
+        # the 19k-line CommandLine.java drops from ~36s to milliseconds.
+        if name not in line:
+            continue
         m = _JAVA_SIG.search(line)
         if m and m.group("name") == name:
             depth = line.count("{") - line.count("}")
