@@ -228,6 +228,13 @@ export interface ReverifyJob {
   error: string | null;
 }
 
+export interface CostSummary {
+  total_cost: number;            // sum of every run's metrics cost, in $
+  n_runs: number;                // total runs found across all experiments
+  n_runs_with_cost: number;      // runs that reported a cost (rest are free/unpriced)
+  by_experiment: Record<string, number>;
+}
+
 export interface ProviderEntry { id: string; configured: boolean; }
 
 export interface ModelCatalogEntry { provider: string; id: string }

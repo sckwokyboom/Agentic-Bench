@@ -80,6 +80,39 @@ def list_runs(root_runs_dir: Path) -> list[dict]:
     return items
 
 
+def cost_summary(experiments_dir: Path) -> dict:
+    """Total $ spend across EVERY run of EVERY experiment — sum of each run's
+    metrics.json `cost`, over all batches (and the legacy flat layout).
+
+    Returns {total_cost, n_runs, n_runs_with_cost, by_experiment}. A run whose
+    cost is missing/None (e.g. a free model) is counted in n_runs but not priced.
+    Best-effort: an unreadable metrics.json is skipped, not fatal."""
+    experiments_dir = Path(experiments_dir)
+    total = 0.0
+    n_runs = 0
+    n_with_cost = 0
+    by_exp: dict[str, float] = {}
+    for m_path in sorted(experiments_dir.glob("*/runs/**/metrics.json")):
+        try:
+            m = json.loads(m_path.read_text())
+        except (OSError, ValueError):
+            continue
+        n_runs += 1
+        exp_name = m_path.relative_to(experiments_dir).parts[0]
+        by_exp.setdefault(exp_name, 0.0)
+        cost = m.get("cost")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            total += float(cost)
+            n_with_cost += 1
+            by_exp[exp_name] += float(cost)
+    return {
+        "total_cost": round(total, 4),
+        "n_runs": n_runs,
+        "n_runs_with_cost": n_with_cost,
+        "by_experiment": {k: round(v, 4) for k, v in by_exp.items()},
+    }
+
+
 def read_artefact(root_runs_dir: Path, condition: str, rep: int, name: str) -> str:
     """Return the raw file contents of <runs>/<cond>/rep_N/<name>."""
     rd = _rundir(root_runs_dir, condition, rep)

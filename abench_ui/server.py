@@ -135,6 +135,12 @@ def create_app(
     def _schema():
         return experiment_json_schema()
 
+    @api.get("/cost")
+    def _cost_summary():
+        """Total $ spend across every run of every experiment (computed estimate
+        from each run's metrics.json cost)."""
+        return runs_mod.cost_summary(state["experiments_dir"])
+
     # ── Experiments CRUD ────────────────────────────────────────────────────
 
     @api.get("/experiments")
