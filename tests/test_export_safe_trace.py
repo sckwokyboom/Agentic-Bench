@@ -138,6 +138,32 @@ def test_digest_mode_drops_bodies_and_keeps_skeleton():
     assert txt["text"].endswith("…") and len(txt["text"]) <= 161
 
 
+def test_safe_export_surfaces_stop_reason_and_made_source_changes():
+    """A run that 'finished' but trailed off (stop_reason=stop, no edits) must be
+    distinguishable in the pasted artifact from a real attempt that failed."""
+    from abench.safe_trace import build_bundle
+    # Realistic shape: stop_reason is DERIVED from the last turn's finish reason
+    # (so it also works for traces captured before trace.stop_reason existed).
+    trailed_off = {
+        "started_at": 0.0, "ended_at": 30.0, "finished": True,
+        "interrupted_reason": None,
+        "turns": [{"reason": "tool-calls"}, {"reason": "stop"}],  # last = stop
+        "final_diff_summary": {"files": [], "total_added": 0, "total_removed": 0},
+        "steps": [],
+    }
+    tr = build_bundle([(trailed_off, {"condition": "augmented-tool", "rep": 0})])["traces"][0]
+    assert tr["stop_reason"] == "stop"
+    assert tr["made_source_changes"] is False
+
+    real_attempt = dict(
+        trailed_off, turns=[{"reason": "tool-calls"}],
+        final_diff_summary={"files": [{"path": "X.java", "added": 5, "removed": 1}],
+                            "total_added": 5, "total_removed": 1})
+    tr2 = build_bundle([(real_attempt, {"condition": "augmented-tool", "rep": 0})])["traces"][0]
+    assert tr2["stop_reason"] == "tool-calls"
+    assert tr2["made_source_changes"] is True
+
+
 def test_non_digest_keeps_patch_body():
     from abench.safe_trace import build_bundle
     trace = {"steps": [{"kind": "file_edit", "path": "x", "patch": "+code line\n"}]}

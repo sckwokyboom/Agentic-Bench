@@ -118,6 +118,20 @@ def test_normalize_without_session_falls_back_to_per_turn_tokens(events):
     assert trace.tokens_out == (exp_out or None)
 
 
+def test_normalize_sets_stop_reason_from_last_turn():
+    """The run's stop_reason = the final turn's finish reason, so a run that
+    'finished' cleanly can still reveal WHY the model stopped (e.g. `stop` = the
+    model ended its turn without a tool call; `length` = truncated). The golden
+    fixture's last step-finish reason is `stop`."""
+    from abench.trace_normalize import normalize
+    trace = normalize(_load_events(), _load_session())
+    assert trace.turns, "fixture should have turns"
+    # stop_reason = the last turn that carried a finish reason.
+    assert trace.stop_reason == trace.turns[-1].reason
+    assert trace.stop_reason in {"tool-calls", "stop", "length",
+                                 "content-filter", "error", "aborted"}
+
+
 def test_normalize_populates_turns_from_step_finish():
     """The golden fixture contains step-finish events with reason/tokens/cost.
     The normalizer must populate trace.turns from them in order."""

@@ -162,7 +162,9 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
         cache_read=cache_read,
         cache_write=cache_write,
         cost=cost,
-        # started_at, ended_at, finished, interrupted_reason: caller's responsibility.
+        # The final turn's finish reason — the last step-finish that carried one.
+        # (started_at/ended_at/finished/interrupted_reason: caller's responsibility.)
+        stop_reason=next((t.reason for t in reversed(turns) if t.reason), None),
     )
     # When the export gave no usage, fill totals from per-turn step-finish data.
     fill_missing_token_totals(trace)

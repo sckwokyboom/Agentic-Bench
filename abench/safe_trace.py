@@ -184,6 +184,14 @@ def safe_trace(trace: dict, manifest: dict, scr: Scrubber, *,
         "obs_tokens_by_tool": obs_by_tool,
         "finished": trace.get("finished"),
         "interrupted_reason": scr.text(trace.get("interrupted_reason")),
+        # Why the model's last turn ended + whether it actually touched source —
+        # so a run that "finished" but trailed off (stop_reason="stop", no edits)
+        # is distinguishable from a real attempt that failed tests.
+        "stop_reason": scr.text(
+            next((t.get("reason") for t in reversed(trace.get("turns") or [])
+                  if isinstance(t, dict) and t.get("reason")),
+                 trace.get("stop_reason"))),
+        "made_source_changes": bool((trace.get("final_diff_summary") or {}).get("files")),
         "n_service_errors": _num(trace.get("n_service_errors")) or 0,
         "n_rate_limits": _num(trace.get("n_rate_limits")) or 0,
         "tokens_in": _num(trace.get("tokens_in")),

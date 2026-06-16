@@ -6,6 +6,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import GavelIcon from "@mui/icons-material/Gavel";
+import EditOffIcon from "@mui/icons-material/EditOff";
 import VerifyStatusChip from "./VerifyStatusChip";
 import { CHEATING_LABELS } from "./ValiditySignals";
 import { selectable } from "../theme";
@@ -99,6 +100,14 @@ export default function RunsTable({ rows, onOpen, reverify }: Props) {
                     <Tooltip title={"Possible cheating: " + r.cheating.signals
                       .map((s) => CHEATING_LABELS[s.type] ?? s.type).join("; ")}>
                       <GavelIcon color="warning" fontSize="small" />
+                    </Tooltip>
+                  )}
+                  {r.made_source_changes === false && (
+                    <Tooltip title={
+                      "Agent made NO source edits — likely didn't attempt/finish the task"
+                      + (r.stop_reason ? ` (model ended: ${r.stop_reason})` : "")
+                    }>
+                      <EditOffIcon color="warning" fontSize="small" />
                     </Tooltip>
                   )}
                 </Stack>
