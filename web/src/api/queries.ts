@@ -302,8 +302,13 @@ export function useWriteProviderCredentials() {
 
 export function useStartRun() {
   return useMutation({
-    mutationFn: (experiment_name: string) =>
-      apiPostJson<{ session_id: string }>(`/api/runs`, { experiment_name }),
+    // Optional subset: restrict to `conditions` and/or override `repetitions`
+    // (omit both → run the full experiment as configured).
+    mutationFn: (args: {
+      experiment_name: string;
+      conditions?: string[];
+      repetitions?: number;
+    }) => apiPostJson<{ session_id: string }>(`/api/runs`, args),
   });
 }
 

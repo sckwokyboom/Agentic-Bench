@@ -33,7 +33,9 @@ export default function ExperimentList() {
   const [newOpen, setNewOpen] = useState(false);
 
   async function handleRun(name: string) {
-    const { session_id } = await start.mutateAsync(name);
+    // From the list, run the full experiment; subset selection lives in the
+    // editor's Run dialog.
+    const { session_id } = await start.mutateAsync({ experiment_name: name });
     navigate(`/runs/sessions/${session_id}`, { state: { experimentName: name } });
   }
 

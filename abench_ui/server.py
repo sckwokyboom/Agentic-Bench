@@ -53,6 +53,10 @@ class _CredentialsBody(BaseModel):
 
 class _RunStartBody(BaseModel):
     experiment_name: str
+    # Optional run subset: restrict to these conditions and/or override the
+    # repetition count (None = use the experiment's full set / configured reps).
+    conditions: list[str] | None = None
+    repetitions: int | None = None
 
 
 class _SuccessPatchBody(BaseModel):
@@ -489,6 +493,11 @@ def create_app(
                 404, f"experiment '{body.experiment_name}' not found"
             )
         exp = Experiment(**exp_payload)
+        try:
+            from abench.runner import apply_run_subset
+            apply_run_subset(exp, body.conditions, body.repetitions)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         sid = uuid.uuid4().hex
         buf = SessionEventBuffer()
         state["buffers"][sid] = buf
