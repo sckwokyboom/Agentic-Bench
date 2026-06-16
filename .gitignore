@@ -23,7 +23,13 @@ experiments/*/gt-out/
 web/node_modules
 web/dist
 
-experiments/*/overlays/impact-artifacts/.impact/
+# NOTE: the impact-tool data (overlays/impact-artifacts/.impact/*.json) used to
+# be ignored here. It must be COMMITTED — it's the augmented-tool condition's
+# canonical artifact (analog of the committed slices), leak-safe (method/test
+# coverage metadata, no solution body), and the server can't regenerate it
+# without the full GT+joern pipeline. Without it the impact tool has no data and
+# returns nothing. (gt-out/ — the raw pipeline scratch — stays ignored below.)
+experiments/*/gt-out/
 
 # Per-machine extra root CA certs for the sandbox image (never commit).
 docker/extra-ca/*.crt
