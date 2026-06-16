@@ -15,6 +15,7 @@ import NewExperimentDialog from "../components/NewExperimentDialog";
 import DeleteExperimentDialog from "../components/DeleteExperimentDialog";
 import {
   useExperiments, useDeleteExperiment, useStartRun, useSaveExperiment,
+  useCostSummary,
 } from "../api/queries";
 import type { ExperimentSummary } from "../api/types";
 
@@ -28,6 +29,7 @@ export default function ExperimentList() {
   const list = useExperiments();
   const del = useDeleteExperiment();
   const start = useStartRun();
+  const cost = useCostSummary();
   const save = useSaveExperiment();
   const [toDelete, setToDelete] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
@@ -61,6 +63,17 @@ export default function ExperimentList() {
         </Button>
         <UploadYamlButton onUploaded={handleUploaded} />
       </Stack>
+
+      {cost.data && cost.data.n_runs > 0 && (
+        <Typography variant="body2" color="text.secondary">
+          Estimated total spend:{" "}
+          <strong>${cost.data.total_cost.toFixed(4)}</strong>{" "}
+          across {cost.data.n_runs} run{cost.data.n_runs === 1 ? "" : "s"}
+          {cost.data.n_runs_with_cost < cost.data.n_runs
+            ? ` (${cost.data.n_runs_with_cost} priced; the rest free/unpriced)`
+            : ""}
+        </Typography>
+      )}
 
       {list.isLoading && <CircularProgress />}
       {list.error && <Alert severity="error">Failed to load experiments.</Alert>}

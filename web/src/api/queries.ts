@@ -36,12 +36,20 @@ export const qk = {
   providers: ["providers"] as const,
   sessionState: (sid: string) => ["sessionState", sid] as const,
   activeSessions: ["activeSessions"] as const,
+  costSummary: ["costSummary"] as const,
 };
 
 export const useExperiments = () =>
   useQuery({
     queryKey: qk.experiments,
     queryFn: () => apiGet<t.ExperimentSummary[]>("/api/experiments"),
+  });
+
+// Total $ spend across every run of every experiment (computed estimate).
+export const useCostSummary = () =>
+  useQuery({
+    queryKey: qk.costSummary,
+    queryFn: () => apiGet<t.CostSummary>("/api/cost"),
   });
 
 export const useExperiment = (name: string | undefined) =>
