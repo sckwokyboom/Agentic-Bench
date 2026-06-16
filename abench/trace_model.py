@@ -67,6 +67,11 @@ class Trace:
     cache_write: int | None = None
     finished: bool = False
     interrupted_reason: str | None = None
+    # Why the model's final turn ended (opencode/AI-SDK finish reason of the last
+    # step-finish): "stop" (ended its turn — often no tool call → loop ends),
+    # "length" (truncated), "tool-calls", "error", "aborted"… Lets a run that
+    # "finished" cleanly still reveal WHY it stopped (e.g. trailed off mid-task).
+    stop_reason: str | None = None
 
     turns: list[TurnInfo] = field(default_factory=list)
 

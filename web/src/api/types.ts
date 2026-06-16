@@ -31,6 +31,7 @@ export interface RunSummary {
   rep: number;
   finished: boolean;
   interrupted_reason: string | null;
+  stop_reason?: string | null;  // model's final finish reason (stop/length/error/…)
   verify_status: VerifyStatus | null;
   success: boolean | null;
   started_at: string;

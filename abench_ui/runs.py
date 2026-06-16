@@ -50,6 +50,7 @@ def list_runs(root_runs_dir: Path) -> list[dict]:
                 "rep": int(rep_dir.name.removeprefix("rep_")),
                 "finished": m.get("finished"),
                 "interrupted_reason": m.get("interrupted_reason"),
+                "stop_reason": m.get("stop_reason"),
                 "verify_status": m.get("verify_status"),
                 "success": m.get("success"),
                 "duration_s": m.get("duration_s"),
