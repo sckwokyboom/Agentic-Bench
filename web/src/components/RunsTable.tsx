@@ -1,5 +1,6 @@
 import {
   Table, TableHead, TableBody, TableRow, TableCell, Typography, Box, Tooltip, Stack,
+  CircularProgress,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
@@ -8,18 +9,50 @@ import GavelIcon from "@mui/icons-material/Gavel";
 import VerifyStatusChip from "./VerifyStatusChip";
 import { CHEATING_LABELS } from "./ValiditySignals";
 import { selectable } from "../theme";
-import type { RunSummary } from "../api/types";
+import type { RunSummary, VerifyStatus } from "../api/types";
+
+// Live re-verify progress for the visible runs. Presence of this prop means a
+// re-verify job is in flight; each row then shows queued → verifying → its fresh
+// verdict, instead of the (stale) stored status.
+export interface ReverifyProgress {
+  current: { condition: string; rep: number } | null;
+  resultByKey: Record<string, VerifyStatus | null>; // "condition/rep" → new status
+}
 
 interface Props {
   rows: RunSummary[];
   onOpen: (condition: string, rep: number) => void;
+  reverify?: ReverifyProgress;
 }
 
 function num(v: number | null | undefined, digits = 0): string {
   return v == null ? "—" : v.toFixed(digits);
 }
 
-export default function RunsTable({ rows, onOpen }: Props) {
+// The verify cell. While a re-verify is in flight (`reverify` present): the
+// running row shows a spinner, finished rows show their fresh verdict, and the
+// rest show "queued". Otherwise the stored verify status.
+function VerifyCell({ row, reverify }: { row: RunSummary; reverify?: ReverifyProgress }) {
+  if (reverify) {
+    const c = reverify.current;
+    if (c && c.condition === row.condition && c.rep === row.rep) {
+      return (
+        <Stack direction="row" alignItems="center" spacing={0.5}>
+          <CircularProgress size={14} />
+          <Typography variant="caption" color="text.secondary">verifying…</Typography>
+        </Stack>
+      );
+    }
+    const key = `${row.condition}/${row.rep}`;
+    if (key in reverify.resultByKey) {
+      return <VerifyStatusChip status={reverify.resultByKey[key] ?? null} />;
+    }
+    return <Typography variant="caption" color="text.secondary">queued</Typography>;
+  }
+  return <VerifyStatusChip status={row.verify_status} />;
+}
+
+export default function RunsTable({ rows, onOpen, reverify }: Props) {
   if (rows.length === 0) {
     return <Typography variant="body2" color="text.secondary">No runs yet.</Typography>;
   }
@@ -40,10 +73,17 @@ export default function RunsTable({ rows, onOpen }: Props) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map((r) => (
+          {rows.map((r) => {
+            const isVerifying = !!(
+              reverify?.current &&
+              reverify.current.condition === r.condition &&
+              reverify.current.rep === r.rep
+            );
+            return (
             <TableRow
               key={`${r.condition}-${r.rep}`}
               hover
+              selected={isVerifying}
               onClick={() => onOpen(r.condition, r.rep)}
               sx={{ cursor: "pointer" }}
             >
@@ -64,7 +104,7 @@ export default function RunsTable({ rows, onOpen }: Props) {
                 </Stack>
               </TableCell>
               <TableCell align="right">{r.rep}</TableCell>
-              <TableCell><VerifyStatusChip status={r.verify_status} /></TableCell>
+              <TableCell><VerifyCell row={r} reverify={reverify} /></TableCell>
               <TableCell>
                 {r.success == null
                   ? "—"
@@ -78,7 +118,8 @@ export default function RunsTable({ rows, onOpen }: Props) {
               <TableCell align="right" sx={selectable}>{num(r.n_test_runs)}</TableCell>
               <TableCell align="right" sx={selectable}>{num(r.cost, 4)}</TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </TableBody>
       </Table>
     </Box>

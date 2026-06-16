@@ -39,3 +39,36 @@ test("no service-errors indicator when n_service_errors is 0/absent", () => {
   const { container } = render(<RunsTable rows={rows} onOpen={() => {}} />);
   expect(container.querySelector('[data-testid="ErrorOutlineIcon"]')).toBeNull();
 });
+
+test("re-verify: verifying on the current row, fresh verdict on done, queued on pending", () => {
+  // success: null → no Cancel icon (whose titleAccess="failed" would otherwise
+  // collide with the "stale chip replaced" assertion below); we test the verify
+  // cell here, not the success column.
+  const three: RunSummary[] = [
+    { ...rows[0]!, condition: "baseline", verify_status: "failed", success: null },
+    { ...rows[0]!, condition: "augmented", verify_status: "failed", success: null },
+    { ...rows[0]!, condition: "augmented-tool", verify_status: "failed", success: null },
+  ];
+  render(
+    <RunsTable
+      rows={three}
+      onOpen={() => {}}
+      reverify={{
+        current: { condition: "augmented", rep: 0 },
+        resultByKey: { "baseline/0": "passed" },
+      }}
+    />,
+  );
+  expect(screen.getByText(/verifying/i)).toBeInTheDocument();   // current: augmented
+  expect(screen.getByText("passed")).toBeInTheDocument();       // done: baseline (fresh verdict)
+  expect(screen.getByText(/queued/i)).toBeInTheDocument();      // pending: augmented-tool
+  // the stale "failed" chips are replaced while a re-verify is in flight
+  expect(screen.queryByText("failed")).toBeNull();
+});
+
+test("re-verify: absent prop keeps the stored verify status (regression)", () => {
+  render(<RunsTable rows={rows} onOpen={() => {}} />);
+  expect(screen.getByText(/passed/i)).toBeInTheDocument();
+  expect(screen.queryByText(/verifying/i)).toBeNull();
+  expect(screen.queryByText(/queued/i)).toBeNull();
+});

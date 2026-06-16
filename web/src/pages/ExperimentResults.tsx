@@ -69,6 +69,18 @@ export default function ExperimentResults() {
     }
   }, [job.data?.state, qc, name]);
 
+  // While a re-verify job is in flight, drive per-row progress in the table:
+  // which run is being verified now (current), and the fresh verdicts of the
+  // ones already done (so each row updates live, not just at the end).
+  const reverifyProgress = running && job.data
+    ? {
+        current: job.data.current,
+        resultByKey: Object.fromEntries(
+          (job.data.results ?? []).map((r) => [`${r.condition}/${r.rep}`, r.status]),
+        ),
+      }
+    : undefined;
+
   async function handleReverifyAll() {
     if (!name) return;
     // Re-verify the currently-selected batch (undefined → newest, server-side).
@@ -166,6 +178,7 @@ export default function ExperimentResults() {
         {runs.data && (
           <RunsTable
             rows={runs.data}
+            reverify={reverifyProgress}
             onOpen={(condition, rep) => navigate(`/runs/${name}/${condition}/${rep}${batchQs}`)}
           />
         )}
