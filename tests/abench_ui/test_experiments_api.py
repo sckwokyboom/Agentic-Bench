@@ -73,6 +73,19 @@ def test_read_experiment_404(client):
     assert r.status_code == 404
 
 
+def test_read_experiment_invalid_returns_clean_error_not_500(tmp_path):
+    """An experiment that exists but fails validation (e.g. its fixture_path
+    doesn't resolve) must surface a clean 4xx with the reason — not a raw 500."""
+    import shutil
+    app = create_app(experiments_dir=tmp_path)
+    c = TestClient(app, raise_server_exceptions=False)
+    d = _scaffold_exp(tmp_path, "exp-bad")
+    shutil.rmtree(d / "stripped")  # fixture now missing → _validate raises ValueError
+    r = c.get("/api/experiments/exp-bad")
+    assert r.status_code == 400, r.status_code
+    assert "fixture_path" in r.text
+
+
 def test_put_experiment_then_read_returns_new_values(client):
     c, root = client
     _scaffold_exp(root, "exp-a")

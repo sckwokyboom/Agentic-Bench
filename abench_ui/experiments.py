@@ -127,8 +127,14 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 def _relpath(target: str, base: Path) -> str:
-    target_p = Path(target).resolve()
+    p = Path(target)
+    if not p.is_absolute():
+        # A relative path (e.g. from an uploaded yaml — the server never saw the
+        # file's original directory) is interpreted relative to the experiment
+        # dir on read. Keep it relative; resolving it here would resolve against
+        # the server CWD (the project root), producing a bogus absolute path.
+        return target if target.startswith(("./", "../")) else f"./{target}"
     try:
-        return "./" + str(target_p.relative_to(base.resolve()))
+        return "./" + str(p.resolve().relative_to(base.resolve()))
     except ValueError:
-        return str(target_p)
+        return str(p.resolve())

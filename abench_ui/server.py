@@ -163,6 +163,10 @@ def create_app(
             return exp_mod.read_experiment(state["experiments_dir"], name)
         except exp_mod.ExperimentNotFound:
             raise HTTPException(404, f"experiment '{name}' not found")
+        except ValueError as exc:
+            # The experiment exists but fails validation (e.g. fixture_path does
+            # not resolve). Surface the reason as a clean 400, not a raw 500.
+            raise HTTPException(400, f"experiment '{name}' is invalid: {exc}")
 
     @api.get("/experiments/{name}/verify_command")
     def _detect_verify_command(name: str):

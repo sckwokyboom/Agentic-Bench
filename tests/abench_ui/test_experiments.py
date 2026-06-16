@@ -5,10 +5,34 @@ import pytest
 
 from abench_ui.experiments import (
     ExperimentNotFound,
+    _relpath,
     list_experiments,
     read_experiment,
     write_experiment,
 )
+
+
+def test_relpath_keeps_a_relative_input_relative(tmp_path):
+    """A relative path (as produced by uploading a yaml, where the server never
+    sees the file's original location) must stay relative to the experiment dir
+    — NOT get resolved against the server CWD (which pointed it at the project
+    root: fixture_path '/<project>/stripped')."""
+    exp = tmp_path / "exp-x"
+    assert _relpath("./stripped", exp) == "./stripped"
+    assert _relpath("stripped", exp) == "./stripped"
+
+
+def test_relpath_absolute_under_expdir_becomes_relative(tmp_path):
+    exp = tmp_path / "exp-x"
+    exp.mkdir()
+    assert _relpath(str(exp / "stripped"), exp) == "./stripped"
+
+
+def test_relpath_absolute_outside_expdir_stays_absolute(tmp_path):
+    exp = tmp_path / "exp-x"
+    exp.mkdir()
+    outside = (tmp_path / "elsewhere" / "stripped")
+    assert _relpath(str(outside), exp) == str(outside.resolve())
 
 
 def _make_skeleton(root: Path, name: str) -> Path:
