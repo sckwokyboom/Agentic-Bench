@@ -6,6 +6,9 @@ const provider = {
   base_url: "http://10.0.0.5:8000/v1",
   models: ["my-model"],
   npm: "@ai-sdk/openai-compatible",
+  // env var NAME the run delivers the auth.json key into — WITHOUT it the key is
+  // never wired and opencode fails with "Failed to get the authorization header".
+  api_key_env: "MYLLM_API_KEY",
 };
 
 test("empty opencode → providers:[provider], model + small_model set", () => {
@@ -56,8 +59,19 @@ test("existing model overwritten", () => {
   expect(next.model).toBe("myllm/my-model");
 });
 
-test("never writes the raw key into formData/opencode", () => {
+test("wires api_key_env (env NAME, not the secret) and never inlines a key", () => {
   const next = applyCustomEndpoint({}, ep);
-  expect(JSON.stringify(next)).not.toContain("api_key");
+  const oc = next.opencode as Record<string, unknown>;
+  const prov = (oc.providers as Array<Record<string, unknown>>)[0]!;
+  expect(prov.api_key_env).toBe("MYLLM_API_KEY"); // a name, not the secret value
+  // the secret itself flows only to auth.json (via writeCreds), never inlined:
+  expect(JSON.stringify(next)).not.toContain("apiKey");
   expect(JSON.stringify(next).toLowerCase()).not.toContain("secret");
+});
+
+test("derives a sanitized env name from a messy provider id", () => {
+  const next = applyCustomEndpoint({}, { ...ep, id: "My-LLM.v2" });
+  const prov = ((next.opencode as Record<string, unknown>).providers as
+    Array<Record<string, unknown>>)[0]!;
+  expect(prov.api_key_env).toBe("MY_LLM_V2_API_KEY");
 });
