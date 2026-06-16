@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import SummaryTable from "../src/components/SummaryTable";
 import type { RunsSummary } from "../src/api/types";
@@ -13,7 +14,7 @@ const summary: RunsSummary = {
         cost: { mean: 0.03, median: 0.03 },
         tokens_in: { mean: 1000, median: 1000 },
         tokens_out: { mean: 500, median: 500 },
-        cache_read: { mean: 0, median: 0 },
+        cache_read: { mean: 2, median: 2 },
       } },
     { name: "augmented", runs: 2, success_rate: 1,
       metrics: {
@@ -21,16 +22,18 @@ const summary: RunsSummary = {
         cost: { mean: 0.03, median: 0.03 },
         tokens_in: { mean: 800, median: 800 },
         tokens_out: { mean: 500, median: 500 },
-        cache_read: { mean: 0, median: 0 },
+        cache_read: { mean: 1, median: 1 },
       } },
   ],
-  deltas: { n_steps: -60, cost: 0, tokens_in: -20, tokens_out: 0, cache_read: -50 },
+  deltas: {},
 };
 
 test("renders condition columns, metric means and the delta", () => {
   render(<SummaryTable summary={summary} />);
   expect(screen.getByText(/baseline/)).toBeInTheDocument();
-  expect(screen.getByText(/augmented/)).toBeInTheDocument();
+  // "augmented" now appears in both the column header and the "Δ augmented vs
+  // base" delta header — just assert it's present at all.
+  expect(screen.getAllByText(/augmented/).length).toBeGreaterThan(0);
   expect(screen.getByText("steps")).toBeInTheDocument();
   expect(screen.getByText("success rate")).toBeInTheDocument();
   expect(screen.getAllByText("100%")).toHaveLength(2); // one per condition
@@ -99,4 +102,33 @@ test("omits the 'tests passed %' row when no condition has it", () => {
 test("shows an empty-state when no valid runs", () => {
   render(<SummaryTable summary={{ conditions: [], deltas: {}, total_runs: 0, valid_runs: 0 }} />);
   expect(screen.getByText(/no aggregate/i)).toBeInTheDocument();
+});
+
+test("lets you choose which condition's delta to compare against baseline", async () => {
+  const s: RunsSummary = {
+    total_runs: 6, valid_runs: 6, deltas: {},
+    conditions: [
+      { name: "baseline", runs: 2, success_rate: 0.5,
+        metrics: { n_steps: { mean: 10, median: 10 } } },
+      { name: "augmented", runs: 2, success_rate: 0.5,
+        metrics: { n_steps: { mean: 8, median: 8 } } },
+      { name: "augmented-tool", runs: 2, success_rate: 1,
+        metrics: { n_steps: { mean: 5, median: 5 } } },
+    ],
+  };
+  render(<SummaryTable summary={s} />);
+  // default treatment = augmented → (8-10)/10 = -20%
+  expect(screen.getByText("-20.0%")).toBeInTheDocument();
+  expect(screen.queryByText("-50.0%")).toBeNull();
+  // pick augmented-tool → (5-10)/10 = -50%
+  await userEvent.click(screen.getByLabelText(/Δ vs baseline/i));
+  await userEvent.click(screen.getByRole("option", { name: "augmented-tool" }));
+  expect(screen.getByText("-50.0%")).toBeInTheDocument();
+  expect(screen.queryByText("-20.0%")).toBeNull();
+});
+
+test("no delta selector when there is only one non-baseline condition", () => {
+  render(<SummaryTable summary={summary} />); // baseline + augmented only
+  expect(screen.queryByLabelText(/Δ vs baseline/i)).toBeNull();
+  expect(screen.getByText("-60.0%")).toBeInTheDocument(); // still shows augmented's delta
 });
