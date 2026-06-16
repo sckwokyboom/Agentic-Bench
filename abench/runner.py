@@ -42,6 +42,31 @@ def default_batch_id() -> str:
     return _datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 
+def apply_run_subset(
+    exp: Experiment,
+    conditions: "list[str] | None",
+    repetitions: "int | None",
+) -> None:
+    """Restrict a run to a subset of conditions and/or override the repetition
+    count, MUTATING ``exp`` in place. Lets a caller run e.g. just one condition
+    x1 from a 4x3 experiment. ``None`` leaves that dimension untouched.
+
+    Raises ValueError on an unknown condition name, an empty selection, or a
+    non-positive repetition count — so the API layer can map it to a 400."""
+    if conditions is not None:
+        known = {c.name for c in exp.conditions}
+        unknown = [c for c in conditions if c not in known]
+        if unknown:
+            raise ValueError(f"unknown condition(s): {', '.join(unknown)}")
+        exp.conditions = [c for c in exp.conditions if c.name in conditions]
+        if not exp.conditions:
+            raise ValueError("no conditions selected")
+    if repetitions is not None:
+        if repetitions < 1:
+            raise ValueError("repetitions must be >= 1")
+        exp.repetitions = repetitions
+
+
 def compute_plan(exp: Experiment) -> list[tuple["Condition", int]]:
     """Build the (condition, rep) execution plan, applying isolation.shuffle_order."""
     plan = [(cond, rep) for cond in exp.conditions for rep in range(exp.repetitions)]

@@ -115,6 +115,18 @@ def test_delete_experiment(client):
     assert c.delete("/api/experiments/exp-a").status_code == 404
 
 
+def test_start_run_rejects_unknown_condition(tmp_path):
+    """A run requesting a condition the experiment doesn't have is a clean 400,
+    not a 500 or a silently-empty run. (Validated before any session starts.)"""
+    app = create_app(experiments_dir=tmp_path)
+    c = TestClient(app, raise_server_exceptions=False)
+    _scaffold_exp(tmp_path, "exp-a")  # has only `baseline`
+    r = c.post("/api/runs", json={"experiment_name": "exp-a",
+                                  "conditions": ["ghost"]})
+    assert r.status_code == 400, r.status_code
+    assert "ghost" in r.text
+
+
 def test_upload_yaml_returns_payload(client):
     c, _ = client
     yaml_text = """

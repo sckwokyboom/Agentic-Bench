@@ -7,6 +7,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import type { RJSFValidationError } from "@rjsf/utils";
 import ExperimentForm from "../components/ExperimentForm";
 import SavedExperimentCard from "../components/SavedExperimentCard";
+import RunOptionsDialog from "../components/RunOptionsDialog";
 import { type CustomEndpointInput } from "../components/CustomEndpointDialog";
 import ValidationPanel from "../components/ValidationPanel";
 import ReachabilityPanel from "../components/ReachabilityPanel";
@@ -51,6 +52,7 @@ export default function ExperimentEdit() {
   const [toastOpen, setToastOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const [reach, setReach] = useState<ValidateReachabilityResp | null>(null);
+  const [runOpen, setRunOpen] = useState(false);
 
   useEffect(() => { loadSchema().then(setSchema); }, []);
   useEffect(() => { if (exp.data && formData === null) setFormData(exp.data); }, [exp.data, formData]);
@@ -65,7 +67,7 @@ export default function ExperimentEdit() {
     setToastOpen(true);
   }
 
-  async function handleRun() {
+  function handleRun() {
     if (!name) return;
     // Gate-with-override: if a reachability test failed, confirm before a run.
     if (reach && !reach.reachable) {
@@ -74,9 +76,25 @@ export default function ExperimentEdit() {
         + `${reach.detail ? ": " + reach.detail : ""}). Run anyway?`);
       if (!ok) return;
     }
-    const { session_id } = await start.mutateAsync(name);
+    setRunOpen(true); // pick condition subset + reps before starting
+  }
+
+  async function doStart(opts: { conditions: string[]; repetitions: number }) {
+    if (!name) return;
+    setRunOpen(false);
+    const { session_id } = await start.mutateAsync({
+      experiment_name: name,
+      conditions: opts.conditions,
+      repetitions: opts.repetitions,
+    });
     navigate(`/runs/sessions/${session_id}`, { state: { experimentName: name } });
   }
+
+  const runConditions =
+    ((formData?.conditions as Array<{ name?: string }> | undefined) ?? [])
+      .map((c) => c?.name)
+      .filter((n): n is string => Boolean(n));
+  const runDefaultReps = Number(formData?.repetitions) || 1;
 
   async function handleAddEndpoint({ id, baseUrl, model, apiKey }: CustomEndpointInput) {
     const next = applyCustomEndpoint(formData ?? {}, { id, baseUrl, model });
@@ -113,6 +131,16 @@ export default function ExperimentEdit() {
             Run
           </Button>
         </Stack>
+        {runOpen && (
+          <RunOptionsDialog
+            open
+            conditions={runConditions}
+            defaultReps={runDefaultReps}
+            running={start.isPending}
+            onClose={() => setRunOpen(false)}
+            onStart={doStart}
+          />
+        )}
         {save.isError && (
           <Alert severity="error" sx={{ mb: 2 }}>
             Failed to save: {(save.error as Error)?.message ?? "unknown error"}
