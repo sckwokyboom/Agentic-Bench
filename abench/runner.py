@@ -7,6 +7,7 @@ import json
 import os
 import random
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -178,6 +179,32 @@ SUBAGENT_TOOLS = ("task",)
 # sandbox is the real network boundary and the cheating detector is the post-hoc
 # backstop. This removes the obvious, explicitly-network tool.
 NETWORK_TOOLS = ("webfetch",)
+
+
+def _reclaim_workdir_ownership(sandbox, workdir: str) -> None:
+    """Chown the run workdir back to the host user after a container run.
+
+    The agent runs as ROOT inside the sandbox, so any build artifacts it created
+    in the bind-mounted workdir (`build/`, `.gradle/`, `target/`) are root-owned
+    on the host. That blocks every host-side step that follows: gradle verify
+    fails before tests ("Unable to delete directory '<wd>/build/...'"), and
+    rmtree cleanup silently leaks them. Reclaim ownership via a throwaway root
+    container (`--entrypoint chown` bypasses the image's setup entrypoint).
+    Best-effort; NEVER raises. No-op when the agent ran on the host."""
+    if sandbox.mode != "container":
+        return
+    getuid = getattr(os, "getuid", None)
+    getgid = getattr(os, "getgid", None)
+    if getuid is None or getgid is None:  # non-POSIX host; container mode is Linux
+        return
+    try:
+        subprocess.run(
+            [sandbox.runtime, "run", "--rm", "--entrypoint", "chown",
+             "-v", f"{workdir}:{sandbox.workdir_mount}",
+             sandbox.image, "-R", f"{getuid()}:{getgid()}", sandbox.workdir_mount],
+            capture_output=True, timeout=120, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def _agent_tools_for(exp: Experiment, cond: Condition) -> dict[str, bool] | None:
@@ -459,6 +486,12 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
         # Record isolation nonce on the trace
         if nonce is not None:
             result.trace.isolation_nonce = nonce
+
+        # The agent ran as root in the sandbox; reclaim ownership of the workdir
+        # so the host-side diff/verify/cleanup below can manage its (otherwise
+        # root-owned) build artifacts. No-op in host mode.
+        if workdir is not None:
+            _reclaim_workdir_ownership(exp.opencode.sandbox, str(workdir))
 
         # ── Final diff + per-file summary ────────────────────────────
         patch = fx.diff_workdir(workdir)
