@@ -53,5 +53,14 @@ ENV PATH="/root/.opencode/bin:${PATH}"
 COPY docker/sandbox-entrypoint.sh /usr/local/bin/sandbox-entrypoint.sh
 RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh
 
+# Shell `impact` CLI on PATH: models instinctively run `bash impact` rather than
+# calling the opencode tool, so give them a real command. It reads the run's
+# .opencode/impact.json + the uncommitted diff and prints the tests covering each
+# changed method. Data-gated: inert (exits cleanly) when no .opencode/impact.json
+# is present, so it does NOTHING in baseline/augmented runs (no overlay) — only
+# the augmented-tool condition ships the config + .impact data, so the A/B holds.
+COPY docker/impact_cli.py /usr/local/bin/impact
+RUN chmod +x /usr/local/bin/impact
+
 WORKDIR /work
 ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint.sh"]
