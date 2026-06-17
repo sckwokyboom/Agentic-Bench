@@ -1,6 +1,12 @@
-# The sandbox image COPYes only docker/extra-ca/ — keep the build context
-# tiny (the legacy builder re-uploads the whole context on every build).
+# Keep the build context tiny (the legacy builder re-uploads it every build):
+# ignore everything, then re-include only what the sandbox Dockerfile COPYs from
+# docker/ — the extra-ca certs and any .sh/.py scripts (entrypoint, impact CLI).
+# The globs auto-include new scripts so a future COPY can't silently break the
+# build (as adding sandbox-entrypoint.sh / impact_cli.py did). __pycache__ etc.
+# stay excluded.
 *
 !docker
 docker/*
 !docker/extra-ca
+!docker/*.sh
+!docker/*.py
