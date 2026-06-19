@@ -35,15 +35,23 @@ def has_credential(provider: str) -> bool:
     return read_credential(provider) is not None
 
 
+# Bearer token used when a provider has NO key anywhere — for a no-auth personal/
+# local endpoint, which ignores it. opencode's openai-compatible provider needs
+# SOME apiKey or it errors "Failed to get the authorization header", so this
+# placeholder keeps a keyless endpoint working. A real auth endpoint rejects it
+# (401) — provide a real key for those. Not a secret.
+NO_KEY_PLACEHOLDER = "no-key-required"
+
+
 def run_env(providers) -> dict[str, str]:
     """``os.environ`` overlaid with auth.json keys for each provider whose
     ``api_key_env`` is not already set in the environment (OS env wins; auth.json
-    is the fallback). The value is placed in the env dict, never in argv."""
+    is the fallback). A provider with NO key anywhere gets ``NO_KEY_PLACEHOLDER``
+    so a no-auth endpoint still runs. The value is placed in the env dict, never
+    in argv."""
     env = os.environ.copy()
     for prov in providers:
         name = getattr(prov, "api_key_env", None)
         if name and not env.get(name):
-            key = read_credential(prov.id)
-            if key:
-                env[name] = key
+            env[name] = read_credential(prov.id) or NO_KEY_PLACEHOLDER
     return env
