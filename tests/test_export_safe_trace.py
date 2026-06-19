@@ -58,6 +58,9 @@ def test_safe_export_keeps_analysis_fields(tmp_path):
     assert bundle["n_traces"] == 1
     tr = bundle["traces"][0]
     assert tr["condition"] == "augmented" and tr["rep"] == 0
+    # first-class "stuck" outcome label flows through the safe trace (this
+    # fixture is non-looping -> False).
+    assert tr["stuck"] is False
     # tool calls + args preserved (the core of navigation analysis)
     assert tr["tool_calls_by_name"] == {"bash": 1, "grep": 1}
     assert tr["steps"][0]["args"]["command"].startswith("grep -rn putValue")

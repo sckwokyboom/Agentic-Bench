@@ -184,6 +184,10 @@ def safe_trace(trace: dict, manifest: dict, scr: Scrubber, *,
         "obs_tokens_by_tool": obs_by_tool,
         "finished": trace.get("finished"),
         "interrupted_reason": scr.text(trace.get("interrupted_reason")),
+        # First-class "stuck" outcome: the run was killed by the loop watchdog
+        # (agent repeated the same step with no progress). A label on the
+        # outcome only — never a change to the run itself.
+        "stuck": trace.get("interrupted_reason") == "looping",
         # Why the model's last turn ended + whether it actually touched source —
         # so a run that "finished" but trailed off (stop_reason="stop", no edits)
         # is distinguishable from a real attempt that failed tests.

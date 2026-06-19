@@ -163,6 +163,9 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "time_to_first_edit_s": ttfe,
         "finished": trace.finished,
         "interrupted_reason": trace.interrupted_reason,
+        # First-class "stuck" label: killed by the loop watchdog (repeated the
+        # same step with no progress). Outcome label only, not a run change.
+        "stuck": trace.interrupted_reason == "looping",
         "stop_reason": trace.stop_reason,
         "verify_status": trace.verify_status,
         "verify_command": trace.verify_command,

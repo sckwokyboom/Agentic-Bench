@@ -50,6 +50,10 @@ def list_runs(root_runs_dir: Path) -> list[dict]:
                 "rep": int(rep_dir.name.removeprefix("rep_")),
                 "finished": m.get("finished"),
                 "interrupted_reason": m.get("interrupted_reason"),
+                # killed by the loop watchdog; fall back to interrupted_reason
+                # for metrics.json written before the `stuck` field existed.
+                "stuck": bool(m.get("stuck")
+                              or m.get("interrupted_reason") == "looping"),
                 "stop_reason": m.get("stop_reason"),
                 "verify_status": m.get("verify_status"),
                 "success": m.get("success"),

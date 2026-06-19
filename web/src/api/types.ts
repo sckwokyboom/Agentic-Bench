@@ -31,6 +31,7 @@ export interface RunSummary {
   rep: number;
   finished: boolean;
   interrupted_reason: string | null;
+  stuck?: boolean;              // killed by the loop watchdog (agent repeated a step)
   stop_reason?: string | null;  // model's final finish reason (stop/length/error/…)
   verify_status: VerifyStatus | null;
   success: boolean | null;
@@ -68,6 +69,7 @@ export interface RunSummary {
 export interface ConditionSummary {
   name: string;
   runs: number;
+  stuck?: number;                   // # runs killed by the loop watchdog (looping)
   success_rate: number | null;
   tests_pass_rate?: number | null;  // mean passed/(passed+failed) over valid runs
   metrics: Record<string, { mean: number | null; median: number | null }>;
