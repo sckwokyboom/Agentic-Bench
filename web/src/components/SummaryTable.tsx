@@ -105,6 +105,21 @@ export default function SummaryTable({ summary }: Props) {
                 </TableCell>
               )}
             </TableRow>
+            {conditions.some((c) => (c.stuck ?? 0) > 0) && (
+              <TableRow hover>
+                <TableCell>
+                  <Tooltip title="Runs stopped by the loop watchdog — agent repeated the same step with no progress. Excluded from the rates above (interrupted runs are not 'valid').">
+                    <span>stuck (looping)</span>
+                  </Tooltip>
+                </TableCell>
+                {conditions.map((c) => (
+                  <TableCell key={c.name} align="right" sx={selectable}>
+                    {(c.stuck ?? 0) === 0 ? "—" : c.stuck}
+                  </TableCell>
+                ))}
+                {hasDelta && <TableCell />}
+              </TableRow>
+            )}
             {anyTpr && (
               <TableRow hover>
                 <TableCell>

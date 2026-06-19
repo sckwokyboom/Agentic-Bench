@@ -7,6 +7,7 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import GavelIcon from "@mui/icons-material/Gavel";
 import EditOffIcon from "@mui/icons-material/EditOff";
+import LoopIcon from "@mui/icons-material/Loop";
 import VerifyStatusChip from "./VerifyStatusChip";
 import { CHEATING_LABELS } from "./ValiditySignals";
 import { selectable } from "../theme";
@@ -108,6 +109,11 @@ export default function RunsTable({ rows, onOpen, reverify }: Props) {
                       + (r.stop_reason ? ` (model ended: ${r.stop_reason})` : "")
                     }>
                       <EditOffIcon color="warning" fontSize="small" />
+                    </Tooltip>
+                  )}
+                  {(r.stuck || r.interrupted_reason === "looping") && (
+                    <Tooltip title="Stopped by the loop watchdog — agent repeated the same step with no progress (stuck)">
+                      <LoopIcon color="warning" fontSize="small" titleAccess="stuck (looping)" />
                     </Tooltip>
                   )}
                 </Stack>

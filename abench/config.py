@@ -204,6 +204,18 @@ class OpenCodeCfg(BaseModel):
             "empty/0 disables it."
         ),
     )
+    repeat_limit: int = Field(
+        default=6,
+        title="Loop repeat limit",
+        description=(
+            "Kill a run whose agent repeats the SAME step this many times in a "
+            "row — a cycle of up to 3 steps (message / tool call) with IDENTICAL "
+            "full content. A looping agent is not idle (it keeps producing "
+            "output), so the idle timeout never catches it. Conservative: only "
+            "literally-identical, no-progress repeats trip it, so real iterative "
+            "work is never stopped. Empty/0 disables."
+        ),
+    )
     providers: list[ProviderCfg] = Field(
         default_factory=list,
         title="Custom providers",

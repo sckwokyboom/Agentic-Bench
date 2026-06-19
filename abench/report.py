@@ -83,8 +83,23 @@ def summary_json(root: Path) -> dict:
     mean = valid.groupby("condition")[NUMERIC].mean()
     median = valid.groupby("condition")[NUMERIC].median()
 
+    # Per-condition count of runs the loop watchdog killed (agent looping),
+    # from the FULL df — `valid` excludes interrupted runs, so a condition whose
+    # every run looped still surfaces its stuck count (and its row) below.
+    stuck_by_cond = (df[df["interrupted_reason"] == "looping"]
+                     .groupby("condition").size())
+
     conditions = []
-    for cond in mean.index:
+    # Iterate ALL conditions, not only those with valid runs, so an all-stuck
+    # condition (e.g. a loop-prone model) does not silently vanish.
+    for cond in sorted(df["condition"].unique()):
+        stuck = int(stuck_by_cond.get(cond, 0))
+        if cond not in mean.index:
+            conditions.append({
+                "name": str(cond), "runs": 0, "stuck": stuck,
+                "success_rate": None, "tests_pass_rate": None, "metrics": {},
+            })
+            continue
         sub = valid[valid["condition"] == cond]
         succ = sub["success"].dropna()
         success_rate = (
@@ -124,6 +139,7 @@ def summary_json(root: Path) -> dict:
         conditions.append({
             "name": str(cond),
             "runs": int(len(sub)),
+            "stuck": stuck,
             "success_rate": success_rate,
             "tests_pass_rate": tests_pass_rate,
             "metrics": metrics,

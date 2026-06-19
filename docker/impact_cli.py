@@ -20,8 +20,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-_MAX_TESTS = 40   # cap the per-method test list in the output
-_MAX_CLASSES = 8  # cap the test classes in the suggested gradle command
+_MAX_TESTS = 40    # cap the per-method test list in the output
+_MAX_CLASSES = 8   # cap the test classes in the suggested gradle command
+_MAX_SPECIFIC = 8  # cap the specific name-matched test methods in the suggestion
 
 
 def changed_lines(diff_text: str) -> dict[str, set[int]]:
@@ -74,6 +75,20 @@ def _test_class(test: str) -> str:
     return test.rsplit(".", 1)[0] if "." in test else test
 
 
+def _name_tokens(fqn: str) -> list[str]:
+    """Lowercased simple-name tokens that flag the genuinely relevant tests: the
+    changed method's own name and its innermost enclosing class
+    ("a.B$C$Inner.method" → ["method", "inner"])."""
+    cls, _, method = fqn.rpartition(".")
+    inner = cls.replace("$", ".").rsplit(".", 1)[-1] if cls else ""
+    return [t.lower() for t in (method, inner) if t]
+
+
+def _name_matches(test: str, tokens: list[str]) -> bool:
+    low = test.lower()
+    return any(tok in low for tok in tokens)
+
+
 def build_report(changes, methods, coverage, mutation) -> str:
     changed = methods_for(changes, methods)
     if not changed:
@@ -81,24 +96,42 @@ def build_report(changes, methods, coverage, mutation) -> str:
                 "(edit a tracked method, or there's no coverage for it).\n")
     lines = ["# impact — tests affected by your uncommitted changes", ""]
     classes: dict[str, int] = {}
+    matched_tests: list[str] = []  # name-matched coverers across all changed methods
     for fqn in changed:
         covers = list(coverage.get(fqn, []))
         blind = list(mutation.get(fqn, [])) if isinstance(mutation, dict) else []
+        # The coverage list is Tier-2 — ANY test that executes the method — so for
+        # a broadly-covered method the truly relevant tests are buried. Float the
+        # ones whose name echoes the method/innermost class to the top; that is
+        # what a capable agent ends up grepping for by hand.
+        tokens = _name_tokens(fqn)
+        named = [t for t in covers if _name_matches(t, tokens)]
+        ordered = named + [t for t in covers if t not in named]
+        for t in named:
+            if t not in matched_tests:
+                matched_tests.append(t)
         lines.append(f"## {fqn}  (changed)")
         if covers:
+            hint = " — name-matched first" if named else ""
             lines.append(f"{len(covers)} tests cover this method "
-                         "(Tier-2 coverers — run these to verify):")
-            for t in covers[:_MAX_TESTS]:
-                lines.append(f"  - {t}")
+                         f"(Tier-2 coverers{hint}; run these to verify):")
+            for t in ordered[:_MAX_TESTS]:
+                tag = "   <- name match" if t in named else ""
+                lines.append(f"  - {t}{tag}")
                 classes[_test_class(t)] = classes.get(_test_class(t), 0) + 1
-            if len(covers) > _MAX_TESTS:
-                lines.append(f"  + {len(covers) - _MAX_TESTS} more")
+            if len(ordered) > _MAX_TESTS:
+                lines.append(f"  + {len(ordered) - _MAX_TESTS} more")
         else:
             lines.append("(no coverage data for this method)")
         if blind:
             lines.append(f"BLIND SPOTS (changed lines no test detects): {blind}")
         lines.append("")
-    if classes:
+    if matched_tests:
+        cmd = " ".join(f"--tests '{t}'" for t in matched_tests[:_MAX_SPECIFIC])
+        lines += ["Focused run — tests whose name targets the change "
+                  "(most specific; run these FIRST):",
+                  f"  ./gradlew test {cmd}", ""]
+    elif classes:
         top = sorted(classes, key=lambda c: -classes[c])[:_MAX_CLASSES]
         cmd = " ".join(f"--tests '{c}'" for c in top)
         lines += ["Focused run of the affected test classes:",

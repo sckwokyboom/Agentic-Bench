@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
@@ -186,6 +187,54 @@ def _is_stalled(last_activity: float, idle_timeout_s: int | None, now: float) ->
     if idle_timeout_s is None or idle_timeout_s <= 0:
         return False
     return (now - last_activity) > idle_timeout_s
+
+
+_MAX_LOOP_CYCLE = 3  # detect repeating cycles up to this many steps long
+
+
+def _step_signature(event: dict) -> str | None:
+    """A stable, FULL-content signature of one agent 'step' (assistant text, a
+    completed/failed tool call, or reasoning), or None for events that are not a
+    step (boundaries, in-flight tool states, empty text). Uses the full content
+    — not the truncated live summary — so only genuinely-identical repeats
+    collide."""
+    part = event.get("part") or {}
+    if not isinstance(part, dict):
+        return None
+    ptype = part.get("type")
+    if ptype in ("text", "reasoning"):
+        text = (part.get("text") or "").strip()
+        return f"{ptype}:{text}" if text else None
+    if ptype == "tool":
+        state = part.get("state") or {}
+        if state.get("status") not in ("completed", "error"):
+            return None  # count a tool once, on its terminal event
+        name = part.get("tool") or "?"
+        inp = json.dumps(state.get("input") or {}, sort_keys=True, default=str)
+        return f"tool:{name}:{inp}"
+    return None
+
+
+def _is_looping(signatures, repeat_limit: int, max_cycle: int = _MAX_LOOP_CYCLE) -> bool:
+    """True when the TAIL of ``signatures`` is ``repeat_limit`` or more
+    consecutive repeats of a cycle of length 1..max_cycle — i.e. the agent is
+    repeating the same step(s) with no progress (idle_timeout won't catch this:
+    the agent IS producing output). Conservative: identical full-content
+    signatures only, so genuine work (content changes each step) is never
+    flagged. ``repeat_limit <= 0`` disables detection."""
+    if repeat_limit <= 0:
+        return False
+    sigs = list(signatures)
+    n = len(sigs)
+    for cyc in range(1, max_cycle + 1):
+        need = cyc * repeat_limit
+        if n < need:
+            continue
+        tail = sigs[n - need:]
+        block = tail[:cyc]
+        if all(tail[i:i + cyc] == block for i in range(0, need, cyc)):
+            return True
+    return False
 
 
 _ENV_REF = re.compile(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -395,6 +444,13 @@ class RealOpenCodeClient:
         # line). A one-element list so the reader threads can update it under the
         # GIL without nonlocal. Drives the idle (no-progress) watchdog below.
         last_activity = [started_at]
+        # Loop watchdog: a looping agent keeps producing output (so the idle
+        # watchdog never fires) but repeats the same step. The reader thread is
+        # the SOLE writer of recent_sigs + loop_flag; the poll loop only reads
+        # the flag (atomic, like last_activity) — no cross-thread deque race.
+        repeat_limit = self._cfg.repeat_limit
+        recent_sigs: "deque[str]" = deque(maxlen=max(_MAX_LOOP_CYCLE * repeat_limit, 1))
+        loop_flag = [False]
 
         def _read_stdout() -> None:
             """Read stdout line by line; parse JSONL; call on_event live and
@@ -410,6 +466,12 @@ class RealOpenCodeClient:
                 except json.JSONDecodeError:
                     continue  # forwards-compat: skip unparseable lines
                 raw_events.append(event)
+                if repeat_limit > 0:
+                    sig = _step_signature(event)
+                    if sig is not None:
+                        recent_sigs.append(sig)
+                        if _is_looping(recent_sigs, repeat_limit):
+                            loop_flag[0] = True
                 summary = _summarize_event(event)
                 if summary is not None:
                     readable(summary)
@@ -458,6 +520,16 @@ class RealOpenCodeClient:
                          f"as stalled and stopping it")
                 proc.kill()
                 interrupted_reason = "stalled"
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+            if loop_flag[0]:
+                readable(f"[abench] agent repeated the same step >= {repeat_limit}x "
+                         f"with no progress — treating as a loop and stopping the run")
+                proc.kill()
+                interrupted_reason = "looping"
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:

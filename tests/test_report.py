@@ -68,6 +68,38 @@ def test_summary_json_means_and_deltas(tmp_path: Path):
     assert out["deltas"]["n_steps"] == -60.0
 
 
+def test_summary_json_counts_stuck_per_condition(tmp_path: Path):
+    root = tmp_path / "runs"
+    ok = {"interrupted_reason": None, "success": True}
+    loop = {"interrupted_reason": "looping", "success": None}
+    _write_summary_run(root, "baseline", 0, {**ok, "n_steps": 10})
+    _write_summary_run(root, "baseline", 1, {**ok, "n_steps": 12})
+    _write_summary_run(root, "augmented", 0, {**ok, "n_steps": 8})
+    _write_summary_run(root, "augmented", 1, {**loop, "n_steps": 50})
+    _write_summary_run(root, "augmented", 2, {**loop, "n_steps": 50})
+
+    conds = {c["name"]: c for c in report.summary_json(root)["conditions"]}
+    assert conds["baseline"]["stuck"] == 0
+    assert conds["augmented"]["stuck"] == 2
+    # `runs` counts only the valid (non-interrupted) runs; stuck is separate.
+    assert conds["augmented"]["runs"] == 1
+
+
+def test_summary_json_all_stuck_condition_still_appears(tmp_path: Path):
+    """A condition whose EVERY run looped has no valid runs, but must NOT vanish
+    from the aggregate — that is exactly the loop-prone-model case to surface."""
+    root = tmp_path / "runs"
+    _write_summary_run(root, "baseline", 0, {"interrupted_reason": None, "success": True, "n_steps": 10})
+    _write_summary_run(root, "loopy", 0, {"interrupted_reason": "looping", "n_steps": 50})
+    _write_summary_run(root, "loopy", 1, {"interrupted_reason": "looping", "n_steps": 50})
+
+    conds = {c["name"]: c for c in report.summary_json(root)["conditions"]}
+    assert "loopy" in conds
+    assert conds["loopy"]["stuck"] == 2
+    assert conds["loopy"]["runs"] == 0
+    assert conds["loopy"]["metrics"] == {}
+
+
 def test_summary_json_tests_pass_rate_from_summed_verify_counts(tmp_path: Path):
     """Condition tests_pass_rate = Σpassed / Σ(passed+failed) over valid runs,
     NOT a mean of the derived per-run field. A run failing 2/2200 pulls it < 1."""

@@ -13,8 +13,9 @@ IMPORTANT — timing: `impact` reads your DIFF, so run it AFTER you have edited 
 method. Before any edit it has nothing to report.
 
 Work in this loop:
-1. Edit the body of `putValue`.
-2. Run `impact` → it lists the tests that cover your change.
+1. Edit the body of the target method.
+2. Run `impact` → it lists the tests that cover your change (most-relevant,
+   name-matched tests first, with a ready-to-paste focused `./gradlew` command).
 3. Run those (or their classes), e.g. `./gradlew test --tests 'picocli.HelpTest'`,
    and fix what fails.
 4. Re-run `impact` after each further edit to re-check which tests are affected.

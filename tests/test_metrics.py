@@ -36,6 +36,14 @@ def _trace():
     )
 
 
+def test_extract_flags_stuck_only_on_looping():
+    base = dict(started_at=0.0, ended_at=1.0, steps=[])
+    assert extract(Trace(**base, interrupted_reason="looping"), "", _cfg())["stuck"] is True
+    for reason in (None, "timeout", "stalled", "rate_limit", "cancelled"):
+        m = extract(Trace(**base, interrupted_reason=reason), "", _cfg())
+        assert m["stuck"] is False, reason
+
+
 def test_extract_counts_metrics():
     patch = (
         "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n"
