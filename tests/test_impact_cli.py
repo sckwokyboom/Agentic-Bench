@@ -51,3 +51,41 @@ def test_build_report_lists_coverers_and_notes_missing_mutation():
 def test_build_report_handles_no_changed_methods():
     report = impact_cli.build_report({"src/Unknown.java": {1}}, {}, {}, {})
     assert "no " in report.lower()  # a clear "nothing matched" message, not a crash
+
+
+def test_build_report_ranks_name_matching_tests_first():
+    """A coverage list is Tier-2 (anything that *executes* the method), so for a
+    broadly-covered method the genuinely relevant tests — those whose NAME echoes
+    the method or its innermost class — are buried. Surface them first; that is
+    what a capable agent greps for by hand."""
+    methods = {"picocli.CommandLine$Help$TextTable.putValue":
+               {"file": "src/main/java/picocli/CommandLine.java", "start": 10, "end": 20}}
+    coverage = {"picocli.CommandLine$Help$TextTable.putValue": [
+        "picocli.AbbreviationMatcherTest.testAbbrevOptions",                 # incidental
+        "picocli.HelpTest.testTextTablePutValue_DisallowsInvalidRowIndex",   # matches method + class
+        "picocli.ArgGroupTest.testMultipleGroups",                           # incidental
+    ]}
+    report = impact_cli.build_report(
+        {"src/main/java/picocli/CommandLine.java": {12}}, methods, coverage, {})
+    listed = [l for l in report.splitlines() if l.strip().startswith("- ")]
+    idx_match = next(i for i, l in enumerate(listed) if "testTextTablePutValue" in l)
+    idx_incidental = next(i for i, l in enumerate(listed) if "testAbbrevOptions" in l)
+    assert idx_match < idx_incidental
+
+
+def test_build_report_suggests_specific_test_methods_when_name_matches():
+    """When a coverer's name matches the changed method, the focused command must
+    target that specific test method (Class.method), not just the whole class."""
+    methods = {"pkg.Cls.bar": {"file": "src/X.java", "start": 1, "end": 5}}
+    coverage = {"pkg.Cls.bar": ["pkg.OtherTest.testUnrelated", "pkg.ClsTest.testBar"]}
+    report = impact_cli.build_report({"src/X.java": {3}}, methods, coverage, {})
+    assert "--tests 'pkg.ClsTest.testBar'" in report
+
+
+def test_build_report_falls_back_to_classes_when_no_name_match():
+    """With no name-matching coverer, keep the prior class-level suggestion."""
+    methods = {"pkg.Cls.bar": {"file": "src/X.java", "start": 1, "end": 5}}
+    coverage = {"pkg.Cls.bar": ["pkg.AlphaTest.testOne", "pkg.AlphaTest.testTwo"]}
+    report = impact_cli.build_report({"src/X.java": {3}}, methods, coverage, {})
+    assert "--tests 'pkg.AlphaTest'" in report          # class-level
+    assert "pkg.AlphaTest.testOne'" not in report       # not a specific method
