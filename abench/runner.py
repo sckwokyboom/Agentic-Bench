@@ -152,14 +152,23 @@ def _preflight_env(exp: Experiment) -> None:
     refs = _required_env_refs(exp)
     missing_env = {n: w for n, w in refs.items() if not os.environ.get(n)}
 
-    # A provider key in opencode auth.json satisfies its api_key_env even when
-    # the OS env var is unset (the runner forwards it from auth.json into the
-    # run/probe subprocess env).
+    # A provider's API key is OPTIONAL — it may be in opencode auth.json
+    # (forwarded from there into the run/probe subprocess), or the endpoint may
+    # need NO auth at all (a personal/local server). A missing provider key must
+    # NOT block the run: run_env then supplies a harmless placeholder so
+    # opencode's openai-compatible provider still builds. So drop EVERY provider
+    # key from the blocking set; just warn when there is genuinely no key, so a
+    # forgotten key for an auth endpoint is still visible (it surfaces as a 401
+    # at request time). cache_mounts / overlay_env vars are NOT optional and
+    # still block below.
     from . import credentials
     for prov in exp.opencode.providers:
-        if (prov.api_key_env and prov.api_key_env in missing_env
-                and credentials.has_credential(prov.id)):
+        if prov.api_key_env and prov.api_key_env in missing_env:
             del missing_env[prov.api_key_env]
+            if not credentials.has_credential(prov.id):
+                _log(f"[abench] WARN provider '{prov.id}' has no API key in env or "
+                     f"auth.json — proceeding without auth (a no-auth endpoint, or "
+                     f"set a key to authenticate this provider)")
 
     lib_refs = _required_lib_refs(exp)
     registry = libraries.load_registry()

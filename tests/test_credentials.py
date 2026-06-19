@@ -49,3 +49,13 @@ def test_run_env_os_env_wins(tmp_path, monkeypatch):
     _write_auth(tmp_path, {"deepseek": {"type": "api", "key": "sk-fromauth"}})
     env = credentials.run_env([_Prov("deepseek", "DEEPSEEK_API_KEY")])
     assert env["DEEPSEEK_API_KEY"] == "sk-fromenv"
+
+
+def test_run_env_supplies_placeholder_when_no_key(tmp_path, monkeypatch):
+    """A no-auth custom endpoint (no key in OS env OR auth.json) must still get a
+    NON-EMPTY api_key_env value, so opencode's openai-compatible provider does not
+    fail with 'authorization header' — a no-auth endpoint simply ignores it."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))   # auth.json dir has no entry
+    monkeypatch.delenv("MYEP_API_KEY", raising=False)
+    env = credentials.run_env([_Prov("myep", "MYEP_API_KEY")])
+    assert env.get("MYEP_API_KEY")   # non-empty placeholder, not unset
