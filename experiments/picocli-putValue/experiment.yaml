@@ -26,8 +26,14 @@ opencode:
   sandbox:
     mode: container
     cache_mounts:
+      # GT's opencode tools (read-only; the entrypoint copies them in).
       - "{lib:graph-tipper}:/opt/graph-tipper:ro"
-      - "{env:HOME}/.gradle:/root/.gradle:ro"
+      # NOTE: do NOT mount the host ~/.gradle here. The Gradle cache is baked
+      # into the sandbox image (docker/Dockerfile.sandbox, gradle-warm stage),
+      # WRITABLE — so `./gradlew test` runs fully offline with no config. A
+      # read-only `…/.gradle:ro` mount re-breaks the wrapper (it must write its
+      # lock + unpack the distribution: "…gradle-8.14-bin.zip.lck (Read-only
+      # file system)") and would shadow the baked cache.
 
 conditions:
   - {name: baseline,          augmentation: null, tools: []}
