@@ -23,12 +23,11 @@
 
 # ── Stage 1: warm the Gradle cache. Network is ON; this stage is DISCARDED. ──
 # Built against the STRIPPED fixture (the stub, NOT the solution), so even the
-# transient build context carries no reference code. Compiling + running its
-# tests downloads the wrapper distribution, every plugin, and all compile+test
-# dependencies across all picocli modules. The tests FAIL (the stub throws) —
-# irrelevant; we only want the downloads. The final image copies only the
-# resulting ~/.gradle, with the build cache stripped so no compiled task output
-# (which could embed code) can ride along.
+# transient build context carries no reference code. COMPILING its tests
+# (testClasses — we do NOT run them) downloads the wrapper distribution, every
+# plugin, and the compile/test dependencies across all picocli modules. The
+# final image copies only the resulting ~/.gradle, with the build cache stripped
+# so no compiled task output (which could embed code) can ride along.
 FROM eclipse-temurin:21-jdk AS gradle-warm
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends git unzip ca-certificates \
@@ -45,17 +44,21 @@ RUN update-ca-certificates && \
     done
 COPY experiments/picocli-putValue/stripped/ /warm/
 WORKDIR /warm
+# Warm the cache by COMPILING (not running) main + every module's tests:
+# `testClasses` downloads the wrapper distribution, all plugins, and the
+# compile/test dependency jars. We must NOT run `test` — the stub throws, so
+# tests would FAIL and abort the image build; `testClasses` on the stub compiles
+# cleanly and exits 0. Any test-runtime-only dep downloads at run time (the
+# container has network). --no-build-cache so no compiled task output is cached;
+# then drop the daemon + any residual build cache so nothing that could embed
+# code rides into the final image.
+# Keep this ONE shell line — no inline '#' comments inside a RUN, they interact
+# badly with '\' continuations (that mangled the previous attempt).
 RUN chmod +x ./gradlew \
     && git init -q && git add -A \
     && git -c user.email=warm@local -c user.name=warm commit -qm warm \
-    # Resolve + download EVERYTHING the tests need (dist, plugins, all deps).
-    # --no-build-cache: never store compiled task outputs in ~/.gradle.
-    # '|| true': the stub makes tests fail; we only care about the downloads.
-    && (./gradlew --no-daemon --no-build-cache test --continue || true) \
-    # Drop anything that could carry compiled code or stale locks.
-    && rm -rf /root/.gradle/caches/build-cache-* \
-              /root/.gradle/caches/*/executionHistory \
-              /root/.gradle/daemon /root/.gradle/.tmp /root/.gradle/notifications
+    && ./gradlew --no-daemon --no-build-cache testClasses \
+    && rm -rf /root/.gradle/caches/build-cache-* /root/.gradle/daemon /root/.gradle/.tmp /root/.gradle/notifications
 
 # ── Stage 2: the sandbox image (toolchain + opencode + the warm cache). ──
 FROM eclipse-temurin:21-jdk
