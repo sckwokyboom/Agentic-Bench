@@ -13,6 +13,8 @@ def test_trace_with_turn_info_and_verify_and_diff_roundtrips():
 
     trace = Trace(
         finished=True,
+        model="devstral-small-2507",
+        provider="mistral",
         turns=[
             TurnInfo(
                 message_id="msg_1",
@@ -56,6 +58,7 @@ def test_trace_with_turn_info_and_verify_and_diff_roundtrips():
     assert restored.verify_passed_count == 142
     assert restored.final_diff_summary.total_added == 6
     assert restored.isolation_nonce == "abc123def456"
+    assert restored.model == "devstral-small-2507" and restored.provider == "mistral"
 
 
 def test_trace_service_error_and_sensitivity_fields_roundtrip():

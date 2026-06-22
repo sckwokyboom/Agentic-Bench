@@ -65,6 +65,16 @@ class Trace:
     tokens_reasoning: int | None = None
     cache_read: int | None = None
     cache_write: int | None = None
+
+    # The model + provider that ACTUALLY served the run, read from the opencode
+    # session export (info.model = {id, providerID}). Ground truth: the configured
+    # experiment model can be overridden at runtime (a server-side YAML, an
+    # opencode default), so this records what really ran rather than what was
+    # requested. Falls back to the configured model when the session export
+    # didn't echo one (some OpenAI-compatible endpoints don't).
+    model: str | None = None
+    provider: str | None = None
+
     finished: bool = False
     interrupted_reason: str | None = None
     # Why the model's final turn ended (opencode/AI-SDK finish reason of the last

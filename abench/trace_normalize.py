@@ -142,6 +142,8 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
     tokens_reasoning: int | None = None
     cache_read: int | None = None
     cache_write: int | None = None
+    model: str | None = None
+    provider: str | None = None
     if raw_session is not None:
         info = raw_session.get("info", {})
         tokens = info.get("tokens", {})
@@ -152,6 +154,12 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
         cache_read = cache.get("read")
         cache_write = cache.get("write")
         cost = info.get("cost")
+        # The resolved model that actually served the session — info.model is
+        # {id, providerID, variant}. Ground truth over the requested model.
+        m = info.get("model")
+        if isinstance(m, dict):
+            model = m.get("id")
+            provider = m.get("providerID")
 
     trace = Trace(
         steps=steps,
@@ -162,6 +170,8 @@ def normalize(raw_events: list[dict], raw_session: dict | None) -> Trace:
         cache_read=cache_read,
         cache_write=cache_write,
         cost=cost,
+        model=model,
+        provider=provider,
         # The final turn's finish reason — the last step-finish that carried one.
         # (started_at/ended_at/finished/interrupted_reason: caller's responsibility.)
         stop_reason=next((t.reason for t in reversed(turns) if t.reason), None),
