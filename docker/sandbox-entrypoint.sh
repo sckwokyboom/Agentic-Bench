@@ -17,4 +17,11 @@ if [ -d "$GT_TOOLS" ]; then
     done
     echo "[sandbox-entrypoint] installed $n GT OpenCode tool(s) into $DEST" >&2
 fi
+
+# The run workdir is bind-mounted from the host (owned by the host uid), so the
+# container's root user trips git's "dubious ownership" guard. That would make
+# BOTH the agent's git and the `impact` tool's `git diff HEAD` fail (impact would
+# silently see no changes). Trust any workdir so git just works.
+git config --global --add safe.directory '*' 2>/dev/null || true
+
 exec "$@"

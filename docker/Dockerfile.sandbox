@@ -1,18 +1,64 @@
+# ─────────────────────────────────────────────────────────────────────────────
 # Sandbox image for abench container runs (opencode.sandbox.mode = "container").
 #
-# Carries ONLY the toolchain + opencode — never the original/reference sources,
-# so the agent (which sees only the bind-mounted run workdir) cannot read the
-# solution off disk. Verify still runs on the host.
+# Carries the toolchain + opencode + a PRE-WARMED, WRITABLE Gradle cache — but
+# NEVER the original/reference solution. The agent sees only the bind-mounted run
+# workdir, so it cannot read the solution off disk. Verify still runs on the host.
 #
-# Build (from repo root):
+# WHY the cache is BAKED IN (not mounted): a read-only `…/.gradle:ro` mount makes
+# `./gradlew` fail — the wrapper must WRITE its lock + unpack the distribution
+# (observed: `/root/.gradle/wrapper/dists/…/gradle-8.14-bin.zip.lck (Read-only
+# file system)`), so the agent can't run tests and falls back to hand-compiling
+# (→ false "all tests pass"). A baked WRITABLE warm cache means `./gradlew test`
+# works fully offline with ZERO per-run config — UI-launched experiments "just
+# work" and the agent gets a real, trustworthy test loop. No cache_mounts / no
+# GRADLE_* env needed in the experiment.
+#
+# Build (from repo root; network required AT BUILD time to warm the cache):
 #   docker build -t abench-sandbox:latest -f docker/Dockerfile.sandbox .
 # Then set in the experiment:  opencode.sandbox.mode: container
-#
-# Tip: pre-warm the dependency cache so runs don't re-download. Either bake it
-# here, or mount a warmed host cache read-only via opencode.sandbox.cache_mounts,
-# e.g. "/home/me/.gradle:/root/.gradle:ro".
+# JDK is 21 to match the host verify (so the agent's in-container test results
+# match the final verdict — no JDK-version confound).
+# ─────────────────────────────────────────────────────────────────────────────
 
-FROM eclipse-temurin:17-jdk
+# ── Stage 1: warm the Gradle cache. Network is ON; this stage is DISCARDED. ──
+# Built against the STRIPPED fixture (the stub, NOT the solution), so even the
+# transient build context carries no reference code. Compiling + running its
+# tests downloads the wrapper distribution, every plugin, and all compile+test
+# dependencies across all picocli modules. The tests FAIL (the stub throws) —
+# irrelevant; we only want the downloads. The final image copies only the
+# resulting ~/.gradle, with the build cache stripped so no compiled task output
+# (which could embed code) can ride along.
+FROM eclipse-temurin:21-jdk AS gradle-warm
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends git unzip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+# Same extra/custom root CAs as the final stage, so Gradle's HTTPS downloads
+# (wrapper distribution + Maven Central) succeed behind a TLS-intercepting proxy
+# (e.g. a corporate WSL2 host). No-op when docker/extra-ca/ has no *.crt.
+COPY docker/extra-ca/ /usr/local/share/ca-certificates/extra/
+RUN update-ca-certificates && \
+    for f in /usr/local/share/ca-certificates/extra/*.crt; do \
+        [ -e "$f" ] || continue; \
+        keytool -importcert -noprompt -cacerts -storepass changeit \
+            -alias "extra-$(basename "$f")" -file "$f" || true; \
+    done
+COPY experiments/picocli-putValue/stripped/ /warm/
+WORKDIR /warm
+RUN chmod +x ./gradlew \
+    && git init -q && git add -A \
+    && git -c user.email=warm@local -c user.name=warm commit -qm warm \
+    # Resolve + download EVERYTHING the tests need (dist, plugins, all deps).
+    # --no-build-cache: never store compiled task outputs in ~/.gradle.
+    # '|| true': the stub makes tests fail; we only care about the downloads.
+    && (./gradlew --no-daemon --no-build-cache test --continue || true) \
+    # Drop anything that could carry compiled code or stale locks.
+    && rm -rf /root/.gradle/caches/build-cache-* \
+              /root/.gradle/caches/*/executionHistory \
+              /root/.gradle/daemon /root/.gradle/.tmp /root/.gradle/notifications
+
+# ── Stage 2: the sandbox image (toolchain + opencode + the warm cache). ──
+FROM eclipse-temurin:21-jdk
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -33,7 +79,8 @@ RUN update-ca-certificates && \
     done; echo "[extra-ca] registered $n extra cert(s)"
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
-# Gradle (projects shipping a ./gradlew wrapper will use their own version).
+# System Gradle for projects that ship NO wrapper. picocli uses its own
+# ./gradlew, whose distribution is already in the baked cache copied below.
 ARG GRADLE_VERSION=8.7
 RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip \
     && unzip -q /tmp/gradle.zip -d /opt \
@@ -47,6 +94,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && rm -rf /var/lib/apt/lists/* \
     && (npm install -g opencode-ai || curl -fsSL https://opencode.ai/install | bash)
 ENV PATH="/root/.opencode/bin:${PATH}"
+
+# Pre-warmed, WRITABLE Gradle cache (wrapper distribution + plugins + all
+# compile/test dependency jars; NO sources, NO build cache). This is what lets
+# `./gradlew test` run fully offline with no mount and no env — so the agent has
+# a real test loop and UI runs need zero extra config.
+COPY --from=gradle-warm /root/.gradle /root/.gradle
 
 # Install GT's OpenCode tools at container start from the mounted GT (no-op if
 # GT isn't mounted). Keeps GT the single source of truth — no vendored copy.

@@ -152,7 +152,13 @@ class SandboxCfg(BaseModel):
         title="Network",
         description=(
             "Value for the runtime's --network (e.g. 'none' to block all egress). "
-            "Leave empty for the default so the model endpoint stays reachable."
+            "Leave empty for the default so the model endpoint stays reachable. "
+            "BY DESIGN the container has network (the agent's opencode must reach "
+            "the model API, and a real dev env can install tools/deps). Isolation "
+            "against fetching the solution is therefore by DETECTION (the cheating "
+            "detector + grounding guard), not network-blocking. The baked Gradle "
+            "cache (Dockerfile.sandbox) only pre-populates the pinned toolchain; "
+            "it never blocks the agent from downloading a different gradle/deps."
         ),
     )
     env_passthrough: list[str] = Field(

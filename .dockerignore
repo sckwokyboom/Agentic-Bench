@@ -1,6 +1,10 @@
 # Keep the build context tiny (the legacy builder re-uploads it every build):
-# ignore everything, then re-include only what the sandbox Dockerfile COPYs from
-# docker/ — the extra-ca certs and any .sh/.py scripts (entrypoint, impact CLI).
+# ignore everything, then re-include only what the sandbox Dockerfile COPYs:
+#   - docker/ — the extra-ca certs and any .sh/.py scripts (entrypoint, impact CLI)
+#   - experiments/picocli-putValue/stripped/ — the STUB fixture, used ONLY by the
+#     discarded gradle-warm stage to download deps (the warmed ~/.gradle is what
+#     ends up in the image; the stub source does NOT). The original/reference
+#     solution is NEVER included in the context.
 # The globs auto-include new scripts so a future COPY can't silently break the
 # build (as adding sandbox-entrypoint.sh / impact_cli.py did). __pycache__ etc.
 # stay excluded.
@@ -10,3 +14,10 @@ docker/*
 !docker/extra-ca
 !docker/*.sh
 !docker/*.py
+# Build context for the gradle-warm stage: ONLY the stripped (stub) fixture.
+!experiments
+experiments/*
+!experiments/picocli-putValue
+experiments/picocli-putValue/*
+!experiments/picocli-putValue/stripped
+!experiments/picocli-putValue/stripped/**
