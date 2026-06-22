@@ -3,5 +3,6 @@
   "methods": "../.impact/methods.json",
   "coverage": "../.impact/coverage.json",
   "mutation": "../.impact/mutation.json",
-  "total_tests": 2234
+  "total_tests": 2234,
+  "test_command": "./gradlew :test"
 }
