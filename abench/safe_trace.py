@@ -176,6 +176,11 @@ def safe_trace(trace: dict, manifest: dict, scr: Scrubber, *,
     return {
         "condition": manifest.get("condition"),
         "rep": manifest.get("rep"),
+        # The model/provider that actually served the run (session ground truth,
+        # else the configured fallback) — so a safe trace is self-describing and
+        # results can never be misattributed to the wrong model.
+        "model": scr.text(trace.get("model")),
+        "provider": scr.text(trace.get("provider")),
         "duration_s": duration,
         "n_steps": len(steps),
         "n_tool_calls": sum(by_name.values()),

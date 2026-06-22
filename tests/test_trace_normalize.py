@@ -177,3 +177,22 @@ def test_normalize_captures_reasoning_and_cache_tokens():
     assert tr.tokens_in == 100 and tr.tokens_out == 20
     assert tr.tokens_reasoning == 5
     assert tr.cache_read == 80 and tr.cache_write == 12
+
+
+def test_normalize_captures_model_and_provider_from_session(events, session):
+    """info.model = {id, providerID} is the model that ACTUALLY served the run
+    (the requested/configured model can be overridden at runtime). normalize()
+    must surface it so a trace is self-describing by model — the golden fixture
+    ran on mistral/devstral-small-2507."""
+    from abench.trace_normalize import normalize
+    trace = normalize(events, session)
+    assert trace.model == session["info"]["model"]["id"]             # devstral-small-2507
+    assert trace.provider == session["info"]["model"]["providerID"]  # mistral
+
+
+def test_normalize_without_session_leaves_model_none(events):
+    """No session export → model/provider stay None; opencode_client then
+    backfills the configured model so the field is never blank downstream."""
+    from abench.trace_normalize import normalize
+    trace = normalize(events, None)
+    assert trace.model is None and trace.provider is None

@@ -15,6 +15,7 @@ def _seed(tmp_path: Path) -> Path:
     (rd / "trace.json").write_text(json.dumps({
         "started_at": 1000.0, "ended_at": 1100.0, "finished": True,
         "interrupted_reason": None,
+        "model": "devstral-small-2507", "provider": "mistral",
         "isolation_nonce": "NONCE9", "message_id": "msg_SECRET",
         "tokens_in": 1000, "tokens_out": 200,
         "n_service_errors": 1,
@@ -58,6 +59,9 @@ def test_safe_export_keeps_analysis_fields(tmp_path):
     assert bundle["n_traces"] == 1
     tr = bundle["traces"][0]
     assert tr["condition"] == "augmented" and tr["rep"] == 0
+    # model/provider make the safe trace self-describing (so a result can never
+    # be misattributed to the wrong model); a model id is not sensitive → kept verbatim
+    assert tr["model"] == "devstral-small-2507" and tr["provider"] == "mistral"
     # first-class "stuck" outcome label flows through the safe trace (this
     # fixture is non-looping -> False).
     assert tr["stuck"] is False

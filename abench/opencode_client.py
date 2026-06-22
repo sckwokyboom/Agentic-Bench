@@ -608,6 +608,11 @@ class RealOpenCodeClient:
 
         # ── Build and return trace ────────────────────────────────────────
         trace = normalize(raw_events, raw_session)
+        # The session export's info.model is ground truth; when it's absent
+        # (some OpenAI-compatible endpoints don't echo it), record the model the
+        # run was configured with so the trace is never blank on this field.
+        if not trace.model:
+            trace.model = model
         trace.started_at = started_at
         trace.ended_at = ended_at
         trace.finished = interrupted_reason is None
