@@ -347,8 +347,22 @@ def run_experiment(
             f"[abench] ───── run {idx}/{total}: condition={cond.name} rep={rep} ─────"
         )
         t_run = time.time()
-        _run_one(exp, cond, rep, root, client, mcfg, overlay_env=overlay_env,
-                 cancel_event=cancel_event, idx=idx, total=total, progress=emit)
+        try:
+            _run_one(exp, cond, rep, root, client, mcfg, overlay_env=overlay_env,
+                     cancel_event=cancel_event, idx=idx, total=total, progress=emit)
+        except Exception as exc:
+            # _run_one already recorded error.log + an errored trace/metrics for
+            # this run. Swallow here so ONE crashed run cannot kill the whole
+            # batch (and take the aggregate with it); surface it loudly instead.
+            import traceback as _tb
+            _log(f"[abench] run {idx}/{total} FAILED — recorded to "
+                 f"{cond.name}/rep_{rep}/error.log; continuing.\n{_tb.format_exc()}")
+            emit({
+                "phase": "run_error", "run_idx": idx,
+                "condition": cond.name, "rep": rep,
+                "message": (f"Run {idx}/{total} crashed ({exc!r}) — recorded to "
+                            f"error.log; continuing with the remaining runs."),
+            })
         _log(f"[abench] run {idx}/{total} done in {time.time() - t_run:.1f}s")
         if exp.min_seconds_between_runs:
             _log(f"[abench] cooldown {exp.min_seconds_between_runs}s")
@@ -371,6 +385,10 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
     # create_workdir (inside the retry loop) raises.
     workdir: Path | None = None
     logf = debugf = None  # closed in the outer finally (after verify/result)
+    # Defined before the try so the crash-safety net (the except below) can
+    # always reference them, even if a failure happens before the run loop runs.
+    sha = ""
+    result = None
     try:
         user_message = compose(exp.task_prompt, cond.augmentation)
 
@@ -671,6 +689,59 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             "fixture_sha": sha,
             "user_message": user_message,
         }, indent=2))
+    except Exception as exc:
+        # ── Crash-safety net ─────────────────────────────────────────
+        # A failure anywhere above (orchestration, the sandbox/docker launch,
+        # diff, verify, …) must NOT vanish: without this the run dir is empty
+        # (no trace.json/metrics.json) and the only signal is the batch dying —
+        # "0 information". Record the full traceback + an errored trace/metrics/
+        # manifest so the run is SAVED, visible in the UI, and counted by the
+        # aggregate, then re-raise for the batch loop to log-and-continue. Every
+        # write here is best-effort — this handler must never raise.
+        import traceback as _tb
+
+        from .trace_model import Trace as _Trace
+        tb_text = _tb.format_exc()
+        try:
+            (rundir / "error.log").write_text(
+                f"# condition: {cond.name}\n# rep: {rep}\n# model: {exp.model}\n"
+                f"# fixture_sha: {sha}\n# error: {exc!r}\n\n{tb_text}\n",
+                encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            _log(f"[abench] FATAL run crashed cond={cond.name} rep={rep}: {exc!r}")
+        except Exception:
+            pass
+        try:
+            note(f"[abench] FATAL run crashed: {exc!r}\n{tb_text}")  # noqa: F821
+        except Exception:
+            pass
+        try:
+            tr = result.trace if result is not None else _Trace()
+            tr.finished = False
+            tr.interrupted_reason = "error"
+            tr.service_error_messages = list(tr.service_error_messages or []) + [
+                f"harness crash: {exc!r}"]
+            (rundir / "trace.json").write_text(json.dumps(tr.to_dict(), indent=2))
+            try:
+                metrics = extract(tr, "", mcfg)
+            except Exception:
+                metrics = {}
+            metrics["finished"] = False
+            metrics["interrupted_reason"] = "error"
+            metrics["error"] = repr(exc)
+            (rundir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        except Exception:
+            pass
+        try:
+            (rundir / "manifest.json").write_text(json.dumps({
+                "condition": cond.name, "rep": rep, "model": exp.model,
+                "fixture_sha": sha, "error": repr(exc),
+            }, indent=2))
+        except Exception:
+            pass
+        raise
     finally:
         # Close the per-run logs here (kept open through verify + the result
         # line so those land in the readable log too).

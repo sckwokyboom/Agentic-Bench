@@ -32,6 +32,10 @@ def _experiment(tmp_path: Path) -> Experiment:
                     Condition(name="augmented", augmentation="SLICE")],
         opencode=OpenCodeCfg(),
         metrics=MetricsCfg(),
+        # No 429 backoff in tests: the service-error fake returns rate_limit on
+        # every run, and the default (3 retries × 10s exp-backoff) would make a
+        # 4-run plan sleep ~280s. The retry path is covered by test_runner_retry.
+        rate_limit_retries=0,
     )
 
 
@@ -114,6 +118,56 @@ def test_run_one_writes_run_log_and_error_metrics(tmp_path):
     assert metrics["n_rate_limits"] == 0
     # FakeOpenCodeClient writes GENERATED.txt → real source change
     assert metrics["made_source_changes"] is True
+
+
+class _CrashOnceClient:
+    """Raises (simulating the orchestration/sandbox-launch crash) on the FIRST
+    run_task call, then behaves like the normal fake. Proves a crashed run is
+    RECORDED (error.log + errored trace/metrics) AND the batch CONTINUES past it
+    instead of dying with zero artifacts."""
+
+    def __init__(self):
+        self._calls = 0
+        self._inner = FakeOpenCodeClient()
+
+    def run_task(self, **kw):
+        self._calls += 1
+        if self._calls == 1:
+            raise IndexError("list index out of range")
+        return self._inner.run_task(**kw)
+
+
+def test_crashed_run_is_recorded_and_batch_continues(tmp_path):
+    """A crash inside a run must neither vanish silently nor kill the batch: the
+    run dir gets error.log + an errored trace/metrics, and the remaining runs
+    still complete (so the aggregate stays available). Order-independent — the
+    plan is shuffled, so we don't assume which run crashes."""
+    exp = _experiment(tmp_path)  # 2 conditions × 2 reps = 4 runs
+    root = run_experiment(exp, lambda e: _CrashOnceClient())
+
+    rundirs = [root / c / f"rep_{r}"
+               for c in ("baseline", "augmented") for r in range(2)]
+    # every run produced metrics.json → the aggregate has rows to load
+    for rd in rundirs:
+        assert (rd / "metrics.json").is_file(), f"no metrics.json in {rd}"
+
+    # exactly one run crashed; it did NOT vanish — traceback + errored artifacts
+    crashed = [rd for rd in rundirs if (rd / "error.log").is_file()]
+    assert len(crashed) == 1, f"expected 1 crashed run, got {crashed}"
+    err = (crashed[0] / "error.log").read_text()
+    assert "IndexError" in err
+    assert "list index out of range" in err
+    cm = json.loads((crashed[0] / "metrics.json").read_text())
+    assert cm["interrupted_reason"] == "error"
+    assert cm["finished"] is False
+    ctr = json.loads((crashed[0] / "trace.json").read_text())
+    assert ctr["interrupted_reason"] == "error"
+
+    # the batch CONTINUED — the other three runs finished normally
+    ok = [rd for rd in rundirs if rd not in crashed]
+    assert len(ok) == 3
+    for rd in ok:
+        assert json.loads((rd / "metrics.json").read_text())["finished"] is True
 
 
 def test_run_writes_both_readable_and_debug_logs(tmp_path):
