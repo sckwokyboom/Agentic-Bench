@@ -9,7 +9,8 @@ export function estimateTokens(text: string | null | undefined): number {
 export type UiPart =
   | { kind: "reasoning" | "text"; text: string }
   | { kind: "tool"; name: string; args: Record<string, unknown>; output: string | null; outputTokens: number; exitCode: number | null; ok: boolean | null }
-  | { kind: "edit"; path: string; patch: string };
+  | { kind: "edit"; path: string; patch: string }
+  | { kind: "controller"; text: string };
 
 export interface UiTurn {
   index: number;
@@ -21,11 +22,14 @@ export interface UiTurn {
   cost: number | null;
   durationS: number | null;
   parts: UiPart[];
+  phase: string | null;       // orchestration phase (null = autonomous baseline)
+  isController: boolean;       // a deterministic controller action, not an LLM turn
 }
 
 function emptyTurn(index: number): UiTurn {
   return { index, messageId: null, reason: null, tokensIn: null, tokensOut: null,
-    tokensReasoning: null, cost: null, durationS: null, parts: [] };
+    tokensReasoning: null, cost: null, durationS: null, parts: [], phase: null,
+    isController: false };
 }
 
 // ── From the normalized trace.json (finished runs — authoritative) ──────────
@@ -45,9 +49,11 @@ export function turnsFromTrace(trace: Pick<Trace, "steps" | "turns">): UiTurn[] 
     const t = ensure(s.turn);
     // First non-null message_id wins, so each UiTurn knows its messageId.
     t.messageId = t.messageId ?? s.message_id ?? null;
+    t.phase = t.phase ?? s.phase ?? null;
     if (s.kind === "reasoning") t.parts.push({ kind: "reasoning", text: s.text ?? "" });
     else if (s.kind === "assistant_text") t.parts.push({ kind: "text", text: s.text ?? "" });
     else if (s.kind === "file_edit") t.parts.push({ kind: "edit", path: s.path ?? "", patch: s.patch ?? "" });
+    else if (s.kind === "controller") { t.parts.push({ kind: "controller", text: s.text ?? "" }); t.isController = true; }
     else if (s.kind === "tool_call") {
       const res = s.tool_call_id ? resultByCall.get(s.tool_call_id) : undefined;
       const exitCode = res?.exit_code ?? null;

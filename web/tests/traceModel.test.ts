@@ -52,6 +52,23 @@ test("turnsFromTrace joins TurnInfo by message_id, not array index (turn without
   expect(b.tokensIn).toBe(99);
 });
 
+test("turnsFromTrace tags phases and surfaces controller steps as their own turns", () => {
+  const s: Step[] = [
+    { kind: "assistant_text", ts: 1, turn: 0, message_id: "M0", text: "contract …", phase: "understand" },
+    { kind: "controller", ts: 2, turn: 1, text: "ran suite -> 84 failures in 3 clusters", phase: "implement" },
+    { kind: "file_edit", ts: 3, turn: 2, message_id: "M2", path: "X.java", patch: "@@", phase: "implement" },
+  ];
+  const turns = turnsFromTrace({ steps: s, turns: [] } as any);
+  const ctrl = turns.find((t) => t.isController)!;
+  expect(ctrl).toBeTruthy();
+  expect(ctrl.phase).toBe("implement");
+  const cp = ctrl.parts.find((p) => p.kind === "controller") as { kind: "controller"; text: string };
+  expect(cp.text).toContain("ran suite");
+  const understand = turns.find((t) => t.phase === "understand")!;
+  expect(understand.isController).toBe(false);
+  expect(understand.parts.some((p) => p.kind === "text")).toBe(true);
+});
+
 test("formatToolArgs renders the meaningful input per tool (grep shows the pattern)", () => {
   // the bug: grep used to show `path` and drop `pattern`
   expect(formatToolArgs("grep", { pattern: "putValue", include: "*.java", path: "/tmp/abench-xy/src" }))

@@ -13,6 +13,7 @@ const turn: UiTurn = {
     { kind: "tool", name: "grep", args: { pattern: "foo" }, output: "match", outputTokens: 30, exitCode: 0, ok: true },
     { kind: "edit", path: "a.py", patch: "@@\n-x\n+y\n" },
   ],
+  phase: null, isController: false,
 };
 
 // JSX renders the success icon + tool name inside one <b>; the icon is an SVG
@@ -41,4 +42,32 @@ test("renders tool calls with name+args+result, edits, and a real-name breakdown
   expect(screen.getByText(/≈250 tok ctx/)).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /show raw/i }));
   expect(screen.getByText(/"type":"tool"/)).toBeInTheDocument();
+});
+
+test("renders a controller turn distinctly (chip + phase + action text, no turn/token noise)", () => {
+  const ctrlTurn: UiTurn = {
+    index: 5, messageId: null, reason: null, tokensIn: null, tokensOut: null,
+    tokensReasoning: null, cost: null, durationS: null,
+    parts: [{ kind: "controller", text: "round 1 accepted · 84 → 31 failures" }],
+    phase: "diagnose", isController: true,
+  };
+  const { container } = render(<TurnCard turn={ctrlTurn} index={5} rawEvents={[]} />);
+  expect(screen.getByText("controller")).toBeInTheDocument();    // chip, not "turn 6"
+  expect(screen.getByText("diagnose")).toBeInTheDocument();      // phase chip
+  expect(screen.getByText(/round 1 accepted/)).toBeInTheDocument();
+  expect(screen.queryByText(/turn 6/)).toBeNull();
+  expect(container.querySelector('[data-testid="SettingsOutlinedIcon"]')).not.toBeNull();
+});
+
+test("a long edit patch is fully expandable, never hard-truncated", async () => {
+  const big = "+line\n".repeat(200);   // 1200 chars > COLLAPSE
+  const t: UiTurn = {
+    index: 0, messageId: "M0", reason: "stop", tokensIn: 1, tokensOut: 1,
+    tokensReasoning: 0, cost: 0, durationS: 1,
+    parts: [{ kind: "edit", path: "X.java", patch: big }],
+    phase: null, isController: false,
+  };
+  render(<TurnCard turn={t} index={0} rawEvents={[]} />);
+  await userEvent.click(screen.getByRole("button", { name: /show more/i }));
+  expect(screen.getByRole("button", { name: /show less/i })).toBeInTheDocument();
 });
