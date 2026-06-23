@@ -463,18 +463,48 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     forbid_external_sources=exp.isolation.forbid_external_sources,
                 )
 
-                result = client.run_task(
-                    workdir=str(workdir),
-                    system_prompt=system_prompt_eff,
-                    model=exp.model,
-                    user_message=user_message,
-                    timeout_s=exp.timeout_s,
-                    agent_tools=agent_tools,
-                    on_event=on_event,
-                    log_sink=readable_sink,
-                    debug_sink=debug_sink,
-                    cancel_event=cancel_event,
-                )
+                if cond.orchestration and exp.orchestration is not None:
+                    # Phased-orchestration condition: a controller drives opencode
+                    # per phase (UNDERSTAND→[PLAN]→IMPLEMENT→DIAGNOSE) on this
+                    # workdir and returns one stitched Trace. Downstream (diff,
+                    # trace.json, verify, metrics) is unchanged.
+                    from .git_snapshot import restore as _grestore
+                    from .git_snapshot import snapshot as _gsnap
+                    from .opencode_client import RunResult
+                    from .orchestration_adapters import (
+                        build_orchestrator_config,
+                        make_phase_runner,
+                        make_suite_runner,
+                    )
+                    from .orchestrator import run as _orchestrate
+
+                    suite_cmd = augment_for_full_run(
+                        exp.verify.command or _detect_verify(workdir))
+                    phase_runner = make_phase_runner(
+                        client, workdir=str(workdir),
+                        system_prompt=system_prompt_eff, model=exp.model,
+                        timeout_s=exp.timeout_s, on_event=on_event)
+                    suite_runner = make_suite_runner(
+                        workdir, suite_cmd, exp.verify.timeout_s)
+                    trace = _orchestrate(
+                        build_orchestrator_config(exp.orchestration, cond.orchestration),
+                        phase_runner=phase_runner, suite_runner=suite_runner,
+                        snapshot=lambda: _gsnap(workdir),
+                        restore=lambda t: _grestore(workdir, t))
+                    result = RunResult(trace=trace)
+                else:
+                    result = client.run_task(
+                        workdir=str(workdir),
+                        system_prompt=system_prompt_eff,
+                        model=exp.model,
+                        user_message=user_message,
+                        timeout_s=exp.timeout_s,
+                        agent_tools=agent_tools,
+                        on_event=on_event,
+                        log_sink=readable_sink,
+                        debug_sink=debug_sink,
+                        cancel_event=cancel_event,
+                    )
 
                 rate_limited = result.trace.interrupted_reason == "rate_limit"
                 cancelled = cancel_event is not None and cancel_event.is_set()

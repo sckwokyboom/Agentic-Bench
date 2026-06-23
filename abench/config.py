@@ -52,6 +52,15 @@ class Condition(BaseModel):
             "preserving the A/B contrast."
         ),
     )
+    orchestration: str | None = Field(
+        default=None,
+        title="Orchestration mode",
+        description=(
+            "None = autonomous opencode loop (baseline). 'phased' = forced "
+            "UNDERSTAND→IMPLEMENT→DIAGNOSE controller; 'phased_plan' adds the PLAN "
+            "phase. Requires the experiment-level `orchestration` block."
+        ),
+    )
 
 
 class ProviderCfg(BaseModel):
@@ -363,6 +372,27 @@ class IsolationCfg(BaseModel):
     )
 
 
+class OrchestrationCfg(BaseModel):
+    """Experiment-level scaffolding for phased-orchestration conditions. Generic
+    knobs + per-task scaffolding live here so the orchestrator stays task-agnostic."""
+    contract_fields: list[str] = Field(
+        default_factory=list,
+        title="Contract aspect-words",
+        description=(
+            "Aspects the UNDERSTAND-phase contract should address (e.g. "
+            "['WRAP','SPAN','indent'] for putValue). Task-specific scaffolding."
+        ),
+    )
+    target_label: str = Field(
+        default="the target method",
+        title="Target label",
+        description="Human label for the method under repair, used in phase prompts.",
+    )
+    max_diagnose_iters: int = Field(default=8, title="Max diagnose iterations")
+    no_progress_limit: int = Field(default=2, title="No-progress stop limit")
+    cluster_cap: int = Field(default=5, title="Failure clusters shown per round")
+
+
 class Experiment(BaseModel):
     name: str = Field(
         title="Name",
@@ -398,6 +428,14 @@ class Experiment(BaseModel):
     conditions: list[Condition] = Field(
         title="Conditions",
         description="Conditions to compare (baseline vs augmented).",
+    )
+    orchestration: OrchestrationCfg | None = Field(
+        default=None,
+        title="Orchestration config",
+        description=(
+            "Scaffolding for conditions whose `orchestration` mode is set; None "
+            "disables phased orchestration for the whole experiment."
+        ),
     )
     repetitions: int = Field(
         default=3,
