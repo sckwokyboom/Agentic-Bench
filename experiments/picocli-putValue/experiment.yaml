@@ -23,6 +23,13 @@ opencode:
       base_url: https://api.deepseek.com/v1
       models: [deepseek-v4-flash, deepseek-chat, deepseek-reasoner]
       api_key_env: DEEPSEEK_API_KEY
+    # To run on your LOCAL vLLM devstral2 endpoint instead: set `model:` above to
+    # `local/devstral2-24B` and add this OpenAI-compatible provider —
+    #   - id: local
+    #     name: Local vLLM
+    #     base_url: http://127.0.0.1:8000/v1     # your vLLM host:port + /v1
+    #     models: [devstral2-24B]                # the served model id
+    #     api_key_env: VLLM_API_KEY              # any non-empty value if auth is off
   sandbox:
     mode: container
     cache_mounts:
@@ -39,13 +46,37 @@ conditions:
   - {name: baseline,          augmentation: null, tools: []}
   - {name: augmented,         augmentation: ./slices/putValue-graph-slice.md, tools: []}
   - {name: augmented-verbose, augmentation: ./slices/putValue-graph-slice-verbose.md, tools: []}
-  - name: augmented-tool
+  - name: augmented-tool          # = the orchestration CONTROL (impact tool, autonomous loop)
     augmentation: ./slices/impact-tool-briefing.md
     overlay: ./overlays/impact-artifacts
     tools: [impact]
+  # ── Orchestration A/B: forced fix-methodology vs the autonomous tool loop ──
+  # Compare `augmented-tool` (control) vs `phased` / `phased-plan`. Same model,
+  # tool, overlay, fixture — the ONLY difference is the forced phase controller.
+  # (For a FOCUSED orchestration run, comment out baseline/augmented/augmented-
+  # verbose above so only these three run.)
+  - name: phased
+    augmentation: ./slices/impact-tool-briefing.md
+    overlay: ./overlays/impact-artifacts
+    tools: [impact]
+    orchestration: phased            # UNDERSTAND → IMPLEMENT → DIAGNOSE
+  - name: phased-plan
+    augmentation: ./slices/impact-tool-briefing.md
+    overlay: ./overlays/impact-artifacts
+    tools: [impact]
+    orchestration: phased_plan       # + the PLAN phase
 
 target_file: src/main/java/picocli/CommandLine.java
 target_methods: [putValue]
+
+# Scaffolding for the `phased` / `phased-plan` conditions above. Task-specific
+# aspect-words + label; the controller logic itself stays task-agnostic.
+orchestration:
+  contract_fields: [TRUNCATE, SPAN, WRAP, indent, wrap, row]
+  target_label: "TextTable.putValue"
+  max_diagnose_iters: 8
+  no_progress_limit: 2
+  cluster_cap: 5
 
 verify:
   timeout_s: 1800
