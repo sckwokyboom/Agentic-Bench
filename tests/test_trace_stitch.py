@@ -32,3 +32,22 @@ def test_stitch_concatenates_tags_and_sums():
     assert t.orchestration_outcome == "green"
     assert t.controller_test_runs == 1 and t.accepted_rounds == 1
     assert len(t.turns) == 2
+
+
+def test_stitch_renumbers_colliding_phase_turns():
+    # Both phases' steps start at turn 0 (separate opencode sessions); after
+    # stitching they must NOT collide, and same-message steps stay one turn.
+    pa = Trace(started_at=100.0, ended_at=101.0, steps=[
+        Step(kind=StepKind.TOOL_CALL, ts=100.0, turn=0, message_id="a0", tool_name="read"),
+        Step(kind=StepKind.ASSISTANT_TEXT, ts=100.5, turn=0, message_id="a0", text="contract"),
+    ])
+    pb = Trace(started_at=200.0, ended_at=201.0, steps=[
+        Step(kind=StepKind.FILE_EDIT, ts=200.0, turn=0, message_id="b0", path="X.java", patch="+x"),
+    ])
+    ctrl = [Step(kind=StepKind.CONTROLLER, ts=150.0, turn=0, text="ran suite", phase="implement")]
+    t = stitch([("understand", pa), ("implement", pb)], ctrl, outcome="green")
+    # 3 distinct logical turns: phase-A (msg a0, 2 steps share), phase-B (b0), controller
+    assert len({s.turn for s in t.steps}) == 3
+    assert len({s.turn for s in t.steps if s.message_id == "a0"}) == 1   # same-message = one turn
+    ctrl_turn = next(s.turn for s in t.steps if s.kind == StepKind.CONTROLLER)
+    assert ctrl_turn not in {s.turn for s in t.steps if s.kind != StepKind.CONTROLLER}

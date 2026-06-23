@@ -5,7 +5,7 @@ and ordered by timestamp; controller steps interleave by their own ts.
 """
 from __future__ import annotations
 
-from .trace_model import Step, Trace, TurnInfo
+from .trace_model import Step, StepKind, Trace, TurnInfo
 
 
 def _sum(values: list[int | float | None]) -> int | float | None:
@@ -32,6 +32,25 @@ def stitch(
         turns.extend(tr.turns)
     steps.extend(controller_steps)
     steps.sort(key=lambda s: (s.ts if s.ts is not None else 0.0))
+
+    # Re-number turns to be globally unique + ordered. Each per-phase opencode
+    # session restarts turn indices at 0, so without this the phases would
+    # collide in any turn-grouped view (phase-A turn 0 + phase-B turn 0 → one
+    # card). Group by (phase, message_id); CONTROLLER / message_id-less steps are
+    # each their own turn. TurnInfo still joins by message_id (unchanged, unique
+    # per session), so per-turn stats land correctly.
+    turn_of: dict[tuple, int] = {}
+    nxt = 0
+    for s in steps:
+        if s.kind == StepKind.CONTROLLER or s.message_id is None:
+            s.turn = nxt
+            nxt += 1
+        else:
+            key = (s.phase, s.message_id)
+            if key not in turn_of:
+                turn_of[key] = nxt
+                nxt += 1
+            s.turn = turn_of[key]
 
     starts = [tr.started_at for _, tr in phases if tr.started_at is not None]
     ends = [tr.ended_at for _, tr in phases if tr.ended_at is not None]
