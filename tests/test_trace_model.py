@@ -101,3 +101,23 @@ def test_trace_roundtrips_through_json():
     assert restored == trace
     assert restored.steps[1].kind == StepKind.TOOL_CALL
     assert restored.steps[1].tool_args == {"command": "pytest"}
+
+
+def test_orchestration_fields_roundtrip():
+    from abench.trace_model import Step, StepKind, Trace, trace_from_dict
+    trace = Trace(
+        finished=True,
+        orchestration_outcome="green",
+        controller_test_runs=3,
+        controller_test_time_s=12.5,
+        accepted_rounds=2,
+        reverted_rounds=1,
+        steps=[Step(kind=StepKind.CONTROLLER, ts=1.0, turn=0,
+                    text="ran suite -> 4 failures in 2 clusters", phase="diagnose")],
+    )
+    restored = trace_from_dict(json.loads(json.dumps(trace.to_dict())))
+    assert restored == trace
+    assert restored.steps[0].kind == StepKind.CONTROLLER
+    assert restored.steps[0].phase == "diagnose"
+    assert restored.orchestration_outcome == "green"
+    assert restored.controller_test_runs == 3 and restored.reverted_rounds == 1

@@ -10,6 +10,7 @@ class StepKind(str, Enum):
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
     FILE_EDIT = "file_edit"
+    CONTROLLER = "controller"
 
 
 @dataclass
@@ -26,6 +27,9 @@ class Step:
     exit_code: int | None = None
     path: str | None = None
     patch: str | None = None
+    # Orchestration: the phase this step belongs to (None for the autonomous
+    # baseline loop). CONTROLLER steps are deterministic controller actions.
+    phase: str | None = None
 
 
 @dataclass
@@ -114,6 +118,14 @@ class Trace:
     # original (0..1), or None if not computed/comparable. Drives the cheating
     # detector's 'output ≈ original' signal.
     target_similarity: float | None = None
+
+    # Phased-orchestration outcome + controller overhead (None/0 for the
+    # autonomous baseline). outcome ∈ {green, budget, stuck, compile-fail}.
+    orchestration_outcome: str | None = None
+    controller_test_runs: int = 0
+    controller_test_time_s: float | None = None
+    accepted_rounds: int = 0
+    reverted_rounds: int = 0
 
     # v2 timing breakdown — placeholder fields, populated in Phase 2
     llm_latency_s: float | None = None
