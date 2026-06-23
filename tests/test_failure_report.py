@@ -1,5 +1,7 @@
 from pathlib import Path
-from abench.failure_report import parse_junit_dir, TestFailure
+from abench.failure_report import (
+    parse_junit_dir, TestFailure, cluster_failures, select_clusters, Cluster,
+)
 
 
 def _write(dir: Path, name: str, body: str) -> None:
@@ -38,3 +40,39 @@ def test_parse_error_without_expected_actual(tmp_path):
     assert len(fails) == 1 and fails[0].kind == "error"
     assert fails[0].type == "java.lang.StringIndexOutOfBoundsException"
     assert fails[0].expected is None and fails[0].actual is None
+
+
+def _f(cls, name, kind, type_, exp=None, act=None, msg="m"):
+    return TestFailure(cls, name, kind, type_, msg, exp, act)
+
+
+def test_digit_varying_same_shape_clusters_diff_shape_splits():
+    # tA/tB differ only in digits -> normalized fingerprint is identical -> one
+    # cluster; tC has a structurally different diff -> separate cluster.
+    fails = [
+        _f("picocli.HelpTest", "tA", "failure", "org.junit.ComparisonFailure", "col 12 [x]", "col 12[x]"),
+        _f("picocli.ArgGroupTest", "tB", "failure", "org.junit.ComparisonFailure", "col 7 [x]", "col 7[x]"),
+        _f("picocli.HelpTest", "tC", "failure", "org.junit.ComparisonFailure", "row1\nrow2", "row1"),
+    ]
+    clusters = cluster_failures(fails)
+    assert len(clusters) == 2
+    assert max(clusters, key=lambda c: c.count).count == 2
+
+
+def test_exceptions_outrank_assertions_and_rare_severe_is_surfaced():
+    fails = (
+        [_f(f"C{i}", "t", "failure", "org.junit.ComparisonFailure", "p [q]", "p[q]") for i in range(6)]
+        + [_f("IdxTest", "boom", "error", "java.lang.IndexOutOfBoundsException")]
+    )
+    selected = select_clusters(cluster_failures(fails), cap=1)
+    # cap=1, but the rare severe exception cluster must still be surfaced
+    assert any(c.representative.kind == "error" for c in selected)
+
+
+def test_select_caps_to_three_distinct_clusters():
+    # 10 structurally-distinct assertion clusters (letter length varies, not
+    # normalized away) -> capped to 3.
+    fails = [_f(f"C{i}", "t", "failure", "org.junit.ComparisonFailure",
+                "x" * (i + 1) + " [y]", "x" * (i + 1) + "[y]") for i in range(10)]
+    selected = select_clusters(cluster_failures(fails), cap=3)
+    assert len(selected) == 3
