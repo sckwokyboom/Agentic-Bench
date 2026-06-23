@@ -1,5 +1,7 @@
+import { type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Stack, Typography, CircularProgress, Alert, Box } from "@mui/material";
+import { Stack, Typography, CircularProgress, Alert, Box, Chip } from "@mui/material";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import { useTrace, useEvents, useRuns, useMetrics } from "../api/queries";
 import {
   turnsFromTrace, observationTokensByTool, observationTokensTotal, realInputTokensTotal,
@@ -16,6 +18,26 @@ import MethodComparisonCard from "../components/MethodComparisonCard";
 import MetricsDrawer from "../components/MetricsDrawer";
 import TraceRunSwitcher from "../components/TraceRunSwitcher";
 import SafeTraceButton from "../components/SafeTraceButton";
+
+const PHASE_LABEL: Record<string, string> = {
+  understand: "1 · understand", plan: "2 · plan", implement: "3 · implement", diagnose: "4 · diagnose",
+};
+
+function PhaseDivider({ phase }: { phase: string }) {
+  return (
+    <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1 }}>
+      <Typography variant="overline" color="text.secondary">{PHASE_LABEL[phase] ?? phase}</Typography>
+      <Box sx={{ flexGrow: 1, height: "1px", bgcolor: "divider" }} />
+    </Stack>
+  );
+}
+
+function outcomeColor(o: string): "success" | "warning" | "error" | "default" {
+  if (o === "green") return "success";
+  if (o === "compile-fail") return "error";
+  if (o === "stuck" || o === "budget") return "warning";
+  return "default";
+}
 
 export default function TraceView() {
   const { name, condition, rep } = useParams<{ name: string; condition: string; rep: string }>();
@@ -89,14 +111,36 @@ export default function TraceView() {
           </Alert>
         )}
         {metrics.data && <AggregateStatsBar metrics={metrics.data} />}
+        {trace.data.orchestration_outcome && (
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+            <Chip size="small" color={outcomeColor(trace.data.orchestration_outcome)}
+              icon={<SettingsOutlinedIcon />} label={`orchestration: ${trace.data.orchestration_outcome}`} />
+            <Typography variant="caption" color="text.secondary">
+              {trace.data.controller_test_runs ?? 0} suite runs · {trace.data.accepted_rounds ?? 0} accepted · {trace.data.reverted_rounds ?? 0} reverted
+            </Typography>
+          </Stack>
+        )}
         {obsTotal > 0 && (
           <Typography variant="caption" color="text.secondary">
             Context from tool outputs: ≈{formatTokens(obsTotal)} tok ({obsStr}) · real Σ input {formatTokens(realIn)}
           </Typography>
         )}
-        {uiTurns.map((t) => (
-          <TurnCard key={t.messageId ?? t.index} turn={t} index={t.index} rawEvents={rawByMsg(t.messageId)} />
-        ))}
+        {(() => {
+          // Insert a phase divider when the phase changes (phased traces only;
+          // baseline turns have phase === null → no dividers, unchanged render).
+          let prevPhase: string | null = null;
+          const out: ReactNode[] = [];
+          for (const t of uiTurns) {
+            if (t.phase && t.phase !== prevPhase) {
+              out.push(<PhaseDivider key={`phase-${t.index}`} phase={t.phase} />);
+              prevPhase = t.phase;
+            }
+            out.push(
+              <TurnCard key={t.messageId ?? t.index} turn={t} index={t.index} rawEvents={rawByMsg(t.messageId)} />,
+            );
+          }
+          return out;
+        })()}
         <VerifyCard trace={trace.data} name={name!} condition={condition!} rep={repN} batch={batch} />
         <FinalDiffCard
           name={name!} condition={condition!} rep={repN} batch={batch}

@@ -120,7 +120,8 @@ export interface MetricsJson {
 }
 
 export type StepKind =
-  | "assistant_text" | "reasoning" | "tool_call" | "tool_result" | "file_edit";
+  | "assistant_text" | "reasoning" | "tool_call" | "tool_result" | "file_edit"
+  | "controller";  // deterministic phased-orchestrator action (ran suite, accept/revert…)
 
 export interface Step {
   kind: StepKind;
@@ -135,6 +136,7 @@ export interface Step {
   exit_code?: number | null;
   path?: string | null;
   patch?: string | null;
+  phase?: string | null;  // orchestration phase this step belongs to (null = autonomous)
 }
 
 export interface TurnInfo {
@@ -174,6 +176,11 @@ export interface Trace {
   n_service_errors?: number;
   verify_insensitive?: boolean;
   service_error_messages?: string[];
+  // Phased-orchestration summary (absent on autonomous/baseline traces).
+  orchestration_outcome?: string | null;   // green | budget | stuck | compile-fail
+  controller_test_runs?: number;
+  accepted_rounds?: number;
+  reverted_rounds?: number;
   [key: string]: unknown;
 }
 
