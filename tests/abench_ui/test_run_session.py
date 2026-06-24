@@ -228,6 +228,47 @@ def test_run_finished_envelope_surfaces_validity_fields(tmp_path):
     assert finished["verify_insensitive"] is True
 
 
+def test_per_run_publishing_groups_phase_subcalls_by_workdir():
+    """Regression: phased orchestration calls run_task once per phase, all on
+    the SAME workdir. The wrapper must treat that as ONE run (one run.started,
+    one plan slot) — counting per call overran self._plan and raised
+    'IndexError: list index out of range', crashing every phased run."""
+    from abench_ui.run_session import _PerRunPublishingClient
+
+    plan = [(Condition(name="phased", augmentation=None), 0),
+            (Condition(name="phased", augmentation=None), 1)]
+    published: list[dict] = []
+    positions: list[tuple] = []
+
+    class _Inner:
+        def run_task(self, *, workdir, on_event, **kw):
+            on_event({"type": "phase-event"})
+            return RunResult(trace=Trace(finished=True), raw_session=None)
+
+    w = _PerRunPublishingClient(
+        _Inner(), published.append, session_id="sid", total_runs=2, plan=plan,
+        position_callback=lambda i, c, r: positions.append((i, c, r)),
+        batch_id="b")
+
+    common = dict(system_prompt="s", model="m", user_message="u", timeout_s=1,
+                  on_event=lambda e: None)
+    # run 0: THREE phase calls on one workdir (would have crashed on the 3rd
+    # call — self._plan[2] over a 2-entry plan — before the fix)
+    for _ in range(3):
+        w.run_task(workdir="/w/run0", **common)
+    # run 1: a NEW workdir advances to the next plan entry
+    w.run_task(workdir="/w/run1", **common)
+
+    started = [m for m in published if m["type"] == "run.started"]
+    assert len(started) == 2                       # one per RUN, not per call
+    assert [s["run_idx"] for s in started] == [1, 2]
+    assert [s["rep"] for s in started] == [0, 1]
+    assert positions == [(1, "phased", 0), (2, "phased", 1)]
+    # all of run 0's phase events carry the same run_idx (one run across phases)
+    raw0 = [m for m in published if m["type"] == "raw_event" and m["run_idx"] == 1]
+    assert len(raw0) == 3
+
+
 def test_run_session_properties(tmp_path):
     """started_at / ended_at are set correctly."""
     exp = _make_exp(tmp_path)

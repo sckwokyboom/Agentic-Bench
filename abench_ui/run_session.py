@@ -58,6 +58,13 @@ class _PerRunPublishingClient:
         self._position_callback = position_callback
         self._batch_id = batch_id
         self._idx: int = 0
+        # A condition×rep may call run_task more than once (phased orchestration
+        # → one call per phase, all on the same workdir). Track the in-flight run
+        # so phase sub-calls REUSE its identity instead of consuming a plan slot.
+        self._last_workdir: str | None = None
+        self._cur_cond = None
+        self._cur_rep: int = 0
+        self._cur_run_idx: int = 0
 
     def run_task(
         self,
@@ -73,21 +80,35 @@ class _PerRunPublishingClient:
         debug_sink: Callable[[str], None] | None = None,
         cancel_event: "threading.Event | None" = None,
     ) -> RunResult:
-        cond, rep = self._plan[self._idx]
-        self._idx += 1
-        run_idx = self._idx  # 1-based
+        # A condition×rep may invoke run_task MORE THAN ONCE: phased
+        # orchestration drives the agent per phase (understand→plan→implement→
+        # diagnose…), every phase a separate run_task on the SAME workdir.
+        # Advance to the next plan entry — and emit run.started — only when a
+        # NEW workdir appears, so phase sub-calls don't each consume a plan slot.
+        # Counting per-call overran self._plan → IndexError, the crash that
+        # killed every phased run. The plain (non-phased) path calls run_task
+        # once per run, so this stays a no-op there.
+        if workdir != self._last_workdir:
+            self._last_workdir = workdir
+            # Guard: never IndexError even if the call count somehow exceeds the
+            # plan — degrade to the last entry rather than crash the run.
+            cond, rep = (self._plan[self._idx] if self._idx < len(self._plan)
+                         else self._plan[-1])
+            self._idx += 1
+            self._cur_cond, self._cur_rep, self._cur_run_idx = cond, rep, self._idx
 
-        # Notify RunSession about the current position
-        self._position_callback(run_idx, cond.name, rep)
+            # Notify RunSession about the current position
+            self._position_callback(self._idx, cond.name, rep)
 
-        self._publish({
-            "type": "run.started",
-            "session_id": self._session_id,
-            "run_idx": run_idx,
-            "total_runs": self._total_runs,
-            "condition": cond.name,
-            "rep": rep,
-        })
+            self._publish({
+                "type": "run.started",
+                "session_id": self._session_id,
+                "run_idx": self._idx,
+                "total_runs": self._total_runs,
+                "condition": cond.name,
+                "rep": rep,
+            })
+        cond, rep, run_idx = self._cur_cond, self._cur_rep, self._cur_run_idx
 
         def on_event_relay(event: dict) -> None:
             self._publish({
@@ -122,6 +143,9 @@ class _PerRunPublishingClient:
         # the trace too.
         fds = tr.final_diff_summary
         made_source_changes = bool(fds is not None and fds.files)
+        # NB: for a phased run this fires once PER PHASE (carrying that phase's
+        # partial trace) — live progress only. The authoritative whole-run trace
+        # is trace.json, written by the runner after the orchestration finishes.
         self._publish({
             "type": "run.finished",
             "session_id": self._session_id,
