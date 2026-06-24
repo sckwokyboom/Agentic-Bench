@@ -25,6 +25,15 @@ from .trace_model import StepKind, Trace
 _COMPILE_MARKERS = ("COMPILATION ERROR", "cannot find symbol", "error: ", "BUILD FAILED")
 
 
+def _toint(v: "str | None") -> int:
+    """Parse a JUnit count attribute; 0 on missing/non-numeric (a corrupt XML
+    must not crash the whole suite eval)."""
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def eval_from_junit(results_dir: Path, *, compiled: bool = True, ran: bool = True) -> SuiteEval:
     """Aggregate JUnit XML under results_dir into a SuiteEval (full count
     breakdown + per-test failures). compiled/ran reflect the build outcome."""
@@ -39,10 +48,10 @@ def eval_from_junit(results_dir: Path, *, compiled: bool = True, ran: bool = Tru
         suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
         for ts in suites:
             found = True
-            tests += int(ts.get("tests", 0) or 0)
-            failures += int(ts.get("failures", 0) or 0)
-            errors += int(ts.get("errors", 0) or 0)
-            skipped += int(ts.get("skipped", 0) or 0)
+            tests += _toint(ts.get("tests"))
+            failures += _toint(ts.get("failures"))
+            errors += _toint(ts.get("errors"))
+            skipped += _toint(ts.get("skipped"))
     failed = failures + errors
     passed = max(0, tests - failed - skipped)
     result = SuiteResult(compiled=compiled, ran=ran and found, executed=tests,
@@ -66,7 +75,10 @@ def make_suite_runner(workdir: Path, command: str, timeout_s: int) -> Callable[[
             proc = subprocess.run(command, shell=True, cwd=workdir,
                                   capture_output=True, text=True, timeout=timeout_s)
             out = (proc.stdout or "") + "\n" + (proc.stderr or "")
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, OSError):
+            # timeout, or the test command can't be spawned (binary/cwd gone) —
+            # report "couldn't run" so the orchestrator's gate rejects the round
+            # rather than the whole run aborting.
             return SuiteEval(result=SuiteResult(compiled=True, ran=False, executed=0,
                                                 passed=0, failed=0))
         compiled = not any(m in out for m in _COMPILE_MARKERS)

@@ -169,18 +169,53 @@ def run(
         ctrl.append(Step(kind=StepKind.CONTROLLER, ts=clock[0], turn=0, text=text, phase=phase))
         _emit({"type": "controller", "phase": phase, "text": text})
 
+    # ── Fault-tolerant wrappers around the injected externals ─────────────
+    # Goal: a single failing phase / suite / snapshot / restore must NEVER abort
+    # the whole run. It is caught here, recorded as a controller event, and the
+    # run degrades + still finalizes → the caller always gets a stitched trace and
+    # real (verify-based) metrics, instead of crashing into the errored-metrics
+    # path. (The runner's crash-net is the last resort; this keeps us out of it.)
     def do_phase(name: str, prompt: str, tools: list[str]) -> PhaseOutcome:
         # Announce the control hand-off so the live stream shows a phase divider
         # before the agent's events for that phase arrive.
         _emit({"type": "phase.start", "phase": name})
-        return phase_runner(name, prompt, tools)
+        try:
+            return phase_runner(name, prompt, tools)
+        except Exception as exc:
+            # Degrade to an empty outcome: understand → fallback contract;
+            # implement/diagnose → simply no improvement this round.
+            event(f"phase {name} FAILED ({exc}); continuing degraded", name)
+            return PhaseOutcome(trace=Trace(), text="")
 
     def run_suite() -> SuiteEval:
         test_runs[0] += 1
-        return suite_runner()
+        try:
+            return suite_runner()
+        except Exception as exc:
+            # Report a non-compiling result so the gate rejects the round.
+            event(f"suite run FAILED ({exc})", "implement")
+            return SuiteEval(result=SuiteResult(
+                compiled=False, ran=False, executed=0, passed=0, failed=0))
+
+    def safe_snapshot(prev: object) -> object:
+        try:
+            return snapshot()
+        except Exception as exc:
+            # Keep the previous tree — we can still restore to it; at worst this
+            # round's state isn't captured. None means "no snapshot yet".
+            event(f"snapshot FAILED ({exc}); keeping previous state", "implement")
+            return prev
+
+    def safe_restore(tree: object) -> None:
+        if tree is None:
+            return
+        try:
+            restore(tree)
+        except Exception as exc:
+            event(f"restore FAILED ({exc}); continuing from current state", "diagnose")
 
     # Initial best = the starting (stub) state.
-    best_tree = snapshot()
+    best_tree = safe_snapshot(None)
     base = run_suite()
     best = base
     event(f"baseline: {base.result.passed}p/{base.result.failed}f", "implement")
@@ -206,7 +241,7 @@ def run(
     phase_traces.append(("implement", im.trace))
     ev = run_suite()
     if _improved(best.result, ev.result):
-        best_tree = snapshot(); best = ev; accepted[0] += 1
+        best_tree = safe_snapshot(best_tree); best = ev; accepted[0] += 1
         event(f"implement accepted: {ev.result.passed}p/{ev.result.failed}f", "implement")
     else:
         event(f"implement not accepted (compiled={ev.result.compiled})", "implement")
@@ -218,7 +253,7 @@ def run(
         if it >= cfg.max_diagnose_iters or no_progress >= cfg.no_progress_limit:
             break
         it += 1
-        restore(best_tree)                     # always fix from the current best
+        safe_restore(best_tree)                # always fix from the current best
         clusters = select_clusters(cluster_failures(best.failures), cfg.cluster_cap)
         d = do_phase("diagnose", diagnose_prompt(cfg, contract, plan, clusters),
                      ["read", "edit", "verify"])
@@ -229,14 +264,14 @@ def run(
             cand = run_suite()
             ok_gate, why = decide(best.result, cand.result)
         if ok_gate:
-            best_tree = snapshot(); best = cand; accepted[0] += 1; no_progress = 0
+            best_tree = safe_snapshot(best_tree); best = cand; accepted[0] += 1; no_progress = 0
             event(f"round {it} accepted ({why})", "diagnose")
         else:
             reverted[0] += 1; no_progress += 1
             event(f"round {it} reverted ({why})", "diagnose")
 
     # ── finalize ──────────────────────────────────────────────────────────
-    restore(best_tree)
+    safe_restore(best_tree)
     if best.result.compiled and best.result.failed == 0:
         outcome = "green"
     elif not best.result.compiled:
@@ -247,6 +282,18 @@ def run(
         outcome = "stuck"
     event(f"finalized: {outcome} ({best.result.passed}p/{best.result.failed}f)", "diagnose")
 
-    return stitch(phase_traces, ctrl, outcome=outcome,
-                  controller_test_runs=test_runs[0],
-                  accepted_rounds=accepted[0], reverted_rounds=reverted[0])
+    try:
+        return stitch(phase_traces, ctrl, outcome=outcome,
+                      controller_test_runs=test_runs[0],
+                      accepted_rounds=accepted[0], reverted_rounds=reverted[0])
+    except Exception as exc:
+        # Last resort: never let stitching abort the run after all the work — the
+        # caller must still get a trace it can write + score. Return a minimal one
+        # carrying the controller steps + outcome.
+        _emit({"type": "controller", "phase": "diagnose", "text": f"stitch FAILED ({exc})"})
+        tr = Trace(steps=list(ctrl), finished=True)
+        tr.orchestration_outcome = outcome
+        tr.controller_test_runs = test_runs[0]
+        tr.accepted_rounds = accepted[0]
+        tr.reverted_rounds = reverted[0]
+        return tr

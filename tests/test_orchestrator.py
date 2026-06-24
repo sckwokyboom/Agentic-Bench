@@ -183,3 +183,31 @@ def test_run_caps_huge_contract_to_avoid_argv_overflow():
     run(_CFG, phase_runner=phase, suite_runner=suite, snapshot=snap, restore=restore)
     assert len(prompts["implement"]) < 60_000      # capped, well under MAX_ARG_STRLEN
     assert "truncated" in prompts["implement"]
+
+
+def test_run_survives_failing_phases():
+    """Every phase raising (opencode/docker error, missing binary, …) must NOT
+    abort the run — it degrades and still returns a stitched trace, and records
+    the failures as controller events."""
+    def boom_phase(name, prompt, tools):
+        raise RuntimeError(f"{name} boom")
+
+    suite = _fake_suite([_eval(0, 100)] * 30)
+    snap, restore, _ = _snap_restore()
+    t = run(_CFG, phase_runner=boom_phase, suite_runner=suite, snapshot=snap, restore=restore)
+    assert isinstance(t, Trace)                     # did NOT raise
+    assert t.orchestration_outcome in ("stuck", "budget", "compile-fail")
+    assert any("FAILED" in (s.text or "") for s in t.steps
+               if s.kind == StepKind.CONTROLLER)    # degradation is recorded
+
+
+def test_run_survives_failing_suite_snapshot_restore():
+    """Infra failures in the injected suite/snapshot/restore must NOT abort the
+    run — it finalizes and returns a trace the caller can score."""
+    def boom(*_a):
+        raise RuntimeError("infra boom")
+
+    t = run(_CFG, phase_runner=_fake_phase(_CONTRACT),
+            suite_runner=boom, snapshot=boom, restore=boom)
+    assert isinstance(t, Trace)                     # did NOT raise
+    assert t.orchestration_outcome == "compile-fail"   # suite never ran → not compiled
