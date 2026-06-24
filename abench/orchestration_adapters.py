@@ -22,7 +22,34 @@ from .orchestrator import OrchestratorConfig, PhaseOutcome, SuiteEval
 from .regression_gate import SuiteResult
 from .trace_model import StepKind, Trace
 
-_COMPILE_MARKERS = ("COMPILATION ERROR", "cannot find symbol", "error: ", "BUILD FAILED")
+# Markers of a *compilation* failure specifically. Deliberately NOT "BUILD
+# FAILED" or "error:" — gradle/maven print those whenever any *test* fails too,
+# so matching them flags a compiling, test-running suite as "does not compile".
+# Matched case-insensitively against the combined stdout+stderr.
+_COMPILE_MARKERS = (
+    "compilation error",        # Maven
+    "cannot find symbol",       # javac
+    "compilation failed",       # gradle ("Compilation failed; see ...")
+    "compilejava failed",       # gradle task ("> Task :compileJava FAILED")
+    "compiletestjava failed",   # gradle task (test sources)
+)
+
+
+def build_status(out: str, executed: int) -> tuple[bool, bool]:
+    """Derive (compiled, ran) from the combined test output and the number of
+    tests that executed.
+
+    If ANY test executed, compilation necessarily succeeded — so a "BUILD FAILED"
+    (which gradle/maven print whenever a *test* fails) is NOT a compile error.
+    Only when nothing executed do compile-specific markers distinguish a real
+    compile failure from an infra/no-tests problem (timeout, wrong command). In
+    the latter case we report compiled=True, ran=False: we can't prove a compile
+    failure, so we don't claim one — the gate still rejects on ran=False.
+    """
+    if executed > 0:
+        return True, True
+    has_compile_err = any(m in out.lower() for m in _COMPILE_MARKERS)
+    return (not has_compile_err), False
 
 
 def _toint(v: "str | None") -> int:
@@ -81,10 +108,13 @@ def make_suite_runner(workdir: Path, command: str, timeout_s: int) -> Callable[[
             # rather than the whole run aborting.
             return SuiteEval(result=SuiteResult(compiled=True, ran=False, executed=0,
                                                 passed=0, failed=0))
-        compiled = not any(m in out for m in _COMPILE_MARKERS)
-        ev = eval_from_junit(workdir, compiled=compiled, ran=True)
-        if ev.result.executed == 0 and not compiled:
-            ev.result.ran = False
+        # #executed (from JUnit XML) is the ground truth for "did it compile?":
+        # you cannot run tests without compiling. Derive compiled/ran from that
+        # first, falling back to compile-marker matching only when nothing ran.
+        ev = eval_from_junit(workdir, compiled=True, ran=True)
+        compiled, ran = build_status(out, ev.result.executed)
+        ev.result.compiled = compiled
+        ev.result.ran = ran
         return ev
 
     return runner

@@ -225,6 +225,13 @@ def run(
     best_tree = safe_snapshot(None)
     base = run_suite()
     best = base
+    # Safety floor: the agent's earliest COMPILING state. The gate can legitimately
+    # accept nothing (a noisy suite with pre-existing failures, or a suite-runner
+    # timeout) — best_tree then never leaves the stub, and finalizing to it would
+    # revert the agent's real edits and report an empty diff ("returned a stub").
+    # floor_tree lets finalize keep the agent's compiling work instead. None until
+    # the agent first produces compiling code.
+    floor_tree = None
     event(f"ran baseline test suite (stub, before any edits): "
           f"{base.result.passed} passed / {base.result.failed} failed", "implement")
 
@@ -251,6 +258,8 @@ def run(
     im = do_phase("implement", implement_prompt(cfg, contract, plan), ["read", "edit"])
     phase_traces.append(("implement", im.trace))
     ev = run_suite()
+    if floor_tree is None and ev.result.compiled:
+        floor_tree = safe_snapshot(floor_tree)     # keep the agent's compiling work
     if _improved(best.result, ev.result):
         best_tree = safe_snapshot(best_tree); best = ev; accepted[0] += 1
         event(f"implement accepted — agent's edit improved the suite: "
@@ -289,6 +298,8 @@ def run(
         if not ok_gate:                        # flaky re-confirm before reverting
             cand = run_suite()
             ok_gate, why = decide(best.result, cand.result)
+        if floor_tree is None and cand.result.compiled:
+            floor_tree = safe_snapshot(floor_tree)   # first compiling agent state
         if ok_gate:
             best_tree = safe_snapshot(best_tree); best = cand; accepted[0] += 1; no_progress = 0
             event(f"diagnose round {it} accepted — kept agent's fix ({why})", "diagnose")
@@ -298,7 +309,16 @@ def run(
                   f"restored best so far ({why})", "diagnose")
 
     # ── finalize ──────────────────────────────────────────────────────────
-    safe_restore(best_tree)
+    # Normally best_tree is a gate-validated improvement. But if the gate never
+    # accepted anything, best_tree is still the stub — restoring it would discard
+    # the agent's real edits and report an empty diff. Fall back to the agent's
+    # compiling work (floor_tree) so the benchmark measures what the agent did.
+    if accepted[0] == 0 and floor_tree is not None:
+        event("no round met the regression gate — kept the agent's compiling work "
+              "as the final state (not reverting to the stub)", "diagnose")
+        safe_restore(floor_tree)
+    else:
+        safe_restore(best_tree)
     if best.result.compiled and best.result.failed == 0:
         outcome = "green"
     elif not best.result.compiled:

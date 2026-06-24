@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from abench.trace_model import Step, StepKind, Trace
 from abench.orchestration_adapters import (
     eval_from_junit, extract_phase_text, make_phase_runner, build_orchestrator_config,
+    build_status,
 )
 
 
@@ -31,6 +32,35 @@ def test_eval_from_junit_full_breakdown(tmp_path):
 def test_eval_from_junit_no_results_marks_not_ran(tmp_path):
     ev = eval_from_junit(tmp_path, compiled=False, ran=True)
     assert ev.result.ran is False and ev.result.executed == 0
+
+
+# ── build_status: compiled/ran from output + #executed ─────────────────────
+# The orchestrator's regression gate rejects a round when compiled is False.
+# Gradle/Maven print "BUILD FAILED" (and "error:") whenever ANY *test* fails —
+# not only on compile errors — so deriving compiled purely from string-matching
+# the output marks a perfectly-compiling, test-running suite as "does not
+# compile". For picocli (hundreds of pre-existing unrelated failures) that made
+# compiled ALWAYS False → no round ever accepted → the agent's work reverted.
+
+def test_build_status_tests_ran_means_compiled_even_with_build_failed():
+    out = "> Task :test FAILED\nThere were failing tests.\n\nBUILD FAILED in 2m 24s\n"
+    compiled, ran = build_status(out, executed=2474)
+    assert compiled is True and ran is True
+
+
+def test_build_status_compile_error_when_nothing_executed():
+    out = ("src/main/java/picocli/CommandLine.java:120: error: cannot find symbol\n"
+           "COMPILATION ERROR\nBUILD FAILED\n")
+    compiled, ran = build_status(out, executed=0)
+    assert compiled is False and ran is False
+
+
+def test_build_status_no_tests_no_compile_error_is_infra_not_compile_fail():
+    # executed==0 with no compile markers = infra/no-tests (timeout, wrong cmd) —
+    # "did not run", NOT a compile failure, so the gate's reason stays honest.
+    out = "Starting a Gradle Daemon\nNo tests found for given includes\n"
+    compiled, ran = build_status(out, executed=0)
+    assert compiled is True and ran is False
 
 
 def test_extract_phase_text_returns_last_nonempty_assistant_text():

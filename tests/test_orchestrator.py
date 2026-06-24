@@ -146,6 +146,36 @@ def test_run_stuck_when_no_round_improves():
     assert state["restores"] >= 1
 
 
+def test_run_keeps_agent_work_when_gate_never_accepts():
+    """Safety floor: if the regression gate never accepts a round (e.g. a noisy
+    suite where the agent's compiling fix doesn't move global pass/fail), finalize
+    must NOT revert the worktree to the initial stub snapshot — that reports an
+    empty diff for work the agent actually did ("returned a stub"). The agent's
+    compiling state is kept as the final on-disk state instead."""
+    # stub + every agent attempt compile but show identical 50/50, so decide()
+    # sees "no improvement" and accepts nothing.
+    suite = _fake_suite([_eval(50, 50)] * 40)
+    snaps: list[str] = []
+    restores: list[str] = []
+
+    def snapshot():
+        tok = f"snap{len(snaps)}"          # snap0 = the initial stub snapshot
+        snaps.append(tok)
+        return tok
+
+    def restore(tree):
+        restores.append(tree)
+
+    t = run(_CFG, phase_runner=_fake_phase(_CONTRACT), suite_runner=suite,
+            snapshot=snapshot, restore=restore)
+
+    assert t.accepted_rounds == 0                     # gate accepted nothing
+    assert restores, "finalize must restore a kept state"
+    assert restores[-1] != "snap0"                    # NOT reverted to the stub
+    assert any("agent" in (s.text or "").lower() and "kept" in (s.text or "").lower()
+               for s in t.steps if s.kind == StepKind.CONTROLLER)
+
+
 def test_run_flaky_regression_is_reconfirmed_then_accepted():
     suite = _fake_suite([_eval(0, 100), _eval(60, 40), _eval(58, 42), _eval(100, 0)])
     snap, restore, _ = _snap_restore()
