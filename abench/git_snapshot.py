@@ -12,8 +12,14 @@ from pathlib import Path
 
 
 def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=repo, check=True,
-                          capture_output=True, text=True).stdout
+    proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
+    if proc.returncode != 0:
+        # Surface git's stderr in the message — a bare CalledProcessError hides
+        # WHY it failed (permission denied, locked file, nested repo, …), which
+        # made these failures undiagnosable in the run log.
+        detail = (proc.stderr or proc.stdout or "").strip()
+        raise RuntimeError(f"git {' '.join(args)} failed (exit {proc.returncode}): {detail[:2000]}")
+    return proc.stdout
 
 
 def snapshot(repo: Path) -> str:
@@ -29,7 +35,18 @@ def restore(repo: Path, tree: str) -> None:
     are not in the snapshot. build/ etc. (gitignored) are left untouched."""
     _git(repo, "read-tree", tree)
     _git(repo, "checkout-index", "-a", "-f")
-    _git(repo, "clean", "-fd")
+    # Drop untracked files the round added. -ffd (double force) also removes
+    # untracked NESTED git repos (e.g. opencode/tool state) that plain -fd REFUSES
+    # — that refusal crashed the diagnose loop with a bare exit 1. Best-effort:
+    # the tracked source is already reverted above, so a residual file git still
+    # can't remove (root-owned from the container, or a locked Windows/WSL handle)
+    # must NOT abort the run — git removes everything removable first and only then
+    # reports the leftover, so tolerating it is safe (gitignored build/ is skipped;
+    # leftover cruft is harmless and gradle rebuilds).
+    try:
+        _git(repo, "clean", "-ffd")
+    except Exception:
+        pass
 
 
 def forbidden_changes(repo: Path, allowed_prefixes: list[str]) -> list[str]:
