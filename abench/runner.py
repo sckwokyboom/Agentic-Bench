@@ -504,11 +504,27 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         timeout_s=exp.timeout_s, on_event=on_event)
                     suite_runner = make_suite_runner(
                         workdir, suite_cmd, exp.verify.timeout_s)
+
+                    # VISUALIZATION-ONLY sink: stream the orchestrator's phase
+                    # hand-offs + controller actions to the live UI (via the
+                    # client wrapper's control_event), if the client provides it.
+                    # Never touches events.jsonl or metrics — purely for the live
+                    # view, so it can't affect the cross-trace comparison.
+                    _control_event = getattr(client, "control_event", None)
+
+                    def _orch_event(ev: dict) -> None:
+                        if _control_event is not None:
+                            try:
+                                _control_event(ev)
+                            except Exception:
+                                pass
+
                     trace = _orchestrate(
                         build_orchestrator_config(exp.orchestration, cond.orchestration),
                         phase_runner=phase_runner, suite_runner=suite_runner,
                         snapshot=lambda: _gsnap(workdir),
-                        restore=lambda t: _grestore(workdir, t))
+                        restore=lambda t: _grestore(workdir, t),
+                        on_event=_orch_event)
                     result = RunResult(trace=trace)
                 else:
                     result = client.run_task(

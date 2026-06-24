@@ -69,6 +69,28 @@ test("turnsFromTrace tags phases and surfaces controller steps as their own turn
   expect(understand.parts.some((p) => p.kind === "text")).toBe(true);
 });
 
+test("turnsFromRawEvents tags phases and surfaces controller events (live orchestrator)", () => {
+  const raw = [
+    { type: "phase.start", phase: "understand" },
+    { part: { type: "reasoning", messageID: "M0", text: "reading callers" } },
+    { type: "controller", phase: "implement", text: "implement accepted: 60p/40f" },
+    { type: "phase.start", phase: "implement" },
+    { part: { type: "patch", messageID: "M1", path: "X.java", patch: "@@" } },
+  ];
+  const turns = turnsFromRawEvents(raw);
+  // agent turn M0 inherits the 'understand' phase from the preceding phase.start
+  const m0 = turns.find((t) => t.messageId === "M0")!;
+  expect(m0.phase).toBe("understand");
+  expect(m0.isController).toBe(false);
+  // a standalone controller turn appears, carrying its text + phase
+  const ctrl = turns.find((t) => t.isController)!;
+  expect(ctrl.phase).toBe("implement");
+  const cp = ctrl.parts.find((p) => p.kind === "controller") as { kind: "controller"; text: string };
+  expect(cp.text).toContain("implement accepted");
+  // the later agent turn picks up the 'implement' phase
+  expect(turns.find((t) => t.messageId === "M1")!.phase).toBe("implement");
+});
+
 test("formatToolArgs renders the meaningful input per tool (grep shows the pattern)", () => {
   // the bug: grep used to show `path` and drop `pattern`
   expect(formatToolArgs("grep", { pattern: "putValue", include: "*.java", path: "/tmp/abench-xy/src" }))

@@ -105,6 +105,26 @@ def test_run_green_when_implement_passes_everything():
     assert t.accepted_rounds == 1 and t.reverted_rounds == 0
 
 
+def test_run_emits_phase_and_controller_events_for_live_viz():
+    """on_event (the live-viz sink) gets a phase.start per hand-off + a controller
+    event per controller action — exactly what the live stream renders. It must
+    NOT affect the returned trace's outcome/counts (viz-only)."""
+    suite = _fake_suite([_eval(0, 100), _eval(100, 0)])
+    snap, restore, _ = _snap_restore()
+    events: list[dict] = []
+    t = run(_CFG, phase_runner=_fake_phase(_CONTRACT), suite_runner=suite,
+            snapshot=snap, restore=restore, on_event=events.append)
+    kinds = [e["type"] for e in events]
+    assert "phase.start" in kinds and "controller" in kinds
+    phases = [e["phase"] for e in events if e["type"] == "phase.start"]
+    assert phases[0] == "understand" and "implement" in phases
+    ctrl_texts = [e["text"] for e in events if e["type"] == "controller"]
+    assert any("baseline" in x for x in ctrl_texts)
+    assert any("accepted" in x for x in ctrl_texts)
+    # viz sink doesn't perturb the run result
+    assert t.orchestration_outcome == "green"
+
+
 def test_run_green_after_one_diagnose_round():
     suite = _fake_suite([_eval(0, 100), _eval(60, 40), _eval(100, 0)])
     snap, restore, _ = _snap_restore()

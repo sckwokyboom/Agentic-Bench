@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Stack, FormControlLabel, Checkbox, Typography } from "@mui/material";
 import TurnCard from "./TurnCard";
+import PhaseDivider from "./PhaseDivider";
 import { turnsFromRawEvents } from "../lib/traceModel";
 import type { Envelope } from "../ws/envelope";
 
@@ -66,14 +67,29 @@ export default function EventStream({ envelopes }: Props) {
           {turns.length === 0 && (
             <Typography variant="body2" color="text.secondary">No events yet.</Typography>
           )}
-          {turns.map((t) => (
-            <TurnCard
-              key={t.messageId ?? t.index}
-              turn={t}
-              index={t.index}
-              rawEvents={rawFor(t.messageId)}
-            />
-          ))}
+          {(() => {
+            // Insert a phase divider when the orchestration phase changes, so
+            // the live stream shows the controller's hand-offs (understand →
+            // implement → diagnose …). Plain agent runs have phase === null →
+            // no dividers, unchanged render.
+            let prevPhase: string | null = null;
+            const out: ReactNode[] = [];
+            for (const t of turns) {
+              if (t.phase && t.phase !== prevPhase) {
+                out.push(<PhaseDivider key={`phase-${t.index}`} phase={t.phase} />);
+                prevPhase = t.phase;
+              }
+              out.push(
+                <TurnCard
+                  key={t.messageId ?? `t-${t.index}`}
+                  turn={t}
+                  index={t.index}
+                  rawEvents={rawFor(t.messageId)}
+                />,
+              );
+            }
+            return out;
+          })()}
         </Stack>
         <div ref={bottomRef} />
       </Box>

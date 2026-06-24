@@ -30,3 +30,19 @@ test("scopes to the current run — past runs' events don't mix in", () => {
   // honest counter: the current run starts at turn 1, not turn 2
   expect(screen.getByText(/turn 1/)).toBeInTheDocument();
 });
+
+test("renders phase dividers and controller actions in the live stream", () => {
+  const envelopes: Envelope[] = [
+    { type: "raw_event", session_id: "S", event_id: 1, run_idx: 1, condition: "phased", rep: 0,
+      event: { type: "phase.start", phase: "understand" } },
+    { type: "raw_event", session_id: "S", event_id: 2, run_idx: 1, condition: "phased", rep: 0,
+      event: { part: { type: "reasoning", messageID: "M0", text: "studying putValue" } } },
+    { type: "raw_event", session_id: "S", event_id: 3, run_idx: 1, condition: "phased", rep: 0,
+      event: { type: "controller", phase: "implement", text: "round 1 reverted (no improvement)" } },
+  ];
+  render(<EventStream envelopes={envelopes} />);
+  expect(screen.getByText("1 · understand")).toBeInTheDocument();     // phase divider
+  expect(screen.getByText(/studying putValue/)).toBeInTheDocument();  // agent turn
+  expect(screen.getByText("controller")).toBeInTheDocument();         // controller chip
+  expect(screen.getByText(/round 1 reverted/)).toBeInTheDocument();   // controller action text
+});

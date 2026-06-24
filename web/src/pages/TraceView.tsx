@@ -18,19 +18,7 @@ import MethodComparisonCard from "../components/MethodComparisonCard";
 import MetricsDrawer from "../components/MetricsDrawer";
 import TraceRunSwitcher from "../components/TraceRunSwitcher";
 import SafeTraceButton from "../components/SafeTraceButton";
-
-const PHASE_LABEL: Record<string, string> = {
-  understand: "1 · understand", plan: "2 · plan", implement: "3 · implement", diagnose: "4 · diagnose",
-};
-
-function PhaseDivider({ phase }: { phase: string }) {
-  return (
-    <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1 }}>
-      <Typography variant="overline" color="text.secondary">{PHASE_LABEL[phase] ?? phase}</Typography>
-      <Box sx={{ flexGrow: 1, height: "1px", bgcolor: "divider" }} />
-    </Stack>
-  );
-}
+import PhaseDivider from "../components/PhaseDivider";
 
 function outcomeColor(o: string): "success" | "warning" | "error" | "default" {
   if (o === "green") return "success";

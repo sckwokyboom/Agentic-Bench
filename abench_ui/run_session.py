@@ -197,6 +197,23 @@ class _PerRunPublishingClient:
         session end, where no later workdir arrives to trigger the flush."""
         self._flush_finished()
 
+    def control_event(self, event: dict) -> None:
+        """Publish a phased-orchestrator event (phase hand-off / controller
+        action) for the CURRENT run as a raw_event, so the live stream shows what
+        the orchestrator is doing. VISUALIZATION ONLY — these are never written to
+        events.jsonl nor counted in metrics (controller steps are excluded there),
+        so they cannot affect the cross-trace comparison."""
+        if self._cur_cond is None:
+            return
+        self._publish({
+            "type": "raw_event",
+            "session_id": self._session_id,
+            "run_idx": self._cur_run_idx,
+            "condition": self._cur_cond.name,
+            "rep": self._cur_rep,
+            "event": event,
+        })
+
 
 class RunSession:
     def __init__(

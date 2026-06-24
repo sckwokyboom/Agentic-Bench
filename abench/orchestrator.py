@@ -125,7 +125,12 @@ def run(
     suite_runner: SuiteRunner,
     snapshot: Callable[[], object],
     restore: Callable[[object], None],
+    on_event: "Callable[[dict], None] | None" = None,
 ) -> Trace:
+    # on_event is a VISUALIZATION-ONLY sink (the live UI): it receives the phase
+    # transitions + controller actions as they happen. It must never feed metrics
+    # or events.jsonl — those come from the stitched trace, where CONTROLLER steps
+    # are excluded from the comparison counts (see metrics.extract). Best-effort.
     phase_traces: list[tuple[str, Trace]] = []
     ctrl: list[Step] = []
     clock = [0.0]
@@ -133,9 +138,23 @@ def run(
     accepted = [0]
     reverted = [0]
 
+    def _emit(payload: dict) -> None:
+        if on_event is not None:
+            try:
+                on_event(payload)
+            except Exception:
+                pass
+
     def event(text: str, phase: str) -> None:
         clock[0] += 1.0
         ctrl.append(Step(kind=StepKind.CONTROLLER, ts=clock[0], turn=0, text=text, phase=phase))
+        _emit({"type": "controller", "phase": phase, "text": text})
+
+    def do_phase(name: str, prompt: str, tools: list[str]) -> PhaseOutcome:
+        # Announce the control hand-off so the live stream shows a phase divider
+        # before the agent's events for that phase arrive.
+        _emit({"type": "phase.start", "phase": name})
+        return phase_runner(name, prompt, tools)
 
     def run_suite() -> SuiteEval:
         test_runs[0] += 1
@@ -148,7 +167,7 @@ def run(
     event(f"baseline: {base.result.passed}p/{base.result.failed}f", "implement")
 
     # ── UNDERSTAND ────────────────────────────────────────────────────────
-    u = phase_runner("understand", understand_prompt(cfg), ["read", "grep"])
+    u = do_phase("understand", understand_prompt(cfg), ["read", "grep"])
     phase_traces.append(("understand", u.trace))
     ok, why = contract_ok(u, cfg)
     contract = u.text if ok else fallback_contract(base.failures, cfg)
@@ -157,14 +176,14 @@ def run(
     # ── PLAN (toggle) ─────────────────────────────────────────────────────
     plan = ""
     if cfg.with_plan:
-        p = phase_runner("plan", plan_prompt(cfg, contract), ["read"])
+        p = do_phase("plan", plan_prompt(cfg, contract), ["read"])
         phase_traces.append(("plan", p.trace))
         okp, _ = plan_ok(p)
         plan = p.text if okp else ""
         event(f"plan {'accepted' if okp else 'empty'}", "plan")
 
     # ── IMPLEMENT ─────────────────────────────────────────────────────────
-    im = phase_runner("implement", implement_prompt(cfg, contract, plan), ["read", "edit"])
+    im = do_phase("implement", implement_prompt(cfg, contract, plan), ["read", "edit"])
     phase_traces.append(("implement", im.trace))
     ev = run_suite()
     if _improved(best.result, ev.result):
@@ -182,8 +201,8 @@ def run(
         it += 1
         restore(best_tree)                     # always fix from the current best
         clusters = select_clusters(cluster_failures(best.failures), cfg.cluster_cap)
-        d = phase_runner("diagnose", diagnose_prompt(cfg, contract, plan, clusters),
-                         ["read", "edit", "verify"])
+        d = do_phase("diagnose", diagnose_prompt(cfg, contract, plan, clusters),
+                     ["read", "edit", "verify"])
         phase_traces.append(("diagnose", d.trace))
         cand = run_suite()
         ok_gate, why = decide(best.result, cand.result)

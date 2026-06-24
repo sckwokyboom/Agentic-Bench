@@ -100,7 +100,13 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
     n_reads = sum(1 for s in tool_calls if s.tool_name in cfg.read_tool_names)
     n_searches = sum(1 for s in tool_calls if s.tool_name in cfg.search_tool_names)
 
-    turns = {s.turn for s in trace.steps if s.turn is not None}
+    # Exclude CONTROLLER steps: the phased orchestrator records its own actions
+    # (baseline suite, accept/revert, finalize) as CONTROLLER steps in the
+    # stitched trace for the FINISHED-view visualization, but they are not the
+    # agent's work — counting them would inflate n_steps for phased vs autonomous
+    # and corrupt the cross-condition comparison.
+    turns = {s.turn for s in trace.steps
+             if s.turn is not None and s.kind != StepKind.CONTROLLER}
     n_steps = len(turns)
 
     n_files, added, removed = parse_diffstat(patch_text)

@@ -64,6 +64,23 @@ def test_extract_counts_metrics():
     assert m["success"] is None
 
 
+def test_extract_excludes_controller_steps_from_comparison_metrics():
+    """Phased records its controller actions as CONTROLLER steps (with their own
+    turns after stitching) for the finished-view viz — they must NOT count toward
+    n_steps / n_tool_calls, or phased would look busier than autonomous and skew
+    the cross-condition comparison."""
+    before = extract(_trace(), "", _cfg())
+    t = _trace()
+    t.steps.extend([
+        Step(kind=StepKind.CONTROLLER, ts=7.0, turn=3, text="baseline: 0p/84f"),
+        Step(kind=StepKind.CONTROLLER, ts=8.0, turn=4, text="round 1 reverted"),
+        Step(kind=StepKind.CONTROLLER, ts=9.0, turn=5, text="finalized: stuck"),
+    ])
+    after = extract(t, "", _cfg())
+    assert after["n_steps"] == before["n_steps"] == 3       # controller turns excluded
+    assert after["n_tool_calls"] == before["n_tool_calls"]  # nor counted as tool calls
+
+
 def test_time_to_first_edit_from_edit_tool_call_when_no_patch_parts():
     # Regression: opencode 1.15.x emits no part.type=="patch" events, so the
     # normalized trace carries the edit only as a TOOL_CALL named "edit" —

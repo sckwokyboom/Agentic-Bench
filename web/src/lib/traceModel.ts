@@ -113,15 +113,31 @@ export function turnsFromRawEvents(rawEvents: any[]): UiTurn[] {
   // (e.g. a tool going running → completed) replaces its earlier partial
   // instead of pushing a duplicate. Id-less parts are never coalesced.
   const partIdxById = new Map<string, Map<string, number>>();
+  // Current phase from the latest phase.start viz event; agent turns inherit it.
+  let curPhase: string | null = null;
   const ensure = (mid: string) => {
     let t = byId.get(mid);
     if (!t) {
-      t = emptyTurn(order.length); t.messageId = mid;
+      t = emptyTurn(order.length); t.messageId = mid; t.phase = curPhase;
       byId.set(mid, t); order.push(mid); partIdxById.set(mid, new Map());
     }
     return t;
   };
   for (const ev of rawEvents) {
+    // Phased-orchestrator viz events (no part/messageID), injected live by the
+    // control_event channel: a phase hand-off, or a controller action. These are
+    // visualization only — they never reach metrics (controller steps are
+    // excluded there), so they cannot skew the cross-trace comparison.
+    if (ev?.type === "phase.start") { curPhase = ev?.phase ?? curPhase; continue; }
+    if (ev?.type === "controller") {
+      const ct = emptyTurn(order.length);
+      ct.isController = true;
+      ct.phase = ev?.phase ?? curPhase;
+      ct.parts.push({ kind: "controller", text: String(ev?.text ?? "") });
+      const key = `ctrl-${order.length}`;
+      byId.set(key, ct); order.push(key);
+      continue;
+    }
     const p = ev?.part ?? {};
     const mid = p.messageID;
     if (!mid) continue;
