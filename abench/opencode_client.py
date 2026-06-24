@@ -281,6 +281,20 @@ def build_run_command(
     config references via ``{env:NAME}`` are forwarded by name so the key
     resolves inside the container. Pure (no I/O) for unit testing.
     """
+    # opencode receives the prompt as a SINGLE argv element; Linux caps one argv
+    # string at MAX_ARG_STRLEN (128 KiB) and execve raises OSError E2BIG
+    # ("Argument list too long") above it. Fail with a CLEAR, actionable error
+    # rather than that cryptic OSError — and never silently truncate, which would
+    # corrupt the task prompt / contract. (Phased caps its contract upstream; this
+    # is the backstop for any path.)
+    _MAX_ARG_BYTES = 120_000
+    n = len(user_message.encode("utf-8", "surrogatepass"))
+    if n > _MAX_ARG_BYTES:
+        raise ValueError(
+            f"user_message is {n} bytes — over the safe single-argv limit "
+            f"(~{_MAX_ARG_BYTES}); opencode would fail with 'Argument list too "
+            f"long'. Shorten the prompt / augmentation / contract."
+        )
     sb = cfg.sandbox
     container = sb.mode == "container"
     run_dir = sb.workdir_mount if container else workdir

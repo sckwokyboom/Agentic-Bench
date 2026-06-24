@@ -164,3 +164,22 @@ def test_run_uses_fallback_contract_when_gate_fails():
     phases = {s.phase for s in t.steps if s.phase}
     assert "understand" in phases and "implement" in phases
     assert any(s.kind == StepKind.CONTROLLER for s in t.steps)
+
+
+def test_run_caps_huge_contract_to_avoid_argv_overflow():
+    """A weak model can emit a huge 'contract'; re-embedding it verbatim into the
+    implement prompt overflowed opencode's single-argv limit (Linux E2BIG,
+    'Argument list too long'). The orchestrator caps it so prompts stay bounded."""
+    huge = "WRAP SPAN indent " + "X" * 500_000     # passes the gate, way over the cap
+    prompts: dict[str, str] = {}
+
+    def phase(name, prompt, tools):
+        prompts[name] = prompt
+        return PhaseOutcome(trace=_trace_with_reads(2),
+                            text=huge if name == "understand" else "")
+
+    suite = _fake_suite([_eval(0, 100), _eval(100, 0)])
+    snap, restore, _ = _snap_restore()
+    run(_CFG, phase_runner=phase, suite_runner=suite, snapshot=snap, restore=restore)
+    assert len(prompts["implement"]) < 60_000      # capped, well under MAX_ARG_STRLEN
+    assert "truncated" in prompts["implement"]

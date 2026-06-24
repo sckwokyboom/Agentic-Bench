@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from abench.config import OpenCodeCfg, ProviderCfg
 from abench.opencode_client import build_opencode_config
 
@@ -115,6 +117,16 @@ def test_build_run_command_none_is_direct_host_invocation():
     assert cmd[-1] == "do it"
     # No container runtime is involved.
     assert "docker" not in cmd and "podman" not in cmd
+
+
+def test_build_run_command_rejects_oversize_user_message():
+    """A prompt over the single-argv limit must fail with a CLEAR, actionable
+    error — not the cryptic OSError E2BIG ('Argument list too long') that
+    opencode/docker would otherwise raise on spawn."""
+    cfg = OpenCodeCfg()
+    with pytest.raises(ValueError, match="Argument list too long"):
+        build_run_command(cfg, workdir="/wd", model="m",
+                          user_message="X" * 200_000, config_data={})
 
 
 def test_build_run_command_container_wraps_and_isolates():

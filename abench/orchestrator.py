@@ -17,6 +17,24 @@ from .trace_model import Step, StepKind, Trace
 from .trace_stitch import stitch
 
 
+# A phase prompt is handed to opencode as a SINGLE CLI argument; Linux caps one
+# argv string at MAX_ARG_STRLEN (128 KiB) and execve fails with E2BIG ("Argument
+# list too long") above it. A weak model sometimes dumps file contents into its
+# contract, blowing past that — and a 100 KB "contract" is noise anyway. Cap the
+# agent-generated text we re-embed into later phase prompts to a generous-but-safe
+# size so the prompt stays well under the limit.
+_MAX_CONTRACT_CHARS = 24_000
+_MAX_PLAN_CHARS = 12_000
+_MAX_CLUSTER_FIELD = 2_000
+
+
+def _cap(text: "str | None", limit: int) -> str:
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n…[truncated {len(text) - limit} chars]"
+
+
 @dataclass
 class PhaseOutcome:
     trace: Trace
@@ -95,8 +113,9 @@ def _fmt_cluster(c: Cluster) -> str:
     r = c.representative
     head = f"- [{c.count}x, {r.type or r.kind}] {r.classname.rsplit('.', 1)[-1]}.{r.name}"
     if r.expected is not None and r.actual is not None:
-        return head + f"\n    expected: {r.expected!r}\n    actual:   {r.actual!r}"
-    return head + (f"\n    {r.message}" if r.message else "")
+        return (head + f"\n    expected: {_cap(repr(r.expected), _MAX_CLUSTER_FIELD)}"
+                + f"\n    actual:   {_cap(repr(r.actual), _MAX_CLUSTER_FIELD)}")
+    return head + (f"\n    {_cap(r.message, _MAX_CLUSTER_FIELD)}" if r.message else "")
 
 
 def diagnose_prompt(cfg: OrchestratorConfig, contract: str, plan: str,
@@ -170,7 +189,7 @@ def run(
     u = do_phase("understand", understand_prompt(cfg), ["read", "grep"])
     phase_traces.append(("understand", u.trace))
     ok, why = contract_ok(u, cfg)
-    contract = u.text if ok else fallback_contract(base.failures, cfg)
+    contract = _cap(u.text, _MAX_CONTRACT_CHARS) if ok else fallback_contract(base.failures, cfg)
     event(f"contract {'accepted' if ok else 'fallback: ' + why}", "understand")
 
     # ── PLAN (toggle) ─────────────────────────────────────────────────────
@@ -179,7 +198,7 @@ def run(
         p = do_phase("plan", plan_prompt(cfg, contract), ["read"])
         phase_traces.append(("plan", p.trace))
         okp, _ = plan_ok(p)
-        plan = p.text if okp else ""
+        plan = _cap(p.text, _MAX_PLAN_CHARS) if okp else ""
         event(f"plan {'accepted' if okp else 'empty'}", "plan")
 
     # ── IMPLEMENT ─────────────────────────────────────────────────────────
