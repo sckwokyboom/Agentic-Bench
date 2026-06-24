@@ -53,7 +53,7 @@ test("renders a controller turn distinctly (chip + phase + action text, no turn/
   };
   const { container } = render(<TurnCard turn={ctrlTurn} index={5} rawEvents={[]} />);
   expect(screen.getByText("controller")).toBeInTheDocument();    // chip, not "turn 6"
-  expect(screen.getByText("diagnose")).toBeInTheDocument();      // phase chip
+  expect(screen.getByText("phase: diagnose")).toBeInTheDocument();   // phase chip
   expect(screen.getByText(/round 1 accepted/)).toBeInTheDocument();
   expect(screen.queryByText(/turn 6/)).toBeNull();
   expect(container.querySelector('[data-testid="SettingsOutlinedIcon"]')).not.toBeNull();

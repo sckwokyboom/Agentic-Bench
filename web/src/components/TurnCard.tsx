@@ -116,10 +116,20 @@ export default function TurnCard({ turn, index, rawEvents }: Props) {
       <CardContent>
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }} flexWrap="wrap">
           {turn.isController
-            ? <Chip size="small" color="info" variant="outlined" icon={<SettingsOutlinedIcon />} label="controller" />
+            ? <Tooltip arrow title="Orchestrator action — a deterministic step the controller ran (baseline suite, accept/revert a round, finalize). NOT an LLM turn, so no tokens.">
+                <Chip size="small" color="info" variant="outlined" icon={<SettingsOutlinedIcon />} label="controller" />
+              </Tooltip>
             : <Chip size="small" variant="outlined" label={`turn ${index + 1}`} />}
-          {turn.reason && <Chip size="small" color="primary" label={turn.reason} />}
-          {turn.phase && <Chip size="small" variant="outlined" label={turn.phase} sx={{ textTransform: "none" }} />}
+          {turn.reason && (
+            <Tooltip arrow title="The AGENT's turn-end reason (why the model ended this turn): tool-calls = paused to call tools, will continue; stop = ended its turn; length = hit the token limit.">
+              <Chip size="small" color="primary" label={turn.reason} />
+            </Tooltip>
+          )}
+          {turn.phase && (
+            <Tooltip arrow title="Orchestration PHASE the controller put the agent in (understand → plan → implement → diagnose). Shown on both the agent's turns and the controller's actions inside that phase.">
+              <Chip size="small" variant="outlined" label={`phase: ${turn.phase}`} sx={{ textTransform: "none" }} />
+            </Tooltip>
+          )}
           <Box sx={{ flexGrow: 1 }} />
           {!turn.isController && (
             <Tooltip
