@@ -42,6 +42,7 @@ test("renders phase dividers and controller actions in the live stream", () => {
   ];
   render(<EventStream envelopes={envelopes} />);
   expect(screen.getByText("1 · understand")).toBeInTheDocument();     // phase divider
+  expect(screen.getByText(/Controller prompts the agent to study/)).toBeInTheDocument();  // phase desc
   expect(screen.getByText(/studying putValue/)).toBeInTheDocument();  // agent turn
   expect(screen.getByText("controller")).toBeInTheDocument();         // controller chip
   expect(screen.getByText(/round 1 reverted/)).toBeInTheDocument();   // controller action text

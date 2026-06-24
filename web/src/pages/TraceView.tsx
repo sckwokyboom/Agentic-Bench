@@ -106,11 +106,21 @@ export default function TraceView() {
         )}
         {metrics.data && <AggregateStatsBar metrics={metrics.data} />}
         {trace.data.orchestration_outcome && (
-          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-            <Chip size="small" color={outcomeColor(trace.data.orchestration_outcome)}
-              icon={<SettingsOutlinedIcon />} label={`orchestration: ${trace.data.orchestration_outcome}`} />
+          <Stack spacing={0.5}>
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+              <Chip size="small" color={outcomeColor(trace.data.orchestration_outcome)}
+                icon={<SettingsOutlinedIcon />} label={`orchestration: ${trace.data.orchestration_outcome}`} />
+              <Typography variant="caption" color="text.secondary">
+                {trace.data.controller_test_runs ?? 0} suite runs · {trace.data.accepted_rounds ?? 0} accepted · {trace.data.reverted_rounds ?? 0} reverted
+              </Typography>
+            </Stack>
             <Typography variant="caption" color="text.secondary">
-              {trace.data.controller_test_runs ?? 0} suite runs · {trace.data.accepted_rounds ?? 0} accepted · {trace.data.reverted_rounds ?? 0} reverted
+              <b>Phased orchestration</b>: our controller (deterministic code, not the model) drives the
+              agent through fixed phases. Each phase it sends a prompt it composed + scoped tools; the
+              agent (model) does the work — the <b>contract / plan / code edits are the agent's output</b>.
+              After each phase the controller gates that output and runs the test suite, accepting or
+              reverting. Below: the <b>phase bands</b> + <b>“controller” cards</b> are the controller;
+              <b> “turn N” cards</b> are the agent.
             </Typography>
           </Stack>
         )}

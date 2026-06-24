@@ -218,14 +218,17 @@ def run(
     best_tree = safe_snapshot(None)
     base = run_suite()
     best = base
-    event(f"baseline: {base.result.passed}p/{base.result.failed}f", "implement")
+    event(f"ran baseline test suite (stub, before any edits): "
+          f"{base.result.passed} passed / {base.result.failed} failed", "implement")
 
     # ── UNDERSTAND ────────────────────────────────────────────────────────
     u = do_phase("understand", understand_prompt(cfg), ["read", "grep"])
     phase_traces.append(("understand", u.trace))
     ok, why = contract_ok(u, cfg)
     contract = _cap(u.text, _MAX_CONTRACT_CHARS) if ok else fallback_contract(base.failures, cfg)
-    event(f"contract {'accepted' if ok else 'fallback: ' + why}", "understand")
+    event("agent's contract accepted (its spec of the method's required behaviour)"
+          if ok else f"agent's contract rejected ({why}) — using an auto-derived fallback",
+          "understand")
 
     # ── PLAN (toggle) ─────────────────────────────────────────────────────
     plan = ""
@@ -234,7 +237,8 @@ def run(
         phase_traces.append(("plan", p.trace))
         okp, _ = plan_ok(p)
         plan = _cap(p.text, _MAX_PLAN_CHARS) if okp else ""
-        event(f"plan {'accepted' if okp else 'empty'}", "plan")
+        event("agent's plan accepted (its approach + helpers to use)"
+              if okp else "agent's plan empty — proceeding without one", "plan")
 
     # ── IMPLEMENT ─────────────────────────────────────────────────────────
     im = do_phase("implement", implement_prompt(cfg, contract, plan), ["read", "edit"])
@@ -242,9 +246,11 @@ def run(
     ev = run_suite()
     if _improved(best.result, ev.result):
         best_tree = safe_snapshot(best_tree); best = ev; accepted[0] += 1
-        event(f"implement accepted: {ev.result.passed}p/{ev.result.failed}f", "implement")
+        event(f"implement accepted — agent's edit improved the suite: "
+              f"{ev.result.passed} passed / {ev.result.failed} failed", "implement")
     else:
-        event(f"implement not accepted (compiled={ev.result.compiled})", "implement")
+        event(f"implement not accepted — agent's edit didn't improve "
+              f"(compiled={ev.result.compiled}); keeping baseline", "implement")
 
     # ── DIAGNOSE loop ─────────────────────────────────────────────────────
     no_progress = 0
@@ -265,10 +271,11 @@ def run(
             ok_gate, why = decide(best.result, cand.result)
         if ok_gate:
             best_tree = safe_snapshot(best_tree); best = cand; accepted[0] += 1; no_progress = 0
-            event(f"round {it} accepted ({why})", "diagnose")
+            event(f"diagnose round {it} accepted — kept agent's fix ({why})", "diagnose")
         else:
             reverted[0] += 1; no_progress += 1
-            event(f"round {it} reverted ({why})", "diagnose")
+            event(f"diagnose round {it} reverted — agent's fix didn't help, "
+                  f"restored best so far ({why})", "diagnose")
 
     # ── finalize ──────────────────────────────────────────────────────────
     safe_restore(best_tree)
@@ -280,7 +287,8 @@ def run(
         outcome = "budget"
     else:
         outcome = "stuck"
-    event(f"finalized: {outcome} ({best.result.passed}p/{best.result.failed}f)", "diagnose")
+    event(f"finalized: {outcome} — kept the best version: "
+          f"{best.result.passed} passed / {best.result.failed} failed", "diagnose")
 
     try:
         return stitch(phase_traces, ctrl, outcome=outcome,
