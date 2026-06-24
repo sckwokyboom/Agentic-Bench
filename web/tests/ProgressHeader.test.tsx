@@ -83,6 +83,31 @@ describe("ProgressHeader service-errors chip", () => {
   });
 });
 
+describe("ProgressHeader token totals", () => {
+  it("shows Σ in / Σ out when tokens are present", () => {
+    render(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 0, failed: 0, total: 0 }}
+        tokens={{ inSum: 12345, outSum: 678 }}
+      />,
+    );
+    expect(screen.getByText(/Σ in/)).toBeInTheDocument();
+    expect(screen.getByText(/Σ out/)).toBeInTheDocument();
+  });
+
+  it("renders no token line when tokens are null or all zero", () => {
+    const { rerender } = render(
+      <ProgressHeader {...base} verifyCounts={{ passed: 0, failed: 0, total: 0 }} tokens={null} />,
+    );
+    expect(screen.queryByText(/Σ in/)).toBeNull();
+    rerender(
+      <ProgressHeader {...base} verifyCounts={{ passed: 0, failed: 0, total: 0 }} tokens={{ inSum: 0, outSum: 0 }} />,
+    );
+    expect(screen.queryByText(/Σ in/)).toBeNull();
+  });
+});
+
 describe("ProgressHeader ETA line", () => {
   it("shows total + remaining when the estimate is ready", () => {
     render(

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Card, CardContent, Stack, Typography, Chip, Box, Button } from "@mui/material";
+import { Card, CardContent, Stack, Typography, Chip, Box, Button, Tooltip } from "@mui/material";
 import PsychologyOutlinedIcon from "@mui/icons-material/PsychologyOutlined";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import EditNoteIcon from "@mui/icons-material/EditNote";
@@ -122,12 +122,24 @@ export default function TurnCard({ turn, index, rawEvents }: Props) {
           {turn.phase && <Chip size="small" variant="outlined" label={turn.phase} sx={{ textTransform: "none" }} />}
           <Box sx={{ flexGrow: 1 }} />
           {!turn.isController && (
-            <Typography variant="caption" color="text.secondary">
-              in {formatTokens(turn.tokensIn)} · out {formatTokens(turn.tokensOut)}
-              {turnObsTokens(turn) > 0 && <> · obs ≈{formatTokens(turnObsTokens(turn))}</>}
-              {turn.cost != null && <> · ${turn.cost.toFixed(4)}</>}
-              {turn.durationS != null && <> · {turn.durationS.toFixed(1)}s</>}
-            </Typography>
+            <Tooltip
+              arrow
+              title={
+                "Per-turn (not cumulative). in = the FULL input context sent to "
+                + "the model this turn — it re-includes all prior turns, so it grows "
+                + "turn over turn. out = tokens generated this turn. obs = est. "
+                + "tokens of this turn's tool outputs (which become part of the next "
+                + "turn's input)."
+              }
+            >
+              <Typography variant="caption" color="text.secondary"
+                sx={{ borderBottom: "1px dotted", borderColor: "divider", cursor: "help" }}>
+                in {formatTokens(turn.tokensIn)} · out {formatTokens(turn.tokensOut)}
+                {turnObsTokens(turn) > 0 && <> · obs ≈{formatTokens(turnObsTokens(turn))}</>}
+                {turn.cost != null && <> · ${turn.cost.toFixed(4)}</>}
+                {turn.durationS != null && <> · {turn.durationS.toFixed(1)}s</>}
+              </Typography>
+            </Tooltip>
           )}
         </Stack>
 

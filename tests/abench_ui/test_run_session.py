@@ -268,6 +268,15 @@ def test_per_run_publishing_groups_phase_subcalls_by_workdir():
     raw0 = [m for m in published if m["type"] == "raw_event" and m["run_idx"] == 1]
     assert len(raw0) == 3
 
+    # run.finished fires ONCE per run, not per phase: run 0's flushes when run 1's
+    # workdir appears; run 1's flushes at session end via flush().
+    assert [m for m in published if m["type"] == "run.finished"
+            and m["run_idx"] == 1] != []                 # run 0 already flushed
+    w.flush()                                            # session end
+    finished = [m for m in published if m["type"] == "run.finished"]
+    assert len(finished) == 2                            # one per RUN, not per phase
+    assert [f["run_idx"] for f in finished] == [1, 2]
+
 
 def test_run_session_properties(tmp_path):
     """started_at / ended_at are set correctly."""

@@ -9,7 +9,8 @@ import StartupStatus from "../components/StartupStatus";
 import { useCancelSession, useRuns, useSessionState } from "../api/queries";
 import { deriveStartupStatus } from "../lib/startupStatus";
 import { estimateExperiment } from "../lib/eta";
-import type { SessionStarted } from "../ws/envelope";
+import type { SessionStarted, RawEvent } from "../ws/envelope";
+import { turnsFromRawEvents, realInputTokensTotal } from "../lib/traceModel";
 
 export default function Run() {
   const { sid } = useParams<{ sid: string }>();
@@ -107,6 +108,20 @@ export default function Run() {
   // Time estimate (total + remaining), refined as each run finishes.
   const estimate = useMemo(() => estimateExperiment(ws.envelopes), [ws.envelopes]);
 
+  // Token totals for the CURRENT run (highest run_idx), summed from its
+  // step-finish events — Σ in (input billed; context re-sent each turn → grows)
+  // and Σ out (generated). Scoped like EventStream so it tracks the run on screen.
+  const tokens = useMemo(() => {
+    const raws = ws.envelopes.filter((e): e is RawEvent => e.type === "raw_event");
+    if (raws.length === 0) return null;
+    const curIdx = raws.reduce((m, e) => Math.max(m, e.run_idx), 0);
+    const turns = turnsFromRawEvents(raws.filter((e) => e.run_idx === curIdx).map((e) => e.event));
+    return {
+      inSum: realInputTokensTotal(turns),
+      outSum: turns.reduce((n, t) => n + (t.tokensOut ?? 0), 0),
+    };
+  }, [ws.envelopes]);
+
   useEffect(() => {
     if (
       derived.sessionFinished &&
@@ -150,6 +165,7 @@ export default function Run() {
         isolation={derived.isolationOn}
         serviceErrors={derived.serviceErrors}
         estimate={estimate}
+        tokens={tokens}
       />
       {derived.sessionFinished && experimentName === null && (
         <Typography color="warning.main">

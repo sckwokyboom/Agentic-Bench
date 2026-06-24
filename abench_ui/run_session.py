@@ -65,6 +65,7 @@ class _PerRunPublishingClient:
         self._cur_cond = None
         self._cur_rep: int = 0
         self._cur_run_idx: int = 0
+        self._pending_finish: dict | None = None
 
     def run_task(
         self,
@@ -89,6 +90,9 @@ class _PerRunPublishingClient:
         # killed every phased run. The plain (non-phased) path calls run_task
         # once per run, so this stays a no-op there.
         if workdir != self._last_workdir:
+            # New workdir = a new condition×rep. Flush the PREVIOUS run's
+            # deferred run.finished before starting this one (see the stash below).
+            self._flush_finished()
             self._last_workdir = workdir
             # Guard: never IndexError even if the call count somehow exceeds the
             # plan — degrade to the last entry rather than crash the run.
@@ -143,10 +147,14 @@ class _PerRunPublishingClient:
         # the trace too.
         fds = tr.final_diff_summary
         made_source_changes = bool(fds is not None and fds.files)
-        # NB: for a phased run this fires once PER PHASE (carrying that phase's
-        # partial trace) — live progress only. The authoritative whole-run trace
-        # is trace.json, written by the runner after the orchestration finishes.
-        self._publish({
+        # run.finished is DEFERRED, not published here: a phased run calls
+        # run_task once per phase, and emitting per phase marked the run "done"
+        # after the first phase. Stash the latest result and flush exactly ONE
+        # run.finished per run — when the next run's workdir appears, or via
+        # RunSession.flush() at session end. For phased the stash is the LAST
+        # phase's trace (partial verify/duration); the authoritative whole-run
+        # trace is trace.json, written by the runner after orchestration.
+        self._pending_finish = {
             "type": "run.finished",
             "session_id": self._session_id,
             "batch_id": self._batch_id,
@@ -174,9 +182,20 @@ class _PerRunPublishingClient:
                 "command": tr.verify_command,
                 "duration_s": tr.verify_duration_s,
             },
-        })
+        }
 
         return result
+
+    def _flush_finished(self) -> None:
+        """Emit the stashed run.finished for the run that just ended (if any)."""
+        if self._pending_finish is not None:
+            self._publish(self._pending_finish)
+            self._pending_finish = None
+
+    def flush(self) -> None:
+        """Flush the final run's deferred run.finished. RunSession calls this at
+        session end, where no later workdir arrives to trigger the flush."""
+        self._flush_finished()
 
 
 class RunSession:
@@ -200,6 +219,9 @@ class RunSession:
         self.ended_at: float | None = None
         self._thread: threading.Thread | None = None
         self._cancel_flag = threading.Event()
+        # The per-run publishing wrapper, captured so we can flush its deferred
+        # final run.finished at session end (see _PerRunPublishingClient.flush).
+        self._wrapper: "_PerRunPublishingClient | None" = None
         # Plan-tracking attributes
         self.plan: list = []
         self.current_idx: int = 0
@@ -265,7 +287,7 @@ class RunSession:
 
         def wrapped_factory(exp: Experiment):
             inner = self._client_factory(exp)
-            return _PerRunPublishingClient(
+            self._wrapper = _PerRunPublishingClient(
                 inner=inner,
                 publish=self._publish,
                 session_id=self.id,
@@ -274,6 +296,7 @@ class RunSession:
                 position_callback=self._position_callback,
                 batch_id=self.batch_id,
             )
+            return self._wrapper
 
         try:
             run_experiment(self.experiment, wrapped_factory, _plan=self.plan,
@@ -292,6 +315,13 @@ class RunSession:
                 "traceback": traceback.format_exc(),
             })
         finally:
+            # Emit the LAST run's deferred run.finished before the session ends —
+            # no later workdir arrives to trigger its flush. Best-effort.
+            if self._wrapper is not None:
+                try:
+                    self._wrapper.flush()
+                except Exception:
+                    pass
             self.ended_at = time.time()
             duration = self.ended_at - (self.started_at or self.ended_at)
             self._publish({

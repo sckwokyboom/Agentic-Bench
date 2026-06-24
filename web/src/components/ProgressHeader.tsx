@@ -1,6 +1,8 @@
-import { Stack, Typography, LinearProgress, Box, Chip } from "@mui/material";
+import { Stack, Typography, LinearProgress, Box, Chip, Tooltip } from "@mui/material";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import ScheduleIcon from "@mui/icons-material/Schedule";
+import DataUsageIcon from "@mui/icons-material/DataUsage";
+import { formatTokens } from "../lib/formatTokens";
 import VerifyChip from "./VerifyChip";
 import IsolationChip from "./IsolationChip";
 import { formatEta, type ExperimentEstimate } from "../lib/eta";
@@ -22,6 +24,8 @@ interface Props {
   serviceErrors?: number;
   // Time estimate for the experiment (shown as a prominent line below the bar).
   estimate?: ExperimentEstimate;
+  // Cumulative token totals for the current run (Σ input billed / Σ generated).
+  tokens?: { inSum: number; outSum: number } | null;
 }
 
 function EstimateLine({ estimate }: { estimate: ExperimentEstimate }) {
@@ -58,6 +62,20 @@ export default function ProgressHeader(props: Props) {
       </Typography>
       <LinearProgress variant="determinate" value={pct} />
       {props.estimate && <EstimateLine estimate={props.estimate} />}
+      {props.tokens && (props.tokens.inSum > 0 || props.tokens.outSum > 0) && (
+        <Tooltip
+          arrow
+          title="Current run, cumulative. Σ in = total input tokens billed — the full context is re-sent every turn, so this grows fast. Σ out = total tokens generated."
+        >
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ display: "flex", alignItems: "center", gap: 0.5, width: "fit-content", cursor: "help" }}
+          >
+            <DataUsageIcon fontSize="small" /> tokens · Σ in {formatTokens(props.tokens.inSum)} · Σ out {formatTokens(props.tokens.outSum)}
+          </Typography>
+        </Tooltip>
+      )}
       <Stack direction="row" spacing={1} flexWrap="wrap">
         <Chip size="small" label={`${props.done} done`} color="success" variant="outlined" />
         <Chip size="small" label={`${props.running} running`} color="info" variant="outlined" />

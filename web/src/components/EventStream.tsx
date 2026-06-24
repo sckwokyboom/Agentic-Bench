@@ -10,13 +10,24 @@ export default function EventStream({ envelopes }: Props) {
   const [autoScroll, setAutoScroll] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const rawEvents = useMemo(
-    () =>
-      envelopes
-        .filter((e) => e.type === "raw_event")
-        .map((e) => (e as Extract<Envelope, { type: "raw_event" }>).event),
-    [envelopes],
-  );
+  // Scope to the CURRENT run only (the highest run_idx seen) so a multi-run
+  // session doesn't mix several traces into one stream and the per-turn counter
+  // stays honest for the run on screen. Phased runs share one run_idx across all
+  // their phases (see _PerRunPublishingClient), so a phased run stays whole.
+  const { rawEvents, runLabel } = useMemo(() => {
+    const raws = envelopes.filter(
+      (e): e is Extract<Envelope, { type: "raw_event" }> => e.type === "raw_event",
+    );
+    if (raws.length === 0)
+      return { rawEvents: [] as Record<string, unknown>[], runLabel: null as string | null };
+    const curIdx = raws.reduce((m, e) => Math.max(m, e.run_idx), 0);
+    const cur = raws.filter((e) => e.run_idx === curIdx);
+    const last = cur[cur.length - 1];
+    return {
+      rawEvents: cur.map((e) => e.event),
+      runLabel: last ? `run ${curIdx} · ${last.condition} · rep ${last.rep}` : null,
+    };
+  }, [envelopes]);
 
   const { turns, rawByMsg } = useMemo(() => {
     const built = turnsFromRawEvents(rawEvents);
@@ -41,11 +52,14 @@ export default function EventStream({ envelopes }: Props) {
 
   return (
     <Stack spacing={1} sx={{ height: "100%" }}>
-      <Stack direction="row" alignItems="center">
+      <Stack direction="row" alignItems="center" spacing={1}>
         <FormControlLabel
           control={<Checkbox size="small" checked={autoScroll} onChange={() => setAutoScroll(!autoScroll)} />}
           label="auto-scroll"
         />
+        {runLabel && (
+          <Typography variant="caption" color="text.secondary">showing {runLabel}</Typography>
+        )}
       </Stack>
       <Box sx={{ flex: 1, overflow: "auto", minHeight: 0 }}>
         <Stack spacing={2}>
