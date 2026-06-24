@@ -119,11 +119,13 @@ def _fmt_cluster(c: Cluster) -> str:
 
 
 def diagnose_prompt(cfg: OrchestratorConfig, contract: str, plan: str,
-                    clusters: list[Cluster]) -> str:
+                    clusters: list[Cluster], graph_focused: bool = False) -> str:
     body = "\n".join(_fmt_cluster(c) for c in clusters)
+    focus = (f" These clusters are tests that EXERCISE {cfg.target_label} "
+             "(your change's blast radius — per the call graph)." if graph_focused else "")
     return ("The full suite still fails. Here is ONE example per failure cluster "
-            "(across classes). Find the COMMON root cause and make ONE fix to "
-            f"{cfg.target_label} — do not curve-fit a single test.\n\n"
+            f"(across classes).{focus} Find the COMMON root cause and make ONE fix "
+            f"to {cfg.target_label} — do not curve-fit a single test.\n\n"
             f"FAILURE CLUSTERS:\n{body}\n\nCONTRACT (for reference):\n{contract}")
 
 
@@ -145,7 +147,12 @@ def run(
     snapshot: Callable[[], object],
     restore: Callable[[object], None],
     on_event: "Callable[[dict], None] | None" = None,
+    in_blast_radius: "Callable[[TestFailure], bool] | None" = None,
 ) -> Trace:
+    # in_blast_radius (the phased+graph ablation): a graph-derived predicate
+    # "does this failing test exercise the target method?". When provided, the
+    # diagnose loop FOCUSES on failure clusters inside the change's blast radius
+    # (vs chasing unrelated/pre-existing failures). None → plain phased.
     # on_event is a VISUALIZATION-ONLY sink (the live UI): it receives the phase
     # transitions + controller actions as they happen. It must never feed metrics
     # or events.jsonl — those come from the stitched trace, where CONTROLLER steps
@@ -260,8 +267,21 @@ def run(
             break
         it += 1
         safe_restore(best_tree)                # always fix from the current best
-        clusters = select_clusters(cluster_failures(best.failures), cfg.cluster_cap)
-        d = do_phase("diagnose", diagnose_prompt(cfg, contract, plan, clusters),
+        all_clusters = cluster_failures(best.failures)
+        graph_focused = False
+        if in_blast_radius is not None:
+            in_r = [c for c in all_clusters if in_blast_radius(c.representative)]
+            if in_r:
+                event(f"graph: focusing diagnose on {len(in_r)}/{len(all_clusters)} "
+                      f"failure clusters inside {cfg.target_label}'s blast radius", "diagnose")
+                all_clusters = in_r
+                graph_focused = True
+            else:
+                event(f"graph: no failing clusters in {cfg.target_label}'s blast radius "
+                      f"— using all {len(all_clusters)}", "diagnose")
+        clusters = select_clusters(all_clusters, cfg.cluster_cap)
+        d = do_phase("diagnose",
+                     diagnose_prompt(cfg, contract, plan, clusters, graph_focused=graph_focused),
                      ["read", "edit", "verify"])
         phase_traces.append(("diagnose", d.trace))
         cand = run_suite()

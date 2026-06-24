@@ -58,7 +58,9 @@ class Condition(BaseModel):
         description=(
             "None = autonomous opencode loop (baseline). 'phased' = forced "
             "UNDERSTAND→IMPLEMENT→DIAGNOSE controller; 'phased_plan' adds the PLAN "
-            "phase. Requires the experiment-level `orchestration` block."
+            "phase; 'phased_graph' = phased + the controller focuses the DIAGNOSE "
+            "loop on failures inside the target's graph blast radius. Requires the "
+            "experiment-level `orchestration` block."
         ),
     )
 

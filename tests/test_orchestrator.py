@@ -201,6 +201,25 @@ def test_run_survives_failing_phases():
                if s.kind == StepKind.CONTROLLER)    # degradation is recorded
 
 
+def test_phased_graph_focuses_diagnose_on_blast_radius():
+    """phased+graph: the controller focuses the diagnose loop on failure clusters
+    inside the target's blast radius (the injected predicate), recorded as a
+    controller event so it's visible + comparable in the trace."""
+    in_f = TestFailure(classname="picocli.HelpTest", name="inRadius", kind="failure")
+    out_f = TestFailure(classname="picocli.OtherTest", name="outside", kind="error",
+                        type="java.lang.NullPointerException")
+
+    def suite():                      # never green → diagnose loop runs
+        return SuiteEval(result=_sr(0, 2), failures=[in_f, out_f])
+
+    snap, restore, _ = _snap_restore()
+    t = run(_CFG, phase_runner=_fake_phase(_CONTRACT), suite_runner=suite,
+            snapshot=snap, restore=restore, in_blast_radius=lambda f: f.name == "inRadius")
+    texts = [s.text or "" for s in t.steps if s.kind == StepKind.CONTROLLER]
+    assert any("graph: focusing" in x for x in texts)          # graph narrowed the clusters
+    assert any("1/2" in x for x in texts)                      # 1 of 2 clusters in radius
+
+
 def test_run_survives_failing_suite_snapshot_restore():
     """Infra failures in the injected suite/snapshot/restore must NOT abort the
     run — it finalizes and returns a trace the caller can score."""

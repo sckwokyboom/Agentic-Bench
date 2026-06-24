@@ -531,12 +531,23 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                             except Exception:
                                 pass
 
+                    # phased+graph ablation: a graph-derived "is this failing test
+                    # in the target's blast radius?" predicate that focuses the
+                    # diagnose loop. Best-effort — None (→ plain phased) if the
+                    # .impact coverage data is absent/unmatched.
+                    in_blast_radius = None
+                    if cond.orchestration == "phased_graph":
+                        from .graph_cover import make_blast_radius_predicate
+                        in_blast_radius = make_blast_radius_predicate(
+                            workdir / ".impact", exp.target_methods or [])
+
                     trace = _orchestrate(
                         build_orchestrator_config(exp.orchestration, cond.orchestration),
                         phase_runner=phase_runner, suite_runner=suite_runner,
                         snapshot=lambda: _gsnap(workdir),
                         restore=lambda t: _grestore(workdir, t),
-                        on_event=_orch_event)
+                        on_event=_orch_event,
+                        in_blast_radius=in_blast_radius)
                     result = RunResult(trace=trace)
                 else:
                     result = client.run_task(

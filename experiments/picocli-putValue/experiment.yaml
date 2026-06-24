@@ -54,7 +54,7 @@ conditions:
   # Compare `augmented-tool` (control) vs `phased` / `phased-plan`. Same model,
   # tool, overlay, fixture — the ONLY difference is the forced phase controller.
   # (For a FOCUSED orchestration run, comment out baseline/augmented/augmented-
-  # verbose above so only these three run.)
+  # verbose above so only these four run.)
   - name: phased
     augmentation: ./slices/impact-tool-briefing.md
     overlay: ./overlays/impact-artifacts
@@ -65,6 +65,15 @@ conditions:
     overlay: ./overlays/impact-artifacts
     tools: [impact]
     orchestration: phased_plan       # + the PLAN phase
+  # Ablation: identical to `phased` EXCEPT the controller focuses the DIAGNOSE
+  # loop on failure clusters inside the target's graph blast radius (reads
+  # .impact/coverage.json from the overlay). Compare phased vs phased-graph by
+  # trace to isolate what the graph adds ON TOP of the methodology.
+  - name: phased-graph
+    augmentation: ./slices/impact-tool-briefing.md
+    overlay: ./overlays/impact-artifacts   # required: controller reads .impact/coverage.json
+    tools: [impact]
+    orchestration: phased_graph
 
 target_file: src/main/java/picocli/CommandLine.java
 target_methods: [putValue]
