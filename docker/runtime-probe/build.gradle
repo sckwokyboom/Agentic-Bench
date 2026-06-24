@@ -1,0 +1,39 @@
+// Runtime evidence probe — Byte Buddy java agent (spike).
+// Plain fat-jar (no Shadow plugin → portable across Gradle versions, incl. the
+// sandbox build). Compiled with --release 21 so the jar runs on the sandbox's
+// JDK 21 while building fine on a newer local JDK.
+plugins {
+    id 'java'
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation 'net.bytebuddy:byte-buddy:1.14.18'
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach { options.release = 21 }
+
+test { useJUnitPlatform() }
+
+// Fat agent jar: bundle Byte Buddy + set the agent manifest. `gradle jar` →
+// build/libs/runtime-probe-agent.jar, usable directly as -javaagent:...jar
+jar {
+    archiveBaseName = 'runtime-probe-agent'
+    archiveVersion = ''
+    manifest {
+        attributes(
+            'Premain-Class': 'abench.probe.RuntimeProbeAgent',
+            'Can-Retransform-Classes': 'true',
+            'Can-Redefine-Classes': 'true'
+        )
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'module-info.class'
+}

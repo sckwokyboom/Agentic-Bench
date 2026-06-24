@@ -1,0 +1,18 @@
+// Adds the runtime probe -javaagent to every Test task's FORKED jvm (not the
+// gradle daemon). Configured via env so no per-project build.gradle edit is
+// needed:
+//   RUNTIME_PROBE_JAR     absolute path to runtime-probe-agent.jar
+//   RUNTIME_PROBE_TARGETS comma-separated target method FQNs
+//   RUNTIME_PROBE_OUT     absolute path for the capture .jsonl
+def agentJar = System.getenv('RUNTIME_PROBE_JAR')
+def targets  = System.getenv('RUNTIME_PROBE_TARGETS')
+def outFile  = System.getenv('RUNTIME_PROBE_OUT')
+if (agentJar && targets && outFile) {
+    allprojects { p ->
+        p.tasks.withType(Test).configureEach { t ->
+            t.jvmArgs "-javaagent:${agentJar}=${targets}"
+            t.systemProperty 'runtime.probe.out', outFile
+            t.outputs.upToDateWhen { false }   // always re-run so the probe always fires
+        }
+    }
+}
