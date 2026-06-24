@@ -217,6 +217,15 @@ export function realInputTokensTotal(turns: UiTurn[]): number {
   return turns.reduce((n, t) => n + (t.tokensIn ?? 0), 0);
 }
 
+/** Peak single-request context occupancy: max over turns of (tokensIn +
+ * tokensOut). tokensIn already includes ALL prior context (it's re-sent each
+ * turn), so the largest turn ≈ how full the context window got. This is the
+ * right basis for "% of context window used" — NOT Σ tokensIn, which sums the
+ * re-sends and would blow past 100%. */
+export function peakContextTokens(turns: UiTurn[]): number {
+  return turns.reduce((m, t) => Math.max(m, (t.tokensIn ?? 0) + (t.tokensOut ?? 0)), 0);
+}
+
 // ── Readable per-tool argument summary ───────────────────────────────────────
 // Strip the temp workdir prefix (/tmp/abench-<nonce>/…) to the repo-relative tail.
 function shortenToolPath(p: string): string {

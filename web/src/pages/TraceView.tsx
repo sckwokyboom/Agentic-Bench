@@ -1,10 +1,11 @@
 import { type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Stack, Typography, CircularProgress, Alert, Box, Chip } from "@mui/material";
+import { Stack, Typography, CircularProgress, Alert, Box, Chip, Tooltip, LinearProgress } from "@mui/material";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import { useTrace, useEvents, useRuns, useMetrics } from "../api/queries";
 import {
   turnsFromTrace, observationTokensByTool, observationTokensTotal, realInputTokensTotal,
+  peakContextTokens,
 } from "../lib/traceModel";
 import { formatTokens } from "../lib/formatTokens";
 import VerdictBanner from "../components/VerdictBanner";
@@ -67,6 +68,11 @@ export default function TraceView() {
   const madeSourceChanges = m?.made_source_changes
     ?? ((trace.data.final_diff_summary?.files?.length ?? 0) > 0);
 
+  // Context-window occupancy: peak single-request (in+out) ÷ the model's window.
+  const ctxWindow = trace.data.model_context_window ?? null;
+  const ctxPeak = peakContextTokens(uiTurns);
+  const ctxPct = ctxWindow && ctxWindow > 0 ? Math.min(100, (ctxPeak / ctxWindow) * 100) : null;
+
   return (
     <Stack direction="row" spacing={3} sx={{ maxWidth: 1280, mx: "auto", alignItems: "flex-start" }}>
       <Box sx={{ position: "sticky", top: 0, alignSelf: "flex-start", flexShrink: 0 }}>
@@ -112,6 +118,20 @@ export default function TraceView() {
           <Typography variant="caption" color="text.secondary">
             Context from tool outputs: ≈{formatTokens(obsTotal)} tok ({obsStr}) · real Σ input {formatTokens(realIn)}
           </Typography>
+        )}
+        {ctxPct !== null && ctxPeak > 0 && (
+          <Tooltip
+            arrow
+            title="How full the model's context window got at its peak — the largest single request (input context + that turn's output) ÷ the window. Occupancy, NOT the billed Σ input (context is re-sent each turn). Near 100% risks truncation/compaction."
+          >
+            <Box sx={{ width: "fit-content", minWidth: 260, cursor: "help" }}>
+              <Typography variant="caption" color="text.secondary">
+                Context window: peak {formatTokens(ctxPeak)} / {formatTokens(ctxWindow!)} ({ctxPct.toFixed(0)}% used)
+              </Typography>
+              <LinearProgress variant="determinate" value={ctxPct}
+                color={ctxPct < 70 ? "success" : ctxPct < 90 ? "warning" : "error"} />
+            </Box>
+          </Tooltip>
         )}
         {(() => {
           // Insert a phase divider when the phase changes (phased traces only;

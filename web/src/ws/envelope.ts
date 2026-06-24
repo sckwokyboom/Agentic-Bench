@@ -11,6 +11,9 @@ export interface SessionStarted {
   batch_id?: string;
   isolation?: { nonce_prefix: boolean; shuffle_order: boolean };
   model?: string;
+  // The model's context window (max tokens) — auto-detected from the endpoint or
+  // an override; lets the live UI show "% of context used". Null when unknown.
+  model_context_window?: number | null;
 }
 
 export interface RunStarted {

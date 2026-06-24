@@ -78,6 +78,11 @@ class Trace:
     # didn't echo one (some OpenAI-compatible endpoints don't).
     model: str | None = None
     provider: str | None = None
+    # The model's context window (max input+output tokens for one request), looked
+    # up best-effort from the endpoint's /v1/models (vLLM max_model_len) or an
+    # experiment override. Lets the UI show "% of context used" without the
+    # operator typing it. None when unknown → UI shows absolute token counts only.
+    model_context_window: int | None = None
 
     finished: bool = False
     interrupted_reason: str | None = None

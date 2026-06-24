@@ -286,6 +286,7 @@ def run_experiment(
     batch_id: str | None = None,
     cancel_event: "threading.Event | None" = None,
     progress: "Callable[[dict], None] | None" = None,
+    context_window: "int | None" = None,
 ) -> Path:
     # `progress` carries fine-grained setup status for the UI during the
     # otherwise-silent startup window (baseline verify, workdir prep, 429
@@ -313,6 +314,15 @@ def run_experiment(
         ensure_image(exp.opencode.sandbox, log=_log, progress=emit)
 
     client = client_factory(exp)
+
+    # Model context window (for the UI's "% of context used"): the explicit
+    # override, else a best-effort fetch from the endpoint's /v1/models — resolved
+    # ONCE here (caller may pass a pre-resolved value to avoid a duplicate fetch).
+    if context_window is None:
+        from .model_limits import resolve_context_window
+        context_window = resolve_context_window(exp)
+        if context_window:
+            _log(f"[abench] model context window: {context_window} tokens")
 
     # Resolve overlay_env once before any run starts — fail-fast on missing host env.
     overlay_env = {k: expand_env_refs(v) for k, v in exp.overlay_env.items()}
@@ -349,7 +359,8 @@ def run_experiment(
         t_run = time.time()
         try:
             _run_one(exp, cond, rep, root, client, mcfg, overlay_env=overlay_env,
-                     cancel_event=cancel_event, idx=idx, total=total, progress=emit)
+                     cancel_event=cancel_event, idx=idx, total=total, progress=emit,
+                     context_window=context_window)
         except Exception as exc:
             # _run_one already recorded error.log + an errored trace/metrics for
             # this run. Swallow here so ONE crashed run cannot kill the whole
@@ -376,7 +387,8 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
              overlay_env: "dict[str, str] | None" = None,
              cancel_event: "threading.Event | None" = None,
              idx: int = 0, total: int = 0,
-             progress: "Callable[[dict], None] | None" = None) -> None:
+             progress: "Callable[[dict], None] | None" = None,
+             context_window: "int | None" = None) -> None:
     emit = progress or (lambda _payload: None)
     rundir = root / cond.name / f"rep_{rep}"
     rundir.mkdir(parents=True, exist_ok=True)
@@ -584,6 +596,10 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
         # Record isolation nonce on the trace
         if nonce is not None:
             result.trace.isolation_nonce = nonce
+
+        # Record the model's context window so the UI can show "% of context used".
+        if context_window is not None and result.trace.model_context_window is None:
+            result.trace.model_context_window = context_window
 
         # The agent ran as root in the sandbox; reclaim ownership of the workdir
         # so the host-side diff/verify/cleanup below can manage its (otherwise

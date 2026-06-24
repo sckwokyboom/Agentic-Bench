@@ -421,6 +421,15 @@ class Experiment(BaseModel):
             "(e.g. opencode/deepseek-v4-flash-free)."
         ),
     )
+    model_context_window: int | None = Field(
+        default=None,
+        title="Model context window",
+        description=(
+            "Optional override for the model's context window (max tokens). "
+            "Leave unset to auto-detect from the endpoint's /v1/models "
+            "(vLLM max_model_len); used to show '% of context used' in the UI."
+        ),
+    )
     output_dir: Path = Field(
         title="Output dir",
         description="Directory where run artefacts are written.",

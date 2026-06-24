@@ -24,8 +24,15 @@ interface Props {
   serviceErrors?: number;
   // Time estimate for the experiment (shown as a prominent line below the bar).
   estimate?: ExperimentEstimate;
-  // Cumulative token totals for the current run (Σ input billed / Σ generated).
-  tokens?: { inSum: number; outSum: number } | null;
+  // Cumulative token totals for the current run (Σ input billed / Σ generated)
+  // plus peak = the largest single-request context (max tokensIn+tokensOut).
+  tokens?: { inSum: number; outSum: number; peak: number } | null;
+  // Model context window (max tokens); with peak → "% of context used".
+  contextWindow?: number | null;
+}
+
+function pctColor(pct: number): "success" | "warning" | "error" {
+  return pct < 70 ? "success" : pct < 90 ? "warning" : "error";
 }
 
 function EstimateLine({ estimate }: { estimate: ExperimentEstimate }) {
@@ -76,6 +83,22 @@ export default function ProgressHeader(props: Props) {
           </Typography>
         </Tooltip>
       )}
+      {props.tokens && props.contextWindow && props.contextWindow > 0 && props.tokens.peak > 0 && (() => {
+        const ctxPct = Math.min(100, (props.tokens!.peak / props.contextWindow!) * 100);
+        return (
+          <Tooltip
+            arrow
+            title="How full the model's context window got at its peak — the largest single request (input context + that turn's output) ÷ the window. This is occupancy, NOT the billed Σ in (which re-sends context every turn). Near 100% risks truncation/compaction."
+          >
+            <Box sx={{ width: "fit-content", minWidth: 240, cursor: "help" }}>
+              <Typography variant="body2" color="text.secondary">
+                context · {formatTokens(props.tokens.peak)} / {formatTokens(props.contextWindow)} ({ctxPct.toFixed(0)}% of window)
+              </Typography>
+              <LinearProgress variant="determinate" value={ctxPct} color={pctColor(ctxPct)} />
+            </Box>
+          </Tooltip>
+        );
+      })()}
       <Stack direction="row" spacing={1} flexWrap="wrap">
         <Chip size="small" label={`${props.done} done`} color="success" variant="outlined" />
         <Chip size="small" label={`${props.running} running`} color="info" variant="outlined" />

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import {
   turnsFromTrace, turnsFromRawEvents, estimateTokens,
-  observationTokensByTool, observationTokensTotal, formatToolArgs,
+  observationTokensByTool, observationTokensTotal, formatToolArgs, peakContextTokens,
 } from "../src/lib/traceModel";
 import type { Step } from "../src/api/types";
 
@@ -67,6 +67,16 @@ test("turnsFromTrace tags phases and surfaces controller steps as their own turn
   const understand = turns.find((t) => t.phase === "understand")!;
   expect(understand.isController).toBe(false);
   expect(understand.parts.some((p) => p.kind === "text")).toBe(true);
+});
+
+test("peakContextTokens = max(in+out) over turns (occupancy), not the Σ of re-sends", () => {
+  const turns = [
+    { tokensIn: 1000, tokensOut: 100 },
+    { tokensIn: 5000, tokensOut: 300 },   // peak = 5300
+    { tokensIn: 3000, tokensOut: 50 },
+  ] as any;
+  expect(peakContextTokens(turns)).toBe(5300);
+  expect(peakContextTokens([] as any)).toBe(0);
 });
 
 test("turnsFromRawEvents tags phases and surfaces controller events (live orchestrator)", () => {

@@ -170,6 +170,9 @@ export interface Trace {
   verify_reason?: string | null;
   verify_message?: string | null;
   isolation_nonce: string | null;
+  // Model context window (max tokens) — auto-detected or overridden; basis for
+  // the "% of context used" display. Null/absent when unknown.
+  model_context_window?: number | null;
   final_diff_summary: FinalDiffSummary | null;
   // Validity signals (Tasks A/B). `made_source_changes` is a metrics-only field;
   // for the trace, derive "no edits" from final_diff_summary.files.length.

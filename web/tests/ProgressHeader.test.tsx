@@ -89,7 +89,7 @@ describe("ProgressHeader token totals", () => {
       <ProgressHeader
         {...base}
         verifyCounts={{ passed: 0, failed: 0, total: 0 }}
-        tokens={{ inSum: 12345, outSum: 678 }}
+        tokens={{ inSum: 12345, outSum: 678, peak: 9000 }}
       />,
     );
     expect(screen.getByText(/Σ in/)).toBeInTheDocument();
@@ -102,9 +102,33 @@ describe("ProgressHeader token totals", () => {
     );
     expect(screen.queryByText(/Σ in/)).toBeNull();
     rerender(
-      <ProgressHeader {...base} verifyCounts={{ passed: 0, failed: 0, total: 0 }} tokens={{ inSum: 0, outSum: 0 }} />,
+      <ProgressHeader {...base} verifyCounts={{ passed: 0, failed: 0, total: 0 }} tokens={{ inSum: 0, outSum: 0, peak: 0 }} />,
     );
     expect(screen.queryByText(/Σ in/)).toBeNull();
+  });
+
+  it("shows context-window % when window + peak are known", () => {
+    render(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 0, failed: 0, total: 0 }}
+        tokens={{ inSum: 200000, outSum: 5000, peak: 84000 }}
+        contextWindow={131072}
+      />,
+    );
+    expect(screen.getByText(/context ·/)).toBeInTheDocument();
+    expect(screen.getByText(/64% of window/)).toBeInTheDocument();   // 84000/131072 ≈ 64%
+  });
+
+  it("renders no context line without a window", () => {
+    render(
+      <ProgressHeader
+        {...base}
+        verifyCounts={{ passed: 0, failed: 0, total: 0 }}
+        tokens={{ inSum: 200000, outSum: 5000, peak: 84000 }}
+      />,
+    );
+    expect(screen.queryByText(/of window/)).toBeNull();
   });
 });
 

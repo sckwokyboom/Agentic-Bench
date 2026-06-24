@@ -10,7 +10,7 @@ import { useCancelSession, useRuns, useSessionState } from "../api/queries";
 import { deriveStartupStatus } from "../lib/startupStatus";
 import { estimateExperiment } from "../lib/eta";
 import type { SessionStarted, RawEvent } from "../ws/envelope";
-import { turnsFromRawEvents, realInputTokensTotal } from "../lib/traceModel";
+import { turnsFromRawEvents, realInputTokensTotal, peakContextTokens } from "../lib/traceModel";
 
 export default function Run() {
   const { sid } = useParams<{ sid: string }>();
@@ -42,6 +42,7 @@ export default function Run() {
     let isolationOn = { nonce: true, shuffle: true };
     let batchId: string | null = null;
     let model: string | null = null;
+    let modelContextWindow: number | null = null;
     for (const e of ws.envelopes) {
       if (e.type === "session.started") {
         totalRuns = e.total_runs;
@@ -53,6 +54,7 @@ export default function Run() {
         }
         if (e.batch_id !== undefined) batchId = e.batch_id;
         if (e.model !== undefined) model = e.model;
+        if (e.model_context_window != null) modelContextWindow = e.model_context_window;
       } else if (e.type === "run.started") {
         runIdx = e.run_idx; condition = e.condition; rep = e.rep; running += 1;
       } else if (e.type === "run.finished") {
@@ -78,6 +80,7 @@ export default function Run() {
       verify: { passed: verifyPassed, failed: verifyFailed, total: verifyTotal },
       serviceErrors,
       sessionFinished, firstFinishedCond, firstFinishedRep, isolationOn, batchId, model,
+      modelContextWindow,
     };
   }, [ws.envelopes]);
 
@@ -119,6 +122,7 @@ export default function Run() {
     return {
       inSum: realInputTokensTotal(turns),
       outSum: turns.reduce((n, t) => n + (t.tokensOut ?? 0), 0),
+      peak: peakContextTokens(turns),
     };
   }, [ws.envelopes]);
 
@@ -166,6 +170,7 @@ export default function Run() {
         serviceErrors={derived.serviceErrors}
         estimate={estimate}
         tokens={tokens}
+        contextWindow={derived.modelContextWindow}
       />
       {derived.sessionFinished && experimentName === null && (
         <Typography color="warning.main">

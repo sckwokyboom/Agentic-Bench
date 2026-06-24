@@ -239,6 +239,7 @@ class RunSession:
         # The per-run publishing wrapper, captured so we can flush its deferred
         # final run.finished at session end (see _PerRunPublishingClient.flush).
         self._wrapper: "_PerRunPublishingClient | None" = None
+        self._context_window: "int | None" = None
         # Plan-tracking attributes
         self.plan: list = []
         self.current_idx: int = 0
@@ -288,6 +289,15 @@ class RunSession:
         self.plan = compute_plan(self.experiment)
         self.total_runs = len(self.plan)
 
+        # Resolve the model's context window ONCE (override or best-effort fetch)
+        # so the live UI can show "% of context used"; passed to run_experiment
+        # below to avoid a duplicate fetch.
+        from abench.model_limits import resolve_context_window
+        try:
+            self._context_window = resolve_context_window(self.experiment)
+        except Exception:
+            self._context_window = None
+
         iso = self.experiment.isolation
         self._publish({
             "type": "session.started",
@@ -300,6 +310,7 @@ class RunSession:
                 "nonce_prefix": iso.nonce_prefix,
                 "shuffle_order": iso.shuffle_order,
             },
+            "model_context_window": self._context_window,
         })
 
         def wrapped_factory(exp: Experiment):
@@ -318,7 +329,8 @@ class RunSession:
         try:
             run_experiment(self.experiment, wrapped_factory, _plan=self.plan,
                            batch_id=self.batch_id, cancel_event=self._cancel_flag,
-                           progress=self._publish_phase)
+                           progress=self._publish_phase,
+                           context_window=self._context_window)
             if self._cancel_flag.is_set():
                 self.state = SessionState.CANCELLED
             else:
