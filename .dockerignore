@@ -14,6 +14,13 @@ docker/*
 !docker/extra-ca
 !docker/*.sh
 !docker/*.py
+# Runtime-probe agent SOURCE (built into the image by Dockerfile.sandbox). A new
+# subdir is NOT auto-included by the *.sh/*.py globs, so re-include it explicitly;
+# keep build artefacts out of the context.
+!docker/runtime-probe
+!docker/runtime-probe/**
+docker/runtime-probe/build
+docker/runtime-probe/.gradle
 # Build context for the gradle-warm stage: ONLY the stripped (stub) fixture.
 !experiments
 experiments/*
