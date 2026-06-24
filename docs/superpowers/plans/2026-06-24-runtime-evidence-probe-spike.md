@@ -24,18 +24,15 @@
 **Remaining = Task 6 only (WSL, docker required) — the GO/NO-GO gate.** After `docker build -t abench-sandbox:latest -f docker/Dockerfile.sandbox .`, run the spike (the stripped putValue fixture lives at `experiments/picocli-putValue/stripped/`):
 
 ```bash
-# 1) pick a covering test class (putValue's coverers):
-python3 -c "import json; c=json.load(open('experiments/picocli-putValue/overlays/impact-artifacts/.impact/coverage.json')); print('\n'.join(c.get('picocli.CommandLine\$Help\$TextTable.putValue', [])[:10]))"
-
-# 2) run ONE covering test under the probe in the sandbox (agent jar is baked in):
-docker run --rm \
-  -v "$(pwd)/experiments/picocli-putValue/stripped:/work" -w /work \
-  -e RUNTIME_PROBE_TARGETS='picocli.CommandLine$Help$TextTable.putValue' \
-  -e RUNTIME_PROBE_OUT='/work/.runtime-capture.jsonl' \
-  --entrypoint bash abench-sandbox:latest -lc \
-  './gradlew :test --tests "<TARGET_TEST_CLASS>" --continue --init-script "$RUNTIME_PROBE_INIT" -Dorg.gradle.daemon=false; echo "---"; head -8 /work/.runtime-capture.jsonl'
+bash docker/runtime-probe/spike.sh
+# default test: picocli.HelpTest.testCatUsageFormat (a putValue-covering usage-table test)
+# override:     bash docker/runtime-probe/spike.sh picocli.HelpTest.testDemoUsage
 ```
-Then evaluate the GO/NO-GO criteria (Task 6 Step 3) and record findings in `docker/runtime-probe/README.md`. **If `.runtime-capture.jsonl` is empty → `-javaagent` didn't reach the forked Test JVM** (try the fallbacks in Task 6 Step 3).
+The script instruments only putValue, runs that one test under the probe (the test
+FAILS on the stub — expected), and prints the capture. Then evaluate the GO/NO-GO
+criteria (Task 6 Step 3) and record findings in `docker/runtime-probe/README.md`.
+**If `.runtime-capture.jsonl` is empty → `-javaagent` didn't reach the forked Test
+JVM** (try the fallbacks in Task 6 Step 3 / the script's NO-GO hint).
 
 ---
 
