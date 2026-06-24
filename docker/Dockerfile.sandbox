@@ -118,5 +118,20 @@ RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh
 COPY docker/impact_cli.py /usr/local/bin/impact
 RUN chmod +x /usr/local/bin/impact
 
+# ── Runtime evidence probe (spike) ─────────────────────────────────────────
+# Build the Byte Buddy agent jar once and bake it + the gradle init script in,
+# so the phased-runtime suite command can attach it to the forked Test JVM
+# (-javaagent). Built with an isolated gradle-user-home so the agent's deps
+# (Byte Buddy/JUnit) don't pollute the baked picocli warm cache copied above.
+COPY docker/runtime-probe /opt/runtime-probe-src
+RUN cd /opt/runtime-probe-src \
+    && gradle --no-daemon --gradle-user-home /tmp/probe-gradle jar \
+    && mkdir -p /opt/runtime-probe \
+    && cp build/libs/runtime-probe-agent.jar /opt/runtime-probe/agent.jar \
+    && cp probe-init.gradle /opt/runtime-probe/probe-init.gradle \
+    && rm -rf /opt/runtime-probe-src /tmp/probe-gradle
+ENV RUNTIME_PROBE_JAR=/opt/runtime-probe/agent.jar
+ENV RUNTIME_PROBE_INIT=/opt/runtime-probe/probe-init.gradle
+
 WORKDIR /work
 ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint.sh"]

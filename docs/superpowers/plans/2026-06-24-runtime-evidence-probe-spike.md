@@ -12,6 +12,33 @@
 
 ---
 
+## IMPLEMENTATION STATUS (2026-06-24)
+
+**Tasks 1–5 are implemented + committed** (`docker/runtime-probe/` in commit 4f04551; the `Dockerfile.sandbox` bake step alongside). **Verified locally on JDK 25 / Gradle 9.3.1:** `SummaryTest` 4/4 green; the fat agent jar builds with `Premain-Class` + `Can-Retransform-Classes` and Byte Buddy bundled (2920 classes).
+
+**Deviations from the task bodies below (committed code is source of truth):**
+- Build uses a **plain fat-jar** (`gradle jar`, bundling Byte Buddy via `runtimeClasspath`) — **not** the Shadow plugin (avoids a Gradle-9 plugin-compat dance; more portable for the in-image build).
+- Compiled with **`options.release = 21`** (no toolchain) so it builds on a newer local JDK yet runs on the sandbox's JDK 21.
+- The `Dockerfile.sandbox` step builds the jar in-image with an **isolated `--gradle-user-home`** so the agent's deps don't pollute the baked picocli warm cache; bakes `/opt/runtime-probe/agent.jar` + `probe-init.gradle` and sets `RUNTIME_PROBE_JAR` / `RUNTIME_PROBE_INIT`.
+
+**Remaining = Task 6 only (WSL, docker required) — the GO/NO-GO gate.** After `docker build -t abench-sandbox:latest -f docker/Dockerfile.sandbox .`, run the spike (the stripped putValue fixture lives at `experiments/picocli-putValue/stripped/`):
+
+```bash
+# 1) pick a covering test class (putValue's coverers):
+python3 -c "import json; c=json.load(open('experiments/picocli-putValue/overlays/impact-artifacts/.impact/coverage.json')); print('\n'.join(c.get('picocli.CommandLine\$Help\$TextTable.putValue', [])[:10]))"
+
+# 2) run ONE covering test under the probe in the sandbox (agent jar is baked in):
+docker run --rm \
+  -v "$(pwd)/experiments/picocli-putValue/stripped:/work" -w /work \
+  -e RUNTIME_PROBE_TARGETS='picocli.CommandLine$Help$TextTable.putValue' \
+  -e RUNTIME_PROBE_OUT='/work/.runtime-capture.jsonl' \
+  --entrypoint bash abench-sandbox:latest -lc \
+  './gradlew :test --tests "<TARGET_TEST_CLASS>" --continue --init-script "$RUNTIME_PROBE_INIT" -Dorg.gradle.daemon=false; echo "---"; head -8 /work/.runtime-capture.jsonl'
+```
+Then evaluate the GO/NO-GO criteria (Task 6 Step 3) and record findings in `docker/runtime-probe/README.md`. **If `.runtime-capture.jsonl` is empty → `-javaagent` didn't reach the forked Test JVM** (try the fallbacks in Task 6 Step 3).
+
+---
+
 ## File Structure
 
 - Create: `docker/runtime-probe/build.gradle` — minimal Gradle build producing the shaded agent jar (Byte Buddy bundled, `Premain-Class` manifest).
