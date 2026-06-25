@@ -11,6 +11,11 @@ class StepKind(str, Enum):
     TOOL_RESULT = "tool_result"
     FILE_EDIT = "file_edit"
     CONTROLLER = "controller"
+    # The exact prompt the phased controller sent to the model for a phase (the
+    # LLM input — contract/clusters/runtime card/etc.). Recorded so the trace shows
+    # what entered the context, not just the controller's summary event. Like
+    # CONTROLLER, it is NOT the agent's own work → excluded from agent metrics.
+    PHASE_PROMPT = "phase_prompt"
 
 
 @dataclass

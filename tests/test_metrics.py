@@ -361,3 +361,18 @@ def test_obs_tokens_attributed_by_tool():
     m = extract(tr, "", cfg)
     assert m["obs_tokens_by_tool"] == {"grep": 100, "read": 10}
     assert m["obs_tokens_total"] == 110
+
+
+def test_phase_prompt_and_controller_excluded_from_n_steps():
+    """PHASE_PROMPT (the captured LLM input per phase) and CONTROLLER steps are
+    visualization-only; stitch assigns them a turn, so metrics must exclude both —
+    else phased/phased-graph/phased-runtime n_steps inflate vs the autonomous
+    baseline and the comparison is corrupted."""
+    tr = Trace(steps=[
+        Step(kind=StepKind.PHASE_PROMPT, ts=0.0, turn=0, text="diagnose prompt", phase="diagnose"),
+        Step(kind=StepKind.CONTROLLER, ts=0.1, turn=1, text="graph: focusing 38/47"),
+        Step(kind=StepKind.ASSISTANT_TEXT, ts=1.0, turn=2, text="ok"),
+        Step(kind=StepKind.TOOL_CALL, ts=2.0, turn=2, tool_name="edit"),
+    ])
+    m = extract(tr, "", _cfg())
+    assert m["n_steps"] == 1            # only the one agent turn (turn 2)

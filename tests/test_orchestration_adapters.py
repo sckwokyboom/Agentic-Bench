@@ -92,9 +92,14 @@ def test_make_phase_runner_scopes_tools_and_extracts_text():
     runner = make_phase_runner(_FakeClient(), workdir="/wd", system_prompt="sys",
                                model="m", timeout_s=60, on_event=lambda e: None)
     out = runner("understand", "study the method", ["read", "grep"])
-    assert out.text == "CONTRACT: ..."
+    assert out.text == "CONTRACT: ..."          # extract still finds the agent's text
     assert calls["agent_tools"] == {"read": True, "grep": True}
     assert calls["user_message"] == "study the method" and calls["workdir"] == "/wd"
+    # the exact prompt is captured as a leading PHASE_PROMPT step (the LLM input)
+    assert out.trace.steps[0].kind == StepKind.PHASE_PROMPT
+    assert out.trace.steps[0].text == "study the method"
+    assert out.trace.steps[0].phase == "understand"
+    assert out.trace.steps[1].kind == StepKind.ASSISTANT_TEXT   # agent's step follows
 
 
 _CAP_LINE = (

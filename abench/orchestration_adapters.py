@@ -21,7 +21,7 @@ from typing import Callable
 from .failure_report import parse_junit_dir
 from .orchestrator import OrchestratorConfig, PhaseOutcome, SuiteEval
 from .regression_gate import SuiteResult
-from .trace_model import StepKind, Trace
+from .trace_model import Step, StepKind, Trace
 
 # Markers of a *compilation* failure specifically. Deliberately NOT "BUILD
 # FAILED" or "error:" — gradle/maven print those whenever any *test* fails too,
@@ -160,14 +160,27 @@ def extract_phase_text(trace: Trace) -> str:
 
 def make_phase_runner(client, *, workdir, system_prompt, model, timeout_s, on_event):
     """One opencode session per phase on the same workdir, tools scoped to the
-    phase. Returns the phase trace + the agent's final text (the contract/plan)."""
+    phase. Returns the phase trace + the agent's final text (the contract/plan).
+
+    The EXACT prompt sent to the model is recorded as a leading PHASE_PROMPT step
+    so the trace shows what entered the LLM context (the failure clusters, the
+    contract, the runtime card, the graph-focus note, …) — not just the
+    controller's one-line summary event. It carries no message_id and is excluded
+    from agent metrics (see metrics.extract)."""
     def runner(phase: str, prompt: str, allowed_tools: list[str]) -> PhaseOutcome:
         res = client.run_task(
             workdir=str(workdir), system_prompt=system_prompt, model=model,
             user_message=prompt, timeout_s=timeout_s,
             agent_tools={t: True for t in allowed_tools}, on_event=on_event,
         )
-        return PhaseOutcome(trace=res.trace, text=extract_phase_text(res.trace))
+        tr = res.trace
+        # ts = the phase's earliest step so the prompt sorts to the phase start
+        # (stitch sorts by ts, stable) — it precedes the agent's response.
+        phase_ts = min((s.ts for s in tr.steps if s.ts is not None),
+                       default=tr.started_at)
+        tr.steps = [Step(kind=StepKind.PHASE_PROMPT, text=prompt, phase=phase,
+                         ts=phase_ts)] + list(tr.steps)
+        return PhaseOutcome(trace=tr, text=extract_phase_text(tr))
 
     return runner
 

@@ -10,7 +10,8 @@ export type UiPart =
   | { kind: "reasoning" | "text"; text: string }
   | { kind: "tool"; name: string; args: Record<string, unknown>; output: string | null; outputTokens: number; exitCode: number | null; ok: boolean | null }
   | { kind: "edit"; path: string; patch: string }
-  | { kind: "controller"; text: string };
+  | { kind: "controller"; text: string }
+  | { kind: "prompt"; text: string };   // the exact LLM input for a phase
 
 export interface UiTurn {
   index: number;
@@ -24,12 +25,13 @@ export interface UiTurn {
   parts: UiPart[];
   phase: string | null;       // orchestration phase (null = autonomous baseline)
   isController: boolean;       // a deterministic controller action, not an LLM turn
+  isPrompt: boolean;          // the captured prompt the controller sent to the model
 }
 
 function emptyTurn(index: number): UiTurn {
   return { index, messageId: null, reason: null, tokensIn: null, tokensOut: null,
     tokensReasoning: null, cost: null, durationS: null, parts: [], phase: null,
-    isController: false };
+    isController: false, isPrompt: false };
 }
 
 // ── From the normalized trace.json (finished runs — authoritative) ──────────
@@ -54,6 +56,7 @@ export function turnsFromTrace(trace: Pick<Trace, "steps" | "turns">): UiTurn[] 
     else if (s.kind === "assistant_text") t.parts.push({ kind: "text", text: s.text ?? "" });
     else if (s.kind === "file_edit") t.parts.push({ kind: "edit", path: s.path ?? "", patch: s.patch ?? "" });
     else if (s.kind === "controller") { t.parts.push({ kind: "controller", text: s.text ?? "" }); t.isController = true; }
+    else if (s.kind === "phase_prompt") { t.parts.push({ kind: "prompt", text: s.text ?? "" }); t.isPrompt = true; }
     else if (s.kind === "tool_call") {
       const res = s.tool_call_id ? resultByCall.get(s.tool_call_id) : undefined;
       const exitCode = res?.exit_code ?? null;
@@ -129,6 +132,16 @@ export function turnsFromRawEvents(rawEvents: any[]): UiTurn[] {
     // visualization only — they never reach metrics (controller steps are
     // excluded there), so they cannot skew the cross-trace comparison.
     if (ev?.type === "phase.start") { curPhase = ev?.phase ?? curPhase; continue; }
+    if (ev?.type === "phase.prompt") {
+      curPhase = ev?.phase ?? curPhase;
+      const pt = emptyTurn(order.length);
+      pt.isPrompt = true;
+      pt.phase = curPhase;
+      pt.parts.push({ kind: "prompt", text: String(ev?.text ?? "") });
+      const key = `prompt-${order.length}`;
+      byId.set(key, pt); order.push(key);
+      continue;
+    }
     if (ev?.type === "controller") {
       const ct = emptyTurn(order.length);
       ct.isController = true;

@@ -193,8 +193,11 @@ def run(
     # path. (The runner's crash-net is the last resort; this keeps us out of it.)
     def do_phase(name: str, prompt: str, tools: list[str]) -> PhaseOutcome:
         # Announce the control hand-off so the live stream shows a phase divider
-        # before the agent's events for that phase arrive.
+        # before the agent's events for that phase arrive, then the exact prompt
+        # (the LLM input) so the live view shows what entered the context — same
+        # info the finished trace records as a PHASE_PROMPT step.
         _emit({"type": "phase.start", "phase": name})
+        _emit({"type": "phase.prompt", "phase": name, "text": prompt})
         try:
             return phase_runner(name, prompt, tools)
         except Exception as exc:

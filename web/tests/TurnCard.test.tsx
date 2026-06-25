@@ -13,7 +13,7 @@ const turn: UiTurn = {
     { kind: "tool", name: "grep", args: { pattern: "foo" }, output: "match", outputTokens: 30, exitCode: 0, ok: true },
     { kind: "edit", path: "a.py", patch: "@@\n-x\n+y\n" },
   ],
-  phase: null, isController: false,
+  phase: null, isController: false, isPrompt: false,
 };
 
 // JSX renders the success icon + tool name inside one <b>; the icon is an SVG
@@ -49,7 +49,7 @@ test("renders a controller turn distinctly (chip + phase + action text, no turn/
     index: 5, messageId: null, reason: null, tokensIn: null, tokensOut: null,
     tokensReasoning: null, cost: null, durationS: null,
     parts: [{ kind: "controller", text: "round 1 accepted · 84 → 31 failures" }],
-    phase: "diagnose", isController: true,
+    phase: "diagnose", isController: true, isPrompt: false,
   };
   const { container } = render(<TurnCard turn={ctrlTurn} index={5} rawEvents={[]} />);
   expect(screen.getByText("controller")).toBeInTheDocument();    // chip, not "turn 6"
@@ -65,9 +65,25 @@ test("a long edit patch is fully expandable, never hard-truncated", async () => 
     index: 0, messageId: "M0", reason: "stop", tokensIn: 1, tokensOut: 1,
     tokensReasoning: 0, cost: 0, durationS: 1,
     parts: [{ kind: "edit", path: "X.java", patch: big }],
-    phase: null, isController: false,
+    phase: null, isController: false, isPrompt: false,
   };
   render(<TurnCard turn={t} index={0} rawEvents={[]} />);
   await userEvent.click(screen.getByRole("button", { name: /show more/i }));
   expect(screen.getByRole("button", { name: /show less/i })).toBeInTheDocument();
+});
+
+test("renders a phase-prompt turn distinctly (LLM input, chip, no turn/token noise)", () => {
+  const promptTurn: UiTurn = {
+    index: 4, messageId: null, reason: null, tokensIn: null, tokensOut: null,
+    tokensReasoning: null, cost: null, durationS: null,
+    parts: [{ kind: "prompt", text: "FAILURE CLUSTERS:\n- [12x] HelpTest.testWrap\nCONTRACT: ..." }],
+    phase: "diagnose", isController: false, isPrompt: true,
+  };
+  const { container } = render(<TurnCard turn={promptTurn} index={4} rawEvents={[]} />);
+  expect(screen.getByText("prompt → model")).toBeInTheDocument();      // chip, not "turn 5"
+  expect(screen.getByText("phase: diagnose")).toBeInTheDocument();
+  expect(screen.getByText(/FAILURE CLUSTERS/)).toBeInTheDocument();    // the actual LLM input
+  expect(screen.queryByText(/turn 5/)).toBeNull();
+  expect(screen.queryByText(/^in /)).toBeNull();                       // no per-turn token line
+  expect(container.querySelector('[data-testid="ArticleOutlinedIcon"]')).not.toBeNull();
 });

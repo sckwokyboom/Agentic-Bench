@@ -100,13 +100,15 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
     n_reads = sum(1 for s in tool_calls if s.tool_name in cfg.read_tool_names)
     n_searches = sum(1 for s in tool_calls if s.tool_name in cfg.search_tool_names)
 
-    # Exclude CONTROLLER steps: the phased orchestrator records its own actions
-    # (baseline suite, accept/revert, finalize) as CONTROLLER steps in the
-    # stitched trace for the FINISHED-view visualization, but they are not the
-    # agent's work — counting them would inflate n_steps for phased vs autonomous
+    # Exclude CONTROLLER + PHASE_PROMPT steps: the phased orchestrator records its
+    # own actions (baseline suite, accept/revert, finalize) as CONTROLLER steps and
+    # the exact LLM input per phase as PHASE_PROMPT steps, both for the FINISHED-view
+    # visualization. Neither is the agent's own work — and stitch assigns them a
+    # turn number — so counting them would inflate n_steps for phased vs autonomous
     # and corrupt the cross-condition comparison.
+    _NON_AGENT = (StepKind.CONTROLLER, StepKind.PHASE_PROMPT)
     turns = {s.turn for s in trace.steps
-             if s.turn is not None and s.kind != StepKind.CONTROLLER}
+             if s.turn is not None and s.kind not in _NON_AGENT}
     n_steps = len(turns)
 
     n_files, added, removed = parse_diffstat(patch_text)

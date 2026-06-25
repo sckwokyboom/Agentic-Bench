@@ -7,6 +7,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import PendingOutlinedIcon from "@mui/icons-material/PendingOutlined";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
+import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
 import RawEventsToggle from "./RawEventsToggle";
 import { formatTokens } from "../lib/formatTokens";
 import { selectable } from "../theme";
@@ -79,6 +80,23 @@ function ControllerPart({ text }: { text: string }) {
   );
 }
 
+// The exact prompt the controller composed and sent to the model for this phase
+// (failure clusters, contract, runtime evidence card, graph-focus note, …). This
+// is the LLM INPUT — what entered the context — not the model's output. Full text
+// expandable so the prompt is fully inspectable for analysis.
+function PromptPart({ text }: { text: string }) {
+  return (
+    <Box sx={{ borderLeft: 2, borderColor: "secondary.main", pl: 1.5, py: 0.25 }}>
+      <Expand text={text} render={(shown) => (
+        <Typography variant="body2" component="pre"
+          sx={{ m: 0, whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12.5, ...selectable }}>
+          {shown}
+        </Typography>
+      )} />
+    </Box>
+  );
+}
+
 function ToolPart({ p }: { p: Extract<UiPart, { kind: "tool" }> }) {
   return (
     <Box sx={{ borderLeft: 2, borderColor: p.ok === false ? "error.main" : "success.main", pl: 1.5, ...selectable }}>
@@ -115,7 +133,11 @@ export default function TurnCard({ turn, index, rawEvents }: Props) {
     <Card variant="outlined">
       <CardContent>
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }} flexWrap="wrap">
-          {turn.isController
+          {turn.isPrompt
+            ? <Tooltip arrow title="The exact prompt the controller composed and sent to the model for this phase — the LLM INPUT (failure clusters, contract, runtime-evidence card, graph-focus note). This is what entered the context, not the model's output. Not a model turn, so no tokens.">
+                <Chip size="small" color="secondary" variant="outlined" icon={<ArticleOutlinedIcon />} label="prompt → model" />
+              </Tooltip>
+            : turn.isController
             ? <Tooltip arrow title="Orchestrator action — a deterministic step the controller ran (baseline suite, accept/revert a round, finalize). NOT an LLM turn, so no tokens.">
                 <Chip size="small" color="info" variant="outlined" icon={<SettingsOutlinedIcon />} label="controller" />
               </Tooltip>
@@ -131,7 +153,7 @@ export default function TurnCard({ turn, index, rawEvents }: Props) {
             </Tooltip>
           )}
           <Box sx={{ flexGrow: 1 }} />
-          {!turn.isController && (
+          {!turn.isController && !turn.isPrompt && (
             <Tooltip
               arrow
               title={
@@ -159,12 +181,13 @@ export default function TurnCard({ turn, index, rawEvents }: Props) {
             if (p.kind === "text") return <Long key={i} prefix={<ChatBubbleOutlineIcon sx={{ ...inlineIcon, color: "text.primary" }} />} accent="text.primary" text={p.text} />;
             if (p.kind === "edit") return <EditPart key={i} path={p.path} patch={p.patch} />;
             if (p.kind === "controller") return <ControllerPart key={i} text={p.text} />;
+            if (p.kind === "prompt") return <PromptPart key={i} text={p.text} />;
             if (p.kind === "tool") return <ToolPart key={i} p={p} />;
             return null;
           })}
         </Stack>
 
-        {!turn.isController && (
+        {!turn.isController && !turn.isPrompt && (
           <>
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
               {breakdownStr}

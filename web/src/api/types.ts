@@ -121,7 +121,8 @@ export interface MetricsJson {
 
 export type StepKind =
   | "assistant_text" | "reasoning" | "tool_call" | "tool_result" | "file_edit"
-  | "controller";  // deterministic phased-orchestrator action (ran suite, accept/revert…)
+  | "controller"      // deterministic phased-orchestrator action (ran suite, accept/revert…)
+  | "phase_prompt";   // the exact prompt the controller sent to the model for a phase (LLM input)
 
 export interface Step {
   kind: StepKind;
