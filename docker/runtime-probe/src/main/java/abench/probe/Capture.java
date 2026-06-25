@@ -12,7 +12,7 @@ public final class Capture {
     private static Writer out;
     private Capture() {}
 
-    static synchronized void init(String path) {
+    public static synchronized void init(String path) {
         try {
             Path p = Paths.get(path).toAbsolutePath();
             if (p.getParent() != null) Files.createDirectories(p.getParent());
@@ -23,7 +23,7 @@ public final class Capture {
         }
     }
 
-    static synchronized void write(String json) {
+    public static synchronized void write(String json) {
         // Lazy self-init: with bootstrap injection there can be a second copy of
         // this class (a different classloader) whose init() was never called by
         // premain — open the file from the property on first write so it still
@@ -34,7 +34,7 @@ public final class Capture {
     }
 
     /** Minimal JSON string escaping. */
-    static String esc(String s) {
+    public static String esc(String s) {
         if (s == null) return "";
         StringBuilder b = new StringBuilder(s.length() + 8);
         for (int i = 0; i < s.length(); i++) {
