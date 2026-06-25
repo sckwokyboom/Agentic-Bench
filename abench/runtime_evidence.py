@@ -50,3 +50,41 @@ def parse_capture(path) -> list[CaptureEvent]:
 def trim_corridor(stack: list[str], keep: int = 6) -> list[str]:
     """Keep the top app frames (closest to the method), dropping framework/JVM."""
     return [f for f in stack if not f.startswith(_DROP)][:keep]
+
+
+def build_card(events: list[CaptureEvent], target_label: str, *,
+               max_examples: int = 3, corridor_keep: int = 6) -> str | None:
+    """A tight, provenance-marked diagnostic card from this run's capture.
+    Evidence only — never prescribes a fix (else the ablation would measure our
+    heuristic, not the value of the evidence)."""
+    enters = [e for e in events if not e.exit]
+    exits = [e for e in events if e.exit]
+    if not enters and not exits:
+        return None
+
+    seen: set = set()
+    uniq: list[tuple[tuple, list[str]]] = []
+    for e in enters:
+        corr = tuple(trim_corridor(e.stack, corridor_keep))
+        key = (corr, tuple(e.args))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append((corr, e.args))
+
+    throws = sorted({e.thrown for e in exits if e.thrown})
+
+    lines = [
+        f"RUNTIME EVIDENCE for {target_label} "
+        f"(captured THIS run; src: method-entry probe — actual values + call path):",
+        f"  observed {len(enters)} call(s); {len(uniq)} distinct path/arg shape(s)",
+    ]
+    for i, (corr, args) in enumerate(uniq[:max_examples], 1):
+        shown = ", ".join(a if a != "" else "(empty)" for a in args) if args else "(no args)"
+        lines.append(f"  [{i}] args: {shown}")
+        if corr:
+            lines.append("      corridor: " + " <- ".join(corr))
+    for t in throws[:2]:
+        lines.append(f"  throws: {t}")
+    lines.append("  (evidence only — find the COMMON root cause; do not curve-fit a single call)")
+    return "\n".join(lines)
