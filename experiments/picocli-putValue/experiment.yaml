@@ -78,7 +78,7 @@ conditions:
   # probe to the test JVM and injects a runtime diagnostic card (actual args +
   # call corridor + throw) into DIAGNOSE. Compare phased vs phased-runtime by
   # trace to isolate what runtime evidence adds ON TOP of the methodology.
-  # Requires the host agent jar:  cd docker/runtime-probe && gradle jar
+  # Requires the host agent jar:  cd docker/runtime-probe && ./gradlew jar
   - name: phased-runtime
     augmentation: ./slices/impact-tool-briefing.md
     overlay: ./overlays/impact-artifacts

@@ -14,6 +14,19 @@ bash docker/runtime-probe/spike.sh                                     # default
 bash docker/runtime-probe/spike.sh picocli.HelpTest.testDemoUsage      # override test
 ```
 
+### Host build (for the `phased-runtime` condition, Plan 2)
+
+The phased suite runs host-side, so build the jar on the host with the **bundled
+wrapper** (gradle 8.14) — NOT the system `gradle`, which on stock Ubuntu/WSL is
+4.x and chokes on `platform()` / `archiveBaseName`:
+
+```bash
+cd docker/runtime-probe && ./gradlew jar      # -> build/libs/runtime-probe-agent.jar
+```
+
+`abench/runner.py::_runtime_probe_jar()` looks for it at that path; if absent the
+`phased-runtime` condition logs a warning and degrades to plain `phased`.
+
 ## Injection
 
 Attach via **`JAVA_TOOL_OPTIONS=-javaagent:/opt/runtime-probe/agent.jar=<targets> -Druntime.probe.out=<file>`**

@@ -452,7 +452,7 @@ git commit -m "feat(runtime-evidence): inject diagnostic card into the diagnose 
 ```python
 def _runtime_probe_jar() -> "str | None":
     """The host-built probe agent jar (Plan 1). Built via:
-        cd docker/runtime-probe && gradle jar
+        cd docker/runtime-probe && ./gradlew jar
     Returns the absolute path if present, else None (→ phased_runtime degrades to
     plain phased, logged)."""
     from pathlib import Path as _P
@@ -512,7 +512,7 @@ Then pass `read_evidence=read_evidence` into the `_orchestrate(...)` call (along
 
 ```yaml
   # Ablation: phased + a runtime diagnostic card (the probe) injected into diagnose.
-  # Requires the host agent jar: cd docker/runtime-probe && gradle jar
+  # Requires the host agent jar: cd docker/runtime-probe && ./gradlew jar
   - name: phased-runtime
     augmentation: ./slices/impact-tool-briefing.md
     overlay: ./overlays/impact-artifacts
@@ -544,7 +544,7 @@ git commit -m "feat(runtime-evidence): phased_runtime condition (probed suite + 
 
 - [ ] **Step 1: Build the host agent jar**
 
-Run: `cd docker/runtime-probe && gradle jar && ls build/libs/runtime-probe-agent.jar`
+Run: `cd docker/runtime-probe && ./gradlew jar && ls build/libs/runtime-probe-agent.jar`
 Expected: jar present (this is what `_runtime_probe_jar()` finds).
 
 - [ ] **Step 2: Run `phased-runtime` via the UI / CLI on putValue (1 rep)**
