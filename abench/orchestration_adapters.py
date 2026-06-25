@@ -11,6 +11,7 @@ here; the thin subprocess / opencode wrappers are validated on the real box.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -91,16 +92,34 @@ def _clear_results(workdir: Path) -> None:
         shutil.rmtree(d, ignore_errors=True)
 
 
-def make_suite_runner(workdir: Path, command: str, timeout_s: int) -> Callable[[], SuiteEval]:
+def make_suite_runner(workdir: Path, command: str, timeout_s: int,
+                      probe: "dict | None" = None) -> Callable[[], SuiteEval]:
     """Host subprocess (like verify) + JUnit XML breakdown. Clears stale results
-    first so each call reflects only its own run."""
+    first so each call reflects only its own run.
+
+    When ``probe`` is given (keys: ``jar``, ``targets``, ``out``), attaches the
+    runtime-evidence agent to the forked test JVM via JAVA_TOOL_OPTIONS and clears
+    the capture file beforehand, so each call's capture reflects only its own run.
+    The capture path should live OUTSIDE the workdir (git restore/clean would wipe
+    an in-workdir capture between diagnose rounds)."""
     workdir = Path(workdir)
 
     def runner() -> SuiteEval:
         _clear_results(workdir)
+        env = dict(os.environ)
+        if probe:
+            try:
+                Path(probe["out"]).unlink()          # fresh capture per run
+            except OSError:
+                pass
+            env["JAVA_TOOL_OPTIONS"] = (
+                env.get("JAVA_TOOL_OPTIONS", "")
+                + f" -javaagent:{probe['jar']}={probe['targets']}"
+                + f" -Druntime.probe.out={probe['out']}").strip()
         try:
             proc = subprocess.run(command, shell=True, cwd=workdir,
-                                  capture_output=True, text=True, timeout=timeout_s)
+                                  capture_output=True, text=True, timeout=timeout_s,
+                                  env=env)
             out = (proc.stdout or "") + "\n" + (proc.stderr or "")
         except (subprocess.TimeoutExpired, OSError):
             # timeout, or the test command can't be spawned (binary/cwd gone) —
@@ -118,6 +137,17 @@ def make_suite_runner(workdir: Path, command: str, timeout_s: int) -> Callable[[
         return ev
 
     return runner
+
+
+def build_evidence_reader(capture_path, target_label: str) -> "Callable[[], str | None]":
+    """A read_evidence() the orchestrator calls each diagnose round: parse the
+    latest capture into a card (None if nothing was captured)."""
+    from .runtime_evidence import build_card, parse_capture
+
+    def read() -> "str | None":
+        return build_card(parse_capture(capture_path), target_label)
+
+    return read
 
 
 def extract_phase_text(trace: Trace) -> str:

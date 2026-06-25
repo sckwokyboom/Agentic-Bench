@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from abench.trace_model import Step, StepKind, Trace
 from abench.orchestration_adapters import (
     eval_from_junit, extract_phase_text, make_phase_runner, build_orchestrator_config,
-    build_status,
+    build_status, build_evidence_reader, make_suite_runner,
 )
 
 
@@ -95,6 +95,42 @@ def test_make_phase_runner_scopes_tools_and_extracts_text():
     assert out.text == "CONTRACT: ..."
     assert calls["agent_tools"] == {"read": True, "grep": True}
     assert calls["user_message"] == "study the method" and calls["workdir"] == "/wd"
+
+
+_CAP_LINE = (
+    '{"method":"picocli.CommandLine$Help$TextTable.putValue","args":["0","0",""],'
+    '"stack":["picocli.CommandLine$Help$TextTable.putValue:17415",'
+    '"picocli.HelpTest.testCatUsageFormat:2331","org.junit.X.run:1"]}\n'
+)
+
+
+def test_build_evidence_reader_reads_card(tmp_path):
+    cap = tmp_path / "runtime-capture.jsonl"
+    cap.write_text(_CAP_LINE)
+    read = build_evidence_reader(cap, "TextTable.putValue")
+    card = read()
+    assert card and "RUNTIME EVIDENCE for TextTable.putValue" in card
+    assert "putValue:17415" in card and "org.junit" not in card
+    # absent capture -> None (no card, degrade gracefully)
+    assert build_evidence_reader(tmp_path / "missing.jsonl", "x")() is None
+
+
+def test_make_suite_runner_probe_injects_env_and_clears_capture(tmp_path):
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    cap = tmp_path / "runtime-capture.jsonl"
+    cap.write_text("STALE\n")                          # must be cleared before the run
+    # shell command records the injected JAVA_TOOL_OPTIONS so we can assert on it
+    cmd = 'printf "%s" "$JAVA_TOOL_OPTIONS" > seen-env.txt'
+    runner = make_suite_runner(workdir, cmd, timeout_s=30,
+                               probe={"jar": "/opt/agent.jar",
+                                      "targets": "picocli.CommandLine$Help$TextTable.putValue",
+                                      "out": str(cap)})
+    runner()
+    assert not cap.exists()                             # capture cleared before the run
+    seen = (workdir / "seen-env.txt").read_text()
+    assert "-javaagent:/opt/agent.jar=picocli.CommandLine$Help$TextTable.putValue" in seen
+    assert f"-Druntime.probe.out={cap}" in seen
 
 
 def test_build_orchestrator_config_maps_mode_to_plan():
