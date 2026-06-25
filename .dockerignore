@@ -21,6 +21,8 @@ docker/*
 !docker/runtime-probe/**
 docker/runtime-probe/build
 docker/runtime-probe/.gradle
+docker/runtime-probe/recorder/build
+docker/runtime-probe/recorder/.gradle
 # Build context for the gradle-warm stage: ONLY the stripped (stub) fixture.
 !experiments
 experiments/*

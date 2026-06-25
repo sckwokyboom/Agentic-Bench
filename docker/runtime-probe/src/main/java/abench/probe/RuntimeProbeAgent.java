@@ -30,7 +30,16 @@ public class RuntimeProbeAgent {
         }
         if (targets.isEmpty()) return;
 
-        System.err.println("[probe] premain targets=" + targets
+        // Mode selects the advice. "single" (default, Plan 2 / phased-runtime): self-contained
+        // ProbeAdvice writes {method,args,stack}+{throw} per target. "chain"
+        // (phased-runtime-chain): CorridorAdvice feeds the bootstrap Recorder, which keeps a
+        // per-thread shadow stack and dumps the active corridor WITH per-frame args on target
+        // entry. The instrument set (above) is the target in single mode, the corridor in chain.
+        String mode = System.getProperty("runtime.probe.mode", "single");
+        Class<?> adviceClass = "chain".equals(mode) ? CorridorAdvice.class : ProbeAdvice.class;
+
+        System.err.println("[probe] premain mode=" + mode + " instrument=" + targets
+                + " targets=" + System.getProperty("runtime.probe.targets")
                 + " out=" + System.getProperty("runtime.probe.out"));
 
         new AgentBuilder.Default()
@@ -40,11 +49,11 @@ public class RuntimeProbeAgent {
                 .type(namedOneOf(targets.keySet().toArray(new String[0])))
                 .transform((builder, typeDesc, classLoader, module, pd) -> {
                     System.err.println("[probe] transform " + typeDesc.getName());
-                    return builder.visit(Advice.to(ProbeAdvice.class)
+                    return builder.visit(Advice.to(adviceClass)
                             .on(namedOneOf(targets.getOrDefault(typeDesc.getName(), Set.of())
                                     .toArray(new String[0]))));
                 })
                 .installOn(inst);
-        System.err.println("[probe] agent installed");
+        System.err.println("[probe] agent installed (advice=" + adviceClass.getSimpleName() + ")");
     }
 }

@@ -1,0 +1,21 @@
+// Bootstrap-resident runtime recorder — JDK-only, NO Byte Buddy (that is exactly
+// what must stay off the bootstrap loader to avoid the loader-constraint LinkageError).
+// `./gradlew jar` -> build/libs/runtime-probe-recorder.jar, appended via -Xbootclasspath/a.
+plugins { id 'java' }
+
+repositories { mavenCentral() }
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach { options.release = 21 }
+
+test { useJUnitPlatform() }
+
+jar {
+    archiveBaseName = 'runtime-probe-recorder'
+    archiveVersion = ''
+}

@@ -10,6 +10,10 @@ repositories { mavenCentral() }
 
 dependencies {
     implementation 'net.bytebuddy:byte-buddy:1.14.18'
+    // The bootstrap Recorder is resolved at COMPILE time only; at runtime it lives on the
+    // bootstrap loader (-Xbootclasspath/a), NOT bundled into this agent jar. Build it first:
+    //   (cd recorder && ./gradlew jar)
+    compileOnly files('recorder/build/libs/runtime-probe-recorder.jar')
     testImplementation platform('org.junit:junit-bom:5.10.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
