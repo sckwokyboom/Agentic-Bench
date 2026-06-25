@@ -82,6 +82,17 @@ def _log(msg: str) -> None:
     sys.stderr.flush()
 
 
+def _runtime_probe_jar() -> "str | None":
+    """The host-built runtime-evidence agent jar (Plan 1/2). Built via:
+        cd docker/runtime-probe && gradle jar
+    Returns the absolute path if present, else None (→ phased_runtime degrades to
+    plain phased, logged). The phased suite runs host-side, so the jar must be
+    built on the host (the sandbox image bakes its own copy for sandboxed runs)."""
+    jar = (Path(__file__).resolve().parent.parent
+           / "docker" / "runtime-probe" / "build" / "libs" / "runtime-probe-agent.jar")
+    return str(jar) if jar.is_file() else None
+
+
 _ENV_REF = re.compile(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -541,13 +552,36 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         in_blast_radius = make_blast_radius_predicate(
                             workdir / ".impact", exp.target_methods or [])
 
+                    # phased+runtime ablation: attach the runtime-evidence probe to
+                    # the suite JVM (capture written OUTSIDE the workdir so git
+                    # restore can't wipe it between rounds) + feed a diagnostic card
+                    # into DIAGNOSE. Best-effort — missing jar/targets degrades to
+                    # plain phased (logged), never aborts the run.
+                    read_evidence = None
+                    if cond.orchestration == "phased_runtime":
+                        from .orchestration_adapters import build_evidence_reader
+                        jar = _runtime_probe_jar()
+                        targets = ",".join(exp.orchestration.probe_targets or [])
+                        if jar and targets:
+                            cap = str(rundir / "runtime-capture.jsonl")   # OUTSIDE workdir
+                            suite_runner = make_suite_runner(
+                                workdir, suite_cmd, exp.verify.timeout_s,
+                                probe={"jar": jar, "targets": targets, "out": cap})
+                            read_evidence = build_evidence_reader(
+                                cap, exp.orchestration.target_label)
+                            _log(f"[abench] phased_runtime: probe on {targets} -> {cap}")
+                        else:
+                            _log("[abench] phased_runtime: probe jar/targets missing "
+                                 f"(jar={bool(jar)}, targets={bool(targets)}) — plain phased")
+
                     trace = _orchestrate(
                         build_orchestrator_config(exp.orchestration, cond.orchestration),
                         phase_runner=phase_runner, suite_runner=suite_runner,
                         snapshot=lambda: _gsnap(workdir),
                         restore=lambda t: _grestore(workdir, t),
                         on_event=_orch_event,
-                        in_blast_radius=in_blast_radius)
+                        in_blast_radius=in_blast_radius,
+                        read_evidence=read_evidence)
                     result = RunResult(trace=trace)
                 else:
                     result = client.run_task(

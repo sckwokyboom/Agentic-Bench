@@ -59,8 +59,11 @@ class Condition(BaseModel):
             "None = autonomous opencode loop (baseline). 'phased' = forced "
             "UNDERSTAND→IMPLEMENT→DIAGNOSE controller; 'phased_plan' adds the PLAN "
             "phase; 'phased_graph' = phased + the controller focuses the DIAGNOSE "
-            "loop on failures inside the target's graph blast radius. Requires the "
-            "experiment-level `orchestration` block."
+            "loop on failures inside the target's graph blast radius; "
+            "'phased_runtime' = phased + a runtime diagnostic card (actual args + "
+            "call corridor + throw, from a Byte Buddy probe on the test JVM) "
+            "injected into DIAGNOSE. Requires the experiment-level `orchestration` "
+            "block (and, for phased_runtime, its `probe_targets`)."
         ),
     )
 
@@ -393,6 +396,17 @@ class OrchestrationCfg(BaseModel):
     max_diagnose_iters: int = Field(default=8, title="Max diagnose iterations")
     no_progress_limit: int = Field(default=2, title="No-progress stop limit")
     cluster_cap: int = Field(default=5, title="Failure clusters shown per round")
+    probe_targets: list[str] = Field(
+        default_factory=list,
+        title="Runtime-probe target methods (full binary FQNs)",
+        description=(
+            "For the 'phased_runtime' mode: fully-qualified binary names of the "
+            "methods the runtime-evidence agent instruments, e.g. "
+            "['picocli.CommandLine$Help$TextTable.putValue'] (note the '$'-nested "
+            "class). Required for phased_runtime; if empty the condition degrades "
+            "to plain phased. NOT shown to the agent — used only to attach the probe."
+        ),
+    )
 
 
 class Experiment(BaseModel):

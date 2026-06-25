@@ -74,6 +74,16 @@ conditions:
     overlay: ./overlays/impact-artifacts   # required: controller reads .impact/coverage.json
     tools: [impact]
     orchestration: phased_graph
+  # Ablation: identical to `phased` EXCEPT the controller attaches a Byte Buddy
+  # probe to the test JVM and injects a runtime diagnostic card (actual args +
+  # call corridor + throw) into DIAGNOSE. Compare phased vs phased-runtime by
+  # trace to isolate what runtime evidence adds ON TOP of the methodology.
+  # Requires the host agent jar:  cd docker/runtime-probe && gradle jar
+  - name: phased-runtime
+    augmentation: ./slices/impact-tool-briefing.md
+    overlay: ./overlays/impact-artifacts
+    tools: [impact]
+    orchestration: phased_runtime
 
 target_file: src/main/java/picocli/CommandLine.java
 target_methods: [putValue]
@@ -86,6 +96,9 @@ orchestration:
   max_diagnose_iters: 8
   no_progress_limit: 2
   cluster_cap: 5
+  # For the `phased-runtime` condition: full binary FQN(s) the probe instruments
+  # (note the '$'-nested class). Confirmed by the spike's captured stack frame.
+  probe_targets: ["picocli.CommandLine$Help$TextTable.putValue"]
 
 verify:
   timeout_s: 1800
