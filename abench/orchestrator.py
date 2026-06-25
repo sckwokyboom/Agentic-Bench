@@ -119,11 +119,15 @@ def _fmt_cluster(c: Cluster) -> str:
 
 
 def diagnose_prompt(cfg: OrchestratorConfig, contract: str, plan: str,
-                    clusters: list[Cluster], graph_focused: bool = False) -> str:
+                    clusters: list[Cluster], graph_focused: bool = False,
+                    evidence_card: "str | None" = None) -> str:
     body = "\n".join(_fmt_cluster(c) for c in clusters)
     focus = (f" These clusters are tests that EXERCISE {cfg.target_label} "
              "(your change's blast radius — per the call graph)." if graph_focused else "")
-    return ("The full suite still fails. Here is ONE example per failure cluster "
+    # phased-runtime: a runtime diagnostic card (actual args + call corridor +
+    # throw, captured this run) prepended to the static failure clusters.
+    card = (evidence_card + "\n\n") if evidence_card else ""
+    return (card + "The full suite still fails. Here is ONE example per failure cluster "
             f"(across classes).{focus} Find the COMMON root cause and make ONE fix "
             f"to {cfg.target_label} — do not curve-fit a single test.\n\n"
             f"FAILURE CLUSTERS:\n{body}\n\nCONTRACT (for reference):\n{contract}")
@@ -148,7 +152,12 @@ def run(
     restore: Callable[[object], None],
     on_event: "Callable[[dict], None] | None" = None,
     in_blast_radius: "Callable[[TestFailure], bool] | None" = None,
+    read_evidence: "Callable[[], str | None] | None" = None,
 ) -> Trace:
+    # read_evidence (the phased+runtime ablation): reads the latest probe capture
+    # into a tight diagnostic card (actual args + call corridor + throw). When
+    # provided, each diagnose round prepends the card to the prompt. None → plain
+    # phased (no runtime card; the card is the ablation's ONLY added input).
     # in_blast_radius (the phased+graph ablation): a graph-derived predicate
     # "does this failing test exercise the target method?". When provided, the
     # diagnose loop FOCUSES on failure clusters inside the change's blast radius
@@ -275,6 +284,18 @@ def run(
         if it >= cfg.max_diagnose_iters or no_progress >= cfg.no_progress_limit:
             break
         it += 1
+        # Read runtime evidence from the LATEST suite run BEFORE restoring (the
+        # capture lives outside the workdir, but read first so the card reflects
+        # the most recent execution; corridor + args are body-invariant anyway).
+        card = None
+        if read_evidence is not None:
+            try:
+                card = read_evidence()
+            except Exception:
+                card = None
+            if card:
+                event(f"runtime evidence: injected {len(card.splitlines())}-line card "
+                      "(actual args + call corridor + throw, captured this run)", "diagnose")
         safe_restore(best_tree)                # always fix from the current best
         all_clusters = cluster_failures(best.failures)
         graph_focused = False
@@ -290,7 +311,8 @@ def run(
                       f"— using all {len(all_clusters)}", "diagnose")
         clusters = select_clusters(all_clusters, cfg.cluster_cap)
         d = do_phase("diagnose",
-                     diagnose_prompt(cfg, contract, plan, clusters, graph_focused=graph_focused),
+                     diagnose_prompt(cfg, contract, plan, clusters,
+                                     graph_focused=graph_focused, evidence_card=card),
                      ["read", "edit", "verify"])
         phase_traces.append(("diagnose", d.trace))
         cand = run_suite()

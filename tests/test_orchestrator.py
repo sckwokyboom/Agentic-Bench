@@ -250,6 +250,41 @@ def test_phased_graph_focuses_diagnose_on_blast_radius():
     assert any("1/2" in x for x in texts)                      # 1 of 2 clusters in radius
 
 
+def test_phased_runtime_injects_evidence_card_into_diagnose():
+    """phased-runtime: an injected read_evidence() supplies a runtime diagnostic
+    card that reaches the diagnose prompt and is recorded as a controller event
+    (visible + metric-neutral), without changing the outcome."""
+    prompts: dict[str, str] = {}
+
+    def phase(name, prompt, tools):
+        prompts[name] = prompt
+        return PhaseOutcome(_trace_with_reads(2), _CONTRACT.get(name, ""))
+
+    suite = _fake_suite([_eval(0, 100), _eval(60, 40), _eval(100, 0)])  # green after 1 diagnose
+    snap, restore, _ = _snap_restore()
+    t = run(_CFG, phase_runner=phase, suite_runner=suite, snapshot=snap, restore=restore,
+            read_evidence=lambda: "RUNTIME EVIDENCE for TextTable.putValue: args [0,0]")
+    assert "RUNTIME EVIDENCE" in prompts["diagnose"]        # card reached the agent
+    assert t.orchestration_outcome == "green"
+    assert any("runtime evidence" in (s.text or "").lower()
+               for s in t.steps if s.kind == StepKind.CONTROLLER)   # recorded
+
+
+def test_run_without_read_evidence_has_no_card():
+    """Plain phased (no read_evidence) → no card text in the diagnose prompt; the
+    ablation's only difference is the card."""
+    prompts: dict[str, str] = {}
+
+    def phase(name, prompt, tools):
+        prompts[name] = prompt
+        return PhaseOutcome(_trace_with_reads(2), _CONTRACT.get(name, ""))
+
+    suite = _fake_suite([_eval(0, 100), _eval(60, 40), _eval(100, 0)])
+    snap, restore, _ = _snap_restore()
+    run(_CFG, phase_runner=phase, suite_runner=suite, snapshot=snap, restore=restore)
+    assert "RUNTIME EVIDENCE" not in prompts["diagnose"]
+
+
 def test_run_survives_failing_suite_snapshot_restore():
     """Infra failures in the injected suite/snapshot/restore must NOT abort the
     run — it finalizes and returns a trace the caller can score."""
