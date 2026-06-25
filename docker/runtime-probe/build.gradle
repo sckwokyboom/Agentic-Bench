@@ -23,6 +23,15 @@ tasks.withType(JavaCompile).configureEach { options.release = 21 }
 
 test { useJUnitPlatform() }
 
+// Build the bootstrap recorder (separate root build) before compiling the agent, so
+// `./gradlew jar` here "just works" without a manual recorder-first step. CorridorAdvice
+// compiles against the recorder jar (compileOnly, above).
+tasks.register('buildRecorder', GradleBuild) {
+    dir = file('recorder')
+    tasks = ['jar']
+}
+tasks.named('compileJava') { dependsOn 'buildRecorder' }
+
 // Fat agent jar: bundle Byte Buddy + set the agent manifest. `gradle jar` →
 // build/libs/runtime-probe-agent.jar, usable directly as -javaagent:...jar
 jar {
