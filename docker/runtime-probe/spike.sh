@@ -24,11 +24,12 @@ fi
 echo "[spike] image=$IMAGE  target=$TARGET  test=$TEST"
 rm -f "$FIXTURE/.runtime-capture.jsonl"
 
+# Attach via JAVA_TOOL_OPTIONS (env-based → the forked Test JVM reads it; the
+# gradle --init-script path proved unreliable for reaching the fork).
 docker run --rm -v "$FIXTURE:/work" -w /work \
-  -e RUNTIME_PROBE_TARGETS="$TARGET" \
-  -e RUNTIME_PROBE_OUT='/work/.runtime-capture.jsonl' \
+  -e JAVA_TOOL_OPTIONS="-javaagent:/opt/runtime-probe/agent.jar=$TARGET -Druntime.probe.out=/work/.runtime-capture.jsonl" \
   --entrypoint bash "$IMAGE" -lc \
-  "./gradlew :test --tests '$TEST' --continue --init-script /opt/runtime-probe/probe-init.gradle -Dorg.gradle.daemon=false || true"
+  "./gradlew :test --tests '$TEST' --continue -Dorg.gradle.daemon=false || true"
 
 echo "==================== CAPTURE ===================="
 if [ -s "$FIXTURE/.runtime-capture.jsonl" ]; then

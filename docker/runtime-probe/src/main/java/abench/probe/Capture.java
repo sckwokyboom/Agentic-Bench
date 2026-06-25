@@ -24,6 +24,11 @@ public final class Capture {
     }
 
     static synchronized void write(String json) {
+        // Lazy self-init: with bootstrap injection there can be a second copy of
+        // this class (a different classloader) whose init() was never called by
+        // premain — open the file from the property on first write so it still
+        // captures. Append mode lets multiple copies share the file.
+        if (out == null) init(System.getProperty("runtime.probe.out", "runtime-capture.jsonl"));
         if (out == null) return;
         try { out.write(json); out.write('\n'); out.flush(); } catch (IOException ignored) {}
     }
