@@ -12,6 +12,7 @@ export const uiSchema: UiSchema = {
     "repetitions", "verify", "*",
   ],
   model:       { "ui:widget": "ModelValidationWidget" },
+  model_context_window: { "ui:widget": "ContextWindowWidget" },
   target_methods: { "ui:widget": "TargetMethodsWidget" },
   // v2 forward-compat fields — hide from v1 UI.
   isolation: {

@@ -152,7 +152,7 @@ export default function ExperimentEdit() {
             widgets={customWidgets}
             fields={customFields}
             templates={customTemplates}
-            formContext={{ detectedVerify: detected.data, onAddCustomEndpoint: handleAddEndpoint }}
+            formContext={{ detectedVerify: detected.data, onAddCustomEndpoint: handleAddEndpoint, formData }}
             saving={save.isPending}
             onErrorsChange={setErrors}
             onFormChange={(f) => { setFormData(f); setSaved(false); setReach(null); }}

@@ -4,6 +4,7 @@ import type { CustomEndpointInput } from "../components/CustomEndpointDialog";
 import TargetMethodsChips from "../components/TargetMethodsChips";
 import AugmentationField from "../components/AugmentationField";
 import LongTextField from "../components/LongTextField";
+import ContextWindowField from "../components/ContextWindowField";
 
 export function ModelValidationWidget(props: WidgetProps) {
   return (
@@ -41,6 +42,21 @@ export function LongTextWidget(props: WidgetProps) {
       onChange={(v) => props.onChange(v)}
       label={props.label}
       helperText={props.schema.description as string | undefined}
+    />
+  );
+}
+
+export function ContextWindowWidget(props: WidgetProps) {
+  const fc = (props.formContext ?? {}) as {
+    formData?: { model?: string; opencode?: { providers?: unknown[] } };
+  };
+  return (
+    <ContextWindowField
+      value={(props.value as number | null) ?? null}
+      onChange={(v) => props.onChange(v)}
+      label={props.label}
+      model={fc.formData?.model}
+      providers={(fc.formData?.opencode?.providers as never[]) ?? []}
     />
   );
 }
