@@ -1,0 +1,5 @@
+{"target":"picocli.CommandLine$Help$TextTable.putValue","corridor":[{"act":4,"method":"picocli.CommandLine$Help$TextTable.putValue","args":["0","0","Text[\"-c, --count\"]"]},{"act":3,"method":"picocli.CommandLine$Help$TextTable.addRowValues","args":["Text[2]{Text[\"-c, --count\"], Text[\"number of times to repeat\"]}"]},{"act":2,"method":"picocli.CommandLine$Help.join","args":["OFF","80","String[2]{\"-c, --count\", \"number of times to repeat\"}"]},{"act":1,"method":"picocli.CommandLine.usage","args":["PrintStream","OFF"]}]}
+{"act":4,"method":"picocli.CommandLine$Help$TextTable.putValue","exit":true,"ret":"Cell[column=0, row=0]"}
+{"act":3,"method":"picocli.CommandLine$Help$TextTable.addRowValues","exit":true,"ret":"Cell[column=0, row=1]"}
+{"act":2,"method":"picocli.CommandLine$Help.join","exit":true,"ret":"void"}
+{"act":1,"method":"picocli.CommandLine.usage","exit":true,"ret":"void"}

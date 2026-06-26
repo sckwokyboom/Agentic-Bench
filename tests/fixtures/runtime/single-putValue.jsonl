@@ -1,0 +1,2 @@
+{"method":"picocli.CommandLine$Help$TextTable.putValue","args":["0","0",""],"stack":["picocli.CommandLine$Help$TextTable.putValue:17415","picocli.CommandLine$Help$TextTable.addRowValues:17380","picocli.CommandLine$Help.join:16325","picocli.CommandLine.usage:2795","picocli.HelpTest.testCatUsageFormat:2331","org.junit.runners.ParentRunner.run:1"]}
+{"method":"picocli.CommandLine$Help$TextTable.putValue","exit":true,"throw":"java.lang.UnsupportedOperationException: TODO: implement putValue"}
