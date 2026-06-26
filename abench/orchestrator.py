@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
 from .failure_report import Cluster, TestFailure, cluster_failures, select_clusters
-from .regression_gate import SuiteResult, decide
+from .regression_gate import SuiteResult
 from .trace_model import Step, StepKind, Trace
 from .trace_stitch import stitch
 
@@ -139,8 +139,19 @@ def fallback_contract(failures: list[TestFailure], cfg: OrchestratorConfig) -> s
             f"satisfy {names}. Address: {', '.join(cfg.contract_fields)}.")
 
 
-def _improved(before: SuiteResult, after: SuiteResult) -> bool:
-    return decide(before, after)[0]
+def _track_best(cur: SuiteEval, best_failed: "int | None",
+                productive: list[int]) -> "int | None":
+    """Passive best-reached tracking — NO effect on the run's state (the working
+    tree always moves forward, never reverts). Returns the minimum failure count
+    seen so far; bumps `productive` when this run lowered it. Runs that did not
+    execute (timeout / no compile) don't count."""
+    if not cur.result.ran:
+        return best_failed
+    f = cur.result.failed
+    if best_failed is None or f < best_failed:
+        productive[0] += 1
+        return f
+    return best_failed
 
 
 def run(
@@ -170,8 +181,7 @@ def run(
     ctrl: list[Step] = []
     clock = [0.0]
     test_runs = [0]
-    accepted = [0]
-    reverted = [0]
+    productive = [0]   # passive: diagnose rounds that reached a new best (no reverts)
 
     def _emit(payload: dict) -> None:
         if on_event is not None:
@@ -211,39 +221,21 @@ def run(
         try:
             return suite_runner()
         except Exception as exc:
-            # Report a non-compiling result so the gate rejects the round.
+            # Report a non-compiling result — the round simply made no progress.
             event(f"suite run FAILED ({exc})", "implement")
             return SuiteEval(result=SuiteResult(
                 compiled=False, ran=False, executed=0, passed=0, failed=0))
 
-    def safe_snapshot(prev: object) -> object:
-        try:
-            return snapshot()
-        except Exception as exc:
-            # Keep the previous tree — we can still restore to it; at worst this
-            # round's state isn't captured. None means "no snapshot yet".
-            event(f"snapshot FAILED ({exc}); keeping previous state", "implement")
-            return prev
+    # NB: `snapshot`/`restore` are accepted for API compatibility but no longer
+    # used. The diagnose loop is FORWARD-ONLY (no gate, no reverts), so the run
+    # measures the agent's ACTUAL final state — the agent may legitimately break
+    # tests mid-way (experiments, diagnostics) and recover. A passive best-reached
+    # number is recorded for analytics (see _track_best), with no effect on state.
 
-    def safe_restore(tree: object) -> None:
-        if tree is None:
-            return
-        try:
-            restore(tree)
-        except Exception as exc:
-            event(f"restore FAILED ({exc}); continuing from current state", "diagnose")
-
-    # Initial best = the starting (stub) state.
-    best_tree = safe_snapshot(None)
+    # Baseline = the starting (stub) state, for reference + passive best init.
     base = run_suite()
-    best = base
-    # Safety floor: the agent's earliest COMPILING state. The gate can legitimately
-    # accept nothing (a noisy suite with pre-existing failures, or a suite-runner
-    # timeout) — best_tree then never leaves the stub, and finalizing to it would
-    # revert the agent's real edits and report an empty diff ("returned a stub").
-    # floor_tree lets finalize keep the agent's compiling work instead. None until
-    # the agent first produces compiling code.
-    floor_tree = None
+    cur = base                      # the LATEST suite result; the state moves forward
+    best_failed = base.result.failed if base.result.ran else None   # passive best (min) reached
     event(f"ran baseline test suite (stub, before any edits): "
           f"{base.result.passed} passed / {base.result.failed} failed", "implement")
 
@@ -269,27 +261,24 @@ def run(
     # ── IMPLEMENT ─────────────────────────────────────────────────────────
     im = do_phase("implement", implement_prompt(cfg, contract, plan), ["read", "edit"])
     phase_traces.append(("implement", im.trace))
-    ev = run_suite()
-    if floor_tree is None and ev.result.compiled:
-        floor_tree = safe_snapshot(floor_tree)     # keep the agent's compiling work
-    if _improved(best.result, ev.result):
-        best_tree = safe_snapshot(best_tree); best = ev; accepted[0] += 1
-        event(f"implement accepted — agent's edit improved the suite: "
-              f"{ev.result.passed} passed / {ev.result.failed} failed", "implement")
-    else:
-        event(f"implement not accepted — agent's edit didn't improve "
-              f"(compiled={ev.result.compiled}); keeping baseline", "implement")
+    cur = run_suite()                            # the agent's edit, kept as-is (no gate/revert)
+    best_failed = _track_best(cur, best_failed, productive)
+    event(f"implement done — {cur.result.passed} passed / {cur.result.failed} failed "
+          f"(compiled={cur.result.compiled})", "implement")
 
-    # ── DIAGNOSE loop ─────────────────────────────────────────────────────
+    # ── DIAGNOSE loop (FORWARD-ONLY — never reverts the agent's work) ──────
+    # Each round the agent edits on top of its OWN current code; the suite is
+    # re-run and its failures (+ the runtime card) feed the next round. Nothing is
+    # reverted — `no_progress` only STOPS the loop (bounds cost), it does not undo
+    # edits, so the agent can break tests mid-strategy and recover.
     no_progress = 0
     it = 0
-    while not (best.result.compiled and best.result.failed == 0):
+    while not (cur.result.compiled and cur.result.failed == 0):
         if it >= cfg.max_diagnose_iters or no_progress >= cfg.no_progress_limit:
             break
         it += 1
-        # Read runtime evidence from the LATEST suite run BEFORE restoring (the
-        # capture lives outside the workdir, but read first so the card reflects
-        # the most recent execution; corridor + args are body-invariant anyway).
+        # Runtime card + failure clusters are read from the LATEST run, which
+        # reflects the agent's CURRENT code (the tree is never reverted).
         card = None
         if read_evidence is not None:
             try:
@@ -299,8 +288,7 @@ def run(
             if card:
                 event(f"runtime evidence: injected {len(card.splitlines())}-line card "
                       "(actual args + call corridor + throw, captured this run)", "diagnose")
-        safe_restore(best_tree)                # always fix from the current best
-        all_clusters = cluster_failures(best.failures)
+        all_clusters = cluster_failures(cur.failures)     # the agent's CURRENT failures
         graph_focused = False
         if in_blast_radius is not None:
             in_r = [c for c in all_clusters if in_blast_radius(c.representative)]
@@ -318,47 +306,37 @@ def run(
                                      graph_focused=graph_focused, evidence_card=card),
                      ["read", "edit", "verify"])
         phase_traces.append(("diagnose", d.trace))
-        cand = run_suite()
-        ok_gate, why = decide(best.result, cand.result)
-        if not ok_gate:                        # flaky re-confirm before reverting
-            cand = run_suite()
-            ok_gate, why = decide(best.result, cand.result)
-        if floor_tree is None and cand.result.compiled:
-            floor_tree = safe_snapshot(floor_tree)   # first compiling agent state
-        if ok_gate:
-            best_tree = safe_snapshot(best_tree); best = cand; accepted[0] += 1; no_progress = 0
-            event(f"diagnose round {it} accepted — kept agent's fix ({why})", "diagnose")
+        prev_best = best_failed
+        cur = run_suite()                                 # re-eval the agent's forward edits
+        best_failed = _track_best(cur, best_failed, productive)
+        if best_failed is not None and (prev_best is None or best_failed < prev_best):
+            no_progress = 0
+            event(f"diagnose round {it}: {cur.result.passed} passed / {cur.result.failed} "
+                  f"failed — new best ({best_failed}); kept (no revert)", "diagnose")
         else:
-            reverted[0] += 1; no_progress += 1
-            event(f"diagnose round {it} reverted — agent's fix didn't help, "
-                  f"restored best so far ({why})", "diagnose")
+            no_progress += 1
+            event(f"diagnose round {it}: {cur.result.passed} passed / {cur.result.failed} "
+                  f"failed — no new best ({no_progress}/{cfg.no_progress_limit}); "
+                  "kept (no revert)", "diagnose")
 
-    # ── finalize ──────────────────────────────────────────────────────────
-    # Normally best_tree is a gate-validated improvement. But if the gate never
-    # accepted anything, best_tree is still the stub — restoring it would discard
-    # the agent's real edits and report an empty diff. Fall back to the agent's
-    # compiling work (floor_tree) so the benchmark measures what the agent did.
-    if accepted[0] == 0 and floor_tree is not None:
-        event("no round met the regression gate — kept the agent's compiling work "
-              "as the final state (not reverting to the stub)", "diagnose")
-        safe_restore(floor_tree)
-    else:
-        safe_restore(best_tree)
-    if best.result.compiled and best.result.failed == 0:
+    # ── finalize — measure the agent's ACTUAL final state (nothing restored) ──
+    if cur.result.compiled and cur.result.failed == 0:
         outcome = "green"
-    elif not best.result.compiled:
+    elif not cur.result.compiled:
         outcome = "compile-fail"
     elif it >= cfg.max_diagnose_iters:
         outcome = "budget"
     else:
         outcome = "stuck"
-    event(f"finalized: {outcome} — kept the best version: "
-          f"{best.result.passed} passed / {best.result.failed} failed", "diagnose")
+    event(f"finalized: {outcome} — final state kept as-is (no revert): "
+          f"{cur.result.passed} passed / {cur.result.failed} failed "
+          f"(best reached this run: {best_failed} failed)", "diagnose")
 
     try:
         return stitch(phase_traces, ctrl, outcome=outcome,
                       controller_test_runs=test_runs[0],
-                      accepted_rounds=accepted[0], reverted_rounds=reverted[0])
+                      accepted_rounds=productive[0], reverted_rounds=0,
+                      best_failed_reached=best_failed)
     except Exception as exc:
         # Last resort: never let stitching abort the run after all the work — the
         # caller must still get a trace it can write + score. Return a minimal one
@@ -367,6 +345,7 @@ def run(
         tr = Trace(steps=list(ctrl), finished=True)
         tr.orchestration_outcome = outcome
         tr.controller_test_runs = test_runs[0]
-        tr.accepted_rounds = accepted[0]
-        tr.reverted_rounds = reverted[0]
+        tr.accepted_rounds = productive[0]
+        tr.reverted_rounds = 0
+        tr.best_failed_reached = best_failed
         return tr

@@ -131,11 +131,17 @@ class Trace:
 
     # Phased-orchestration outcome + controller overhead (None/0 for the
     # autonomous baseline). outcome ∈ {green, budget, stuck, compile-fail}.
+    # The diagnose loop is FORWARD-ONLY (no gate, no reverts) — the run measures
+    # the agent's actual final state. accepted_rounds now counts PRODUCTIVE rounds
+    # (those that reached a new best); reverted_rounds is 0 (kept for schema compat).
     orchestration_outcome: str | None = None
     controller_test_runs: int = 0
     controller_test_time_s: float | None = None
     accepted_rounds: int = 0
     reverted_rounds: int = 0
+    # Passive analytics: the minimum failure count reached at any point in the run
+    # (does NOT affect the final state — the working tree is never reverted to it).
+    best_failed_reached: int | None = None
 
     # v2 timing breakdown — placeholder fields, populated in Phase 2
     llm_latency_s: float | None = None

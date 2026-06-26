@@ -134,7 +134,10 @@ def test_run_green_after_one_diagnose_round():
     assert t.accepted_rounds == 2          # implement + 1 diagnose
 
 
-def test_run_stuck_when_no_round_improves():
+def test_run_stuck_forward_only_no_reverts():
+    # No round beats the best (40); the loop stops on no_progress. Forward-only:
+    # NOTHING is reverted — the final state is the agent's last edit, and
+    # best_failed_reached records the 40 it reached.
     suite = _fake_suite([_eval(0, 100), _eval(60, 40),
                          _eval(55, 45), _eval(55, 45),
                          _eval(50, 50), _eval(50, 50)])
@@ -142,38 +145,54 @@ def test_run_stuck_when_no_round_improves():
     t = run(_CFG, phase_runner=_fake_phase(_CONTRACT), suite_runner=suite,
             snapshot=snap, restore=restore)
     assert t.orchestration_outcome == "stuck"
-    assert t.reverted_rounds == 2 and t.accepted_rounds == 1
-    assert state["restores"] >= 1
+    assert t.reverted_rounds == 0                  # forward-only: never reverts
+    assert state["restores"] == 0                  # the working tree is never restored
+    assert t.best_failed_reached == 40             # passive best recorded
+    assert t.accepted_rounds == 1                  # one productive round (implement: 100→40)
 
 
-def test_run_keeps_agent_work_when_gate_never_accepts():
-    """Safety floor: if the regression gate never accepts a round (e.g. a noisy
-    suite where the agent's compiling fix doesn't move global pass/fail), finalize
-    must NOT revert the worktree to the initial stub snapshot — that reports an
-    empty diff for work the agent actually did ("returned a stub"). The agent's
-    compiling state is kept as the final on-disk state instead."""
-    # stub + every agent attempt compile but show identical 50/50, so decide()
-    # sees "no improvement" and accepts nothing.
-    suite = _fake_suite([_eval(50, 50)] * 40)
-    snaps: list[str] = []
-    restores: list[str] = []
-
-    def snapshot():
-        tok = f"snap{len(snaps)}"          # snap0 = the initial stub snapshot
-        snaps.append(tok)
-        return tok
-
-    def restore(tree):
-        restores.append(tree)
-
+def test_run_never_reverts_agent_work():
+    """Forward-only: even when no round improves over the stub, the harness MUST
+    NOT restore the working tree (no gate, no safety-floor, no revert-to-stub) —
+    the agent's accumulated edits are always what gets measured. This is the fix
+    for the bug where a non-accepting gate reverted the agent to the stub each
+    round and re-showed it the stub's failures."""
+    suite = _fake_suite([_eval(50, 50)] * 40)         # nothing ever beats the stub's 50
+    snap, restore, state = _snap_restore()
     t = run(_CFG, phase_runner=_fake_phase(_CONTRACT), suite_runner=suite,
-            snapshot=snapshot, restore=restore)
+            snapshot=snap, restore=restore)
+    assert state["restores"] == 0                     # never reverted
+    assert t.reverted_rounds == 0
+    assert t.accepted_rounds == 0                     # no round lowered the failure count
+    assert t.best_failed_reached == 50                # passive best = the stub level
 
-    assert t.accepted_rounds == 0                     # gate accepted nothing
-    assert restores, "finalize must restore a kept state"
-    assert restores[-1] != "snap0"                    # NOT reverted to the stub
-    assert any("agent" in (s.text or "").lower() and "kept" in (s.text or "").lower()
-               for s in t.steps if s.kind == StepKind.CONTROLLER)
+
+def test_diagnose_uses_current_failures_and_never_reverts():
+    """The diagnose prompt must reflect the agent's CURRENT code each round (not a
+    frozen 'best' = stub), and the working tree is never restored. Failures change
+    round to round: stub UOE -> ComparisonFailure -> green."""
+    f_uoe = [TestFailure("T", "a", "error", "java.lang.UnsupportedOperationException")]
+    f_cmp = [TestFailure("T", "b", "failure", "org.junit.ComparisonFailure", "x")]
+    suite = _fake_suite([
+        SuiteEval(_sr(0, 100), f_uoe),     # base (stub)
+        SuiteEval(_sr(0, 100), f_uoe),     # implement (still UOE)
+        SuiteEval(_sr(60, 40), f_cmp),     # diagnose r1 result (UOE gone)
+        SuiteEval(_sr(100, 0), []),        # diagnose r2 result (green)
+    ])
+    snap, restore, state = _snap_restore()
+    prompts: list[str] = []
+
+    def phase(name, prompt, tools):
+        if name == "diagnose":
+            prompts.append(prompt)
+        return PhaseOutcome(_trace_with_reads(2), _CONTRACT.get(name, ""))
+
+    t = run(_CFG, phase_runner=phase, suite_runner=suite, snapshot=snap, restore=restore)
+    assert t.orchestration_outcome == "green"
+    assert state["restores"] == 0                          # never reverted
+    assert "UnsupportedOperationException" in prompts[0]   # r1 sees the CURRENT (UOE) failures
+    assert "ComparisonFailure" in prompts[1]               # r2 sees r1's NEW failures, not stub UOE
+    assert t.best_failed_reached == 0
 
 
 def test_run_flaky_regression_is_reconfirmed_then_accepted():

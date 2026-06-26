@@ -22,6 +22,7 @@ def stitch(
     controller_test_time_s: float | None = None,
     accepted_rounds: int = 0,
     reverted_rounds: int = 0,
+    best_failed_reached: "int | None" = None,
 ) -> Trace:
     steps: list[Step] = []
     turns: list[TurnInfo] = []
@@ -68,4 +69,5 @@ def stitch(
         controller_test_time_s=controller_test_time_s,
         accepted_rounds=accepted_rounds,
         reverted_rounds=reverted_rounds,
+        best_failed_reached=best_failed_reached,
     )
