@@ -164,6 +164,7 @@ def run(
     on_event: "Callable[[dict], None] | None" = None,
     in_blast_radius: "Callable[[TestFailure], bool] | None" = None,
     read_evidence: "Callable[[], str | None] | None" = None,
+    cancel_event: "object | None" = None,
 ) -> Trace:
     # read_evidence (the phased+runtime ablation): reads the latest probe capture
     # into a tight diagnostic card (actual args + call corridor + throw). When
@@ -195,6 +196,9 @@ def run(
         ctrl.append(Step(kind=StepKind.CONTROLLER, ts=clock[0], turn=0, text=text, phase=phase))
         _emit({"type": "controller", "phase": phase, "text": text})
 
+    def cancelled() -> bool:
+        return cancel_event is not None and cancel_event.is_set()
+
     # ── Fault-tolerant wrappers around the injected externals ─────────────
     # Goal: a single failing phase / suite / snapshot / restore must NEVER abort
     # the whole run. It is caught here, recorded as a controller event, and the
@@ -206,6 +210,9 @@ def run(
         # before the agent's events for that phase arrive, then the exact prompt
         # (the LLM input) so the live view shows what entered the context — same
         # info the finished trace records as a PHASE_PROMPT step.
+        if cancelled():                          # don't launch a new phase after cancel
+            event(f"run cancelled — skipping {name}", name)
+            return PhaseOutcome(trace=Trace(), text="")
         _emit({"type": "phase.start", "phase": name})
         _emit({"type": "phase.prompt", "phase": name, "text": prompt})
         try:
@@ -274,7 +281,7 @@ def run(
     no_progress = 0
     it = 0
     while not (cur.result.compiled and cur.result.failed == 0):
-        if it >= cfg.max_diagnose_iters or no_progress >= cfg.no_progress_limit:
+        if it >= cfg.max_diagnose_iters or no_progress >= cfg.no_progress_limit or cancelled():
             break
         it += 1
         # Runtime card + failure clusters are read from the LATEST run, which
@@ -320,7 +327,9 @@ def run(
                   "kept (no revert)", "diagnose")
 
     # ── finalize — measure the agent's ACTUAL final state (nothing restored) ──
-    if cur.result.compiled and cur.result.failed == 0:
+    if cancelled():
+        outcome = "cancelled"
+    elif cur.result.compiled and cur.result.failed == 0:
         outcome = "green"
     elif not cur.result.compiled:
         outcome = "compile-fail"

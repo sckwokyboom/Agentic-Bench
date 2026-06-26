@@ -66,3 +66,13 @@ def test_build_run_command_resolves_lib_mount(tmp_path, monkeypatch):
     argv = build_run_command(cfg, workdir="/w", model="m",
                              user_message="go", config_data={})
     assert "/host/gt:/opt/graph-tipper:ro" in argv
+
+
+def test_build_run_command_names_container_for_cancellation():
+    cfg = OpenCodeCfg(sandbox=SandboxCfg(mode="container"))
+    argv = build_run_command(cfg, workdir="/w", model="m", user_message="go",
+                             config_data={}, container_name="abench-oc-deadbeef")
+    assert argv[argv.index("--name") + 1] == "abench-oc-deadbeef"   # killable by name
+    # no name -> no --name (back-compat)
+    argv2 = build_run_command(cfg, workdir="/w", model="m", user_message="go", config_data={})
+    assert "--name" not in argv2

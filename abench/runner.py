@@ -535,7 +535,8 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                     phase_runner = make_phase_runner(
                         client, workdir=str(workdir),
                         system_prompt=system_prompt_eff, model=exp.model,
-                        timeout_s=exp.timeout_s, on_event=on_event)
+                        timeout_s=exp.timeout_s, on_event=on_event,
+                        cancel_event=cancel_event)
                     suite_runner = make_suite_runner(
                         workdir, suite_cmd, exp.verify.timeout_s)
 
@@ -592,7 +593,8 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         restore=lambda t: _grestore(workdir, t),
                         on_event=_orch_event,
                         in_blast_radius=in_blast_radius,
-                        read_evidence=read_evidence)
+                        read_evidence=read_evidence,
+                        cancel_event=cancel_event)
                     result = RunResult(trace=trace)
                 else:
                     result = client.run_task(

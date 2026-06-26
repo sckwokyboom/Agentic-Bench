@@ -158,7 +158,8 @@ def extract_phase_text(trace: Trace) -> str:
     return ""
 
 
-def make_phase_runner(client, *, workdir, system_prompt, model, timeout_s, on_event):
+def make_phase_runner(client, *, workdir, system_prompt, model, timeout_s, on_event,
+                      cancel_event=None):
     """One opencode session per phase on the same workdir, tools scoped to the
     phase. Returns the phase trace + the agent's final text (the contract/plan).
 
@@ -166,12 +167,17 @@ def make_phase_runner(client, *, workdir, system_prompt, model, timeout_s, on_ev
     so the trace shows what entered the LLM context (the failure clusters, the
     contract, the runtime card, the graph-focus note, …) — not just the
     controller's one-line summary event. It carries no message_id and is excluded
-    from agent metrics (see metrics.extract)."""
+    from agent metrics (see metrics.extract).
+
+    cancel_event is forwarded to each phase's run_task so a UI cancel kills the
+    IN-FLIGHT phase subprocess promptly (≤0.5s) — without it, a phased run ignores
+    cancel until the whole run finishes."""
     def runner(phase: str, prompt: str, allowed_tools: list[str]) -> PhaseOutcome:
         res = client.run_task(
             workdir=str(workdir), system_prompt=system_prompt, model=model,
             user_message=prompt, timeout_s=timeout_s,
             agent_tools={t: True for t in allowed_tools}, on_event=on_event,
+            cancel_event=cancel_event,
         )
         tr = res.trace
         # ts = the phase's earliest step so the prompt sorts to the phase start

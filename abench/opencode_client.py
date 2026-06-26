@@ -271,6 +271,7 @@ def build_run_command(
     model: str,
     user_message: str,
     config_data: dict,
+    container_name: "str | None" = None,
 ) -> list[str]:
     """Build the argv to run one task.
 
@@ -317,6 +318,10 @@ def build_run_command(
         "-v", f"{workdir}:{sb.workdir_mount}",
         "-w", sb.workdir_mount,
     ]
+    if container_name:
+        # Name the container so a cancel/stall/timeout can stop it by name —
+        # SIGKILL to the `docker run` client does NOT stop the container.
+        argv += ["--name", container_name]
     if sb.network:
         argv += ["--network", sb.network]
     seen: set[str] = set()
@@ -430,12 +435,16 @@ class RealOpenCodeClient:
 
         # ── Spawn subprocess (optionally wrapped in a sandbox container) ───
         started_at = time.time()
+        import uuid
+        container_name = (f"abench-oc-{uuid.uuid4().hex[:12]}"
+                          if self._cfg.sandbox.mode == "container" else None)
         cmd = build_run_command(
             self._cfg,
             workdir=workdir,
             model=model,
             user_message=user_message,
             config_data=config_data,
+            container_name=container_name,
         )
         if self._cfg.sandbox.mode == "container":
             readable(f"[abench] $ {self._cfg.sandbox.runtime} run --rm "
@@ -451,6 +460,21 @@ class RealOpenCodeClient:
             cwd=workdir,
             env=credentials.run_env(self._cfg.providers),
         )
+
+        def _kill_proc() -> None:
+            """Stop the run promptly. In container mode, SIGKILL to the `docker run`
+            client does NOT stop the container — so kill the named container first,
+            then the client. Best-effort; never raises."""
+            if container_name is not None:
+                try:
+                    subprocess.run([self._cfg.sandbox.runtime, "kill", container_name],
+                                   capture_output=True, timeout=15)
+                except Exception:
+                    pass
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
         raw_events: list[dict] = []
         interrupted_reason: str | None = None
@@ -521,7 +545,7 @@ class RealOpenCodeClient:
         idle_timeout_s = self._cfg.idle_timeout_s
         while True:
             if cancel_event is not None and cancel_event.is_set():
-                proc.kill()
+                _kill_proc()
                 interrupted_reason = "cancelled"
                 try:
                     proc.wait(timeout=10)
@@ -532,7 +556,7 @@ class RealOpenCodeClient:
                 idle = time.time() - last_activity[0]
                 readable(f"[abench] no output for {idle:.0f}s — treating the run "
                          f"as stalled and stopping it")
-                proc.kill()
+                _kill_proc()
                 interrupted_reason = "stalled"
                 try:
                     proc.wait(timeout=10)
@@ -542,7 +566,7 @@ class RealOpenCodeClient:
             if loop_flag[0]:
                 readable(f"[abench] agent repeated the same step >= {repeat_limit}x "
                          f"with no progress — treating as a loop and stopping the run")
-                proc.kill()
+                _kill_proc()
                 interrupted_reason = "looping"
                 try:
                     proc.wait(timeout=10)
@@ -550,7 +574,7 @@ class RealOpenCodeClient:
                     pass
                 break
             if deadline is not None and time.time() >= deadline:
-                proc.kill()
+                _kill_proc()
                 interrupted_reason = "timeout"
                 try:
                     proc.wait(timeout=10)

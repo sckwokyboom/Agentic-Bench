@@ -83,18 +83,21 @@ def test_make_phase_runner_scopes_tools_and_extracts_text():
 
     class _FakeClient:
         def run_task(self, *, workdir, system_prompt, model, user_message,
-                     timeout_s, agent_tools, on_event):
+                     timeout_s, agent_tools, on_event, cancel_event=None):
             calls.update(workdir=workdir, model=model, user_message=user_message,
-                         agent_tools=agent_tools)
+                         agent_tools=agent_tools, cancel_event=cancel_event)
             return _Res(Trace(steps=[Step(kind=StepKind.ASSISTANT_TEXT, ts=1.0,
                                           text="CONTRACT: ...")]))
 
+    sentinel = object()
     runner = make_phase_runner(_FakeClient(), workdir="/wd", system_prompt="sys",
-                               model="m", timeout_s=60, on_event=lambda e: None)
+                               model="m", timeout_s=60, on_event=lambda e: None,
+                               cancel_event=sentinel)
     out = runner("understand", "study the method", ["read", "grep"])
     assert out.text == "CONTRACT: ..."          # extract still finds the agent's text
     assert calls["agent_tools"] == {"read": True, "grep": True}
     assert calls["user_message"] == "study the method" and calls["workdir"] == "/wd"
+    assert calls["cancel_event"] is sentinel    # forwarded so a cancel kills the phase subprocess
     # the exact prompt is captured as a leading PHASE_PROMPT step (the LLM input)
     assert out.trace.steps[0].kind == StepKind.PHASE_PROMPT
     assert out.trace.steps[0].text == "study the method"

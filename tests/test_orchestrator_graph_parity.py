@@ -136,3 +136,16 @@ def test_parity_failing_suite():
         return dict(phase_runner=_fake_phase(_CONTRACT), suite_runner=boom,
                     snapshot=boom, restore=boom)
     _equiv(*_both(make))
+
+
+def test_parity_cancelled():
+    import threading
+
+    def make():
+        s, r, _ = _snap_restore()
+        ev = threading.Event()
+        ev.set()
+        return dict(phase_runner=_fake_phase(_CONTRACT),
+                    suite_runner=_fake_suite([_eval(0, 100)] * 10),
+                    snapshot=s, restore=r, cancel_event=ev)
+    _equiv(*_both(make))

@@ -304,6 +304,28 @@ def test_run_without_read_evidence_has_no_card():
     assert "RUNTIME EVIDENCE" not in prompts["diagnose"]
 
 
+def test_run_cancelled_stops_early_and_skips_phases():
+    """A set cancel_event aborts the phased run: no phase is launched after the
+    cancel, the diagnose loop doesn't run, and the outcome is 'cancelled'."""
+    import threading
+    ev = threading.Event()
+    ev.set()                                   # cancelled before the run even starts
+    launched: list[str] = []
+
+    def phase(name, prompt, tools):
+        launched.append(name)
+        return PhaseOutcome(_trace_with_reads(2), _CONTRACT.get(name, ""))
+
+    suite = _fake_suite([_eval(0, 100)] * 10)  # baseline + implement consume 2; never green
+    snap, restore, _ = _snap_restore()
+    t = run(_CFG, phase_runner=phase, suite_runner=suite, snapshot=snap, restore=restore,
+            cancel_event=ev)
+    assert t.orchestration_outcome == "cancelled"
+    assert launched == []                      # do_phase skipped every phase (none launched)
+    assert any("cancelled" in (s.text or "").lower()
+               for s in t.steps if s.kind == StepKind.CONTROLLER)
+
+
 def test_run_survives_failing_suite_snapshot_restore():
     """Infra failures in the injected suite/snapshot/restore must NOT abort the
     run — it finalizes and returns a trace the caller can score."""

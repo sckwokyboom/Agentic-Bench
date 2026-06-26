@@ -43,7 +43,7 @@ class OrchState(TypedDict, total=False):
 
 
 def run_graph(cfg: OrchestratorConfig, *, phase_runner, suite_runner, snapshot, restore,
-              on_event=None, in_blast_radius=None, read_evidence=None) -> Trace:
+              on_event=None, in_blast_radius=None, read_evidence=None, cancel_event=None) -> Trace:
     try:
         from langgraph.graph import END, START, StateGraph
     except ImportError as exc:  # pragma: no cover
@@ -67,6 +67,9 @@ def run_graph(cfg: OrchestratorConfig, *, phase_runner, suite_runner, snapshot, 
         emit({"type": "controller", "phase": phase, "text": text})
         return Step(kind=StepKind.CONTROLLER, ts=clock[0], turn=0, text=text, phase=phase)
 
+    def cancelled() -> bool:
+        return cancel_event is not None and cancel_event.is_set()
+
     def run_suite(steps: list, phase: str = "implement") -> SuiteEval:
         test_runs[0] += 1
         try:
@@ -77,6 +80,9 @@ def run_graph(cfg: OrchestratorConfig, *, phase_runner, suite_runner, snapshot, 
                                                 passed=0, failed=0))
 
     def do_phase(name: str, prompt: str, tools: list, steps: list) -> PhaseOutcome:
+        if cancelled():                          # don't launch a new phase after cancel
+            steps.append(event(f"run cancelled — skipping {name}", name))
+            return PhaseOutcome(trace=Trace(), text="")
         emit({"type": "phase.start", "phase": name})
         emit({"type": "phase.prompt", "phase": name, "text": prompt})
         try:
@@ -170,7 +176,9 @@ def run_graph(cfg: OrchestratorConfig, *, phase_runner, suite_runner, snapshot, 
 
     def finalize_node(state):
         cur = state["cur"]
-        if cur.result.compiled and cur.result.failed == 0:
+        if cancelled():
+            outcome = "cancelled"
+        elif cur.result.compiled and cur.result.failed == 0:
             outcome = "green"
         elif not cur.result.compiled:
             outcome = "compile-fail"
@@ -191,7 +199,8 @@ def run_graph(cfg: OrchestratorConfig, *, phase_runner, suite_runner, snapshot, 
     def cont(state):
         cur = state["cur"]
         green = cur.result.compiled and cur.result.failed == 0
-        if (not green) and state["it"] < cfg.max_diagnose_iters and state["no_progress"] < cfg.no_progress_limit:
+        if (not green) and state["it"] < cfg.max_diagnose_iters \
+                and state["no_progress"] < cfg.no_progress_limit and not cancelled():
             return "diagnose"
         return "finalize"
 
