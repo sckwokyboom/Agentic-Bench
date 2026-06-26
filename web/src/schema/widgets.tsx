@@ -3,6 +3,7 @@ import ModelValidationChip from "../components/ModelValidationChip";
 import type { CustomEndpointInput } from "../components/CustomEndpointDialog";
 import TargetMethodsChips from "../components/TargetMethodsChips";
 import AugmentationField from "../components/AugmentationField";
+import LongTextField from "../components/LongTextField";
 
 export function ModelValidationWidget(props: WidgetProps) {
   return (
@@ -29,6 +30,17 @@ export function AugmentationWidget(props: WidgetProps) {
       value={(props.value as string) ?? ""}
       onChange={props.onChange}
       label={props.label}
+    />
+  );
+}
+
+export function LongTextWidget(props: WidgetProps) {
+  return (
+    <LongTextField
+      value={(props.value as string) ?? ""}
+      onChange={(v) => props.onChange(v)}
+      label={props.label}
+      helperText={props.schema.description as string | undefined}
     />
   );
 }

@@ -46,8 +46,9 @@ export const uiSchema: UiSchema = {
       },
     },
   },
-  // System prompt can be long → multiline.
-  system_prompt: { "ui:widget": "textarea", "ui:options": { rows: 10 } },
+  // Task/system prompts can be long → expandable editor.
+  task_prompt:   { "ui:widget": "LongTextWidget" },
+  system_prompt: { "ui:widget": "LongTextWidget" },
   // VerifyField owns the entire verify object rendering (build-system dropdown,
   // enabled switch, timeout). This replaces the old raw command help/placeholder.
   verify: { "ui:field": "VerifyField" },
