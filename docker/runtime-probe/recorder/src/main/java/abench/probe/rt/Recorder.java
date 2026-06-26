@@ -26,7 +26,10 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class Recorder {
     private Recorder() {}
 
-    private static final int CAP = 200;
+    private static final int CAP = 200;          // max chars per rendered value
+    private static final int MAX_DEPTH = 2;      // nested-object recursion depth
+    private static final int MAX_ELEMS = 8;      // array/collection/map elements shown
+    private static final int MAX_FIELDS = 10;    // object fields shown in a reflective dump
     private static volatile Path out =
             Paths.get(System.getProperty("runtime.probe.out", "runtime-capture.jsonl"));
     private static volatile Set<String> targets =
@@ -99,12 +102,93 @@ public final class Recorder {
     }
 
     private static String preview(Object o) {
-        String s;
-        if (o == null) {
-            s = "null";
-        } else {
-            try { s = String.valueOf(o); } catch (Throwable t) { s = o.getClass().getName() + "@?"; }
+        return summarize(o, MAX_DEPTH);
+    }
+
+    /**
+     * LLM-friendly value rendering. Primitives/String/enum render directly; arrays,
+     * collections and maps show their (capped) contents; an object with a real
+     * (overridden) toString uses it; an object with only the DEFAULT toString
+     * ({@code Class@hex}) — or one whose toString throws — is reflected into
+     * {@code ClassName{field=value, …}} so the model still sees what it is and what
+     * it holds. Bounded by depth/element/field/length caps; never throws.
+     */
+    static String summarize(Object o, int depth) {
+        try {
+            if (o == null) return "null";
+            Class<?> c = o.getClass();
+            if (o instanceof CharSequence || o instanceof Number || o instanceof Boolean
+                    || o instanceof Character || o instanceof Enum) {
+                return cap(String.valueOf(o));
+            }
+            if (c.isArray()) {
+                int n = java.lang.reflect.Array.getLength(o);
+                int show = Math.min(n, MAX_ELEMS);
+                StringBuilder b = new StringBuilder(c.getComponentType().getSimpleName())
+                        .append("[").append(n).append("]{");
+                for (int i = 0; i < show; i++) {
+                    if (i > 0) b.append(", ");
+                    b.append(depth <= 0 ? "…" : summarize(java.lang.reflect.Array.get(o, i), depth - 1));
+                }
+                if (n > show) b.append(", …+").append(n - show);
+                return cap(b.append("}").toString());
+            }
+            if (o instanceof java.util.Map) {
+                java.util.Map<?, ?> m = (java.util.Map<?, ?>) o;
+                StringBuilder b = new StringBuilder("Map(").append(m.size()).append("){");
+                int i = 0;
+                for (java.util.Map.Entry<?, ?> e : m.entrySet()) {
+                    if (i >= MAX_ELEMS) { b.append(", …"); break; }
+                    if (i > 0) b.append(", ");
+                    b.append(depth <= 0 ? "…"
+                            : summarize(e.getKey(), depth - 1) + "=" + summarize(e.getValue(), depth - 1));
+                    i++;
+                }
+                return cap(b.append("}").toString());
+            }
+            if (o instanceof java.util.Collection) {
+                java.util.Collection<?> col = (java.util.Collection<?>) o;
+                StringBuilder b = new StringBuilder(c.getSimpleName()).append("(").append(col.size()).append("){");
+                int i = 0;
+                for (Object e : col) {
+                    if (i >= MAX_ELEMS) { b.append(", …"); break; }
+                    if (i > 0) b.append(", ");
+                    b.append(depth <= 0 ? "…" : summarize(e, depth - 1));
+                    i++;
+                }
+                return cap(b.append("}").toString());
+            }
+            String s = safeToString(o);
+            String dflt = c.getName() + "@" + Integer.toHexString(System.identityHashCode(o));
+            if (s != null && !s.equals(dflt)) return cap(s);     // a real, overridden toString
+            return cap(fieldDump(o, c, depth));                  // default/failed toString → fields
+        } catch (Throwable t) {
+            return o.getClass().getSimpleName() + "@?";
         }
+    }
+
+    private static String fieldDump(Object o, Class<?> c, int depth) {
+        StringBuilder b = new StringBuilder(c.getSimpleName()).append("{");
+        int i = 0;
+        for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+            int mod = f.getModifiers();
+            if (java.lang.reflect.Modifier.isStatic(mod) || f.isSynthetic()) continue;
+            if (i >= MAX_FIELDS) { b.append(", …"); break; }
+            Object v;
+            try { f.setAccessible(true); v = f.get(o); }
+            catch (Throwable t) { continue; }     // inaccessible (module system) → skip
+            if (i > 0) b.append(", ");
+            b.append(f.getName()).append("=").append(depth <= 0 ? "…" : summarize(v, depth - 1));
+            i++;
+        }
+        return b.append("}").toString();
+    }
+
+    private static String safeToString(Object o) {
+        try { return o.toString(); } catch (Throwable t) { return null; }
+    }
+
+    private static String cap(String s) {
         return s.length() > CAP ? s.substring(0, CAP) + "…(+" + (s.length() - CAP) + ")" : s;
     }
 
