@@ -93,11 +93,14 @@ def _runtime_probe_jar() -> "str | None":
     return str(jar) if jar.is_file() else None
 
 
-def _select_orchestrator():
-    """Pick the phased orchestrator implementation. Default = the Python run();
-    ABENCH_ORCHESTRATOR=langgraph → the LangGraph run_graph (drop-in, same
-    signature). Lazy imports so the default path doesn't require langgraph."""
-    if os.environ.get("ABENCH_ORCHESTRATOR") == "langgraph":
+def _select_orchestrator(cond=None):
+    """Pick the phased orchestrator implementation. Precedence: the
+    ABENCH_ORCHESTRATOR env var (global override, back-compat) wins; else the
+    condition's `engine`; default the Python run(). Lazy imports so the default
+    path doesn't require langgraph."""
+    engine = (os.environ.get("ABENCH_ORCHESTRATOR")
+              or (cond.engine if cond is not None else None) or "python")
+    if engine == "langgraph":
         from .orchestrator_graph import run_graph
         return run_graph
     from .orchestrator import run as _run_py
@@ -485,7 +488,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
         # We retry ONLY when the run ended rate-limited (429) and retries
         # remain and we haven't been cancelled.
         nonce: str | None = None
-        system_prompt_eff = exp.system_prompt
+        system_prompt_eff = cond.system_prompt or exp.system_prompt
         sha = ""
         result = None
         agent_tools = _agent_tools_for(exp, cond)
@@ -509,7 +512,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                 # (rebuilt per attempt so each gets a fresh nonce).
                 nonce = uuid.uuid4().hex if exp.isolation.nonce_prefix else None
                 system_prompt_eff = build_system_prompt(
-                    exp.system_prompt,
+                    cond.system_prompt or exp.system_prompt,
                     nonce=nonce,
                     fixture_sha=sha,
                     forbid_external_sources=exp.isolation.forbid_external_sources,
@@ -528,7 +531,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         make_phase_runner,
                         make_suite_runner,
                     )
-                    _orchestrate = _select_orchestrator()   # python (default) | langgraph
+                    _orchestrate = _select_orchestrator(cond)   # env override | per-condition engine | python
 
                     suite_cmd = augment_for_full_run(
                         exp.verify.command or _detect_verify(workdir))
