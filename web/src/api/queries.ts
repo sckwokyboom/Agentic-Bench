@@ -342,3 +342,17 @@ export function useCancelSession() {
     mutationFn: (sid: string) => apiDelete<void>(`/api/sessions/${sid}`),
   });
 }
+
+export async function verifyAugmentation(
+  path: string, name?: string,
+): Promise<t.VerifyAugmentationResp> {
+  return apiPostJson<t.VerifyAugmentationResp>("/api/augmentation/verify", { path, name });
+}
+
+export async function fetchModelContext(
+  model: string, baseUrl: string, apiKeyEnv?: string | null,
+): Promise<t.ModelContextResp> {
+  return apiPostJson<t.ModelContextResp>("/api/model/context", {
+    model, base_url: baseUrl, api_key_env: apiKeyEnv ?? null,
+  });
+}
