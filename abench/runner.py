@@ -93,6 +93,17 @@ def _runtime_probe_jar() -> "str | None":
     return str(jar) if jar.is_file() else None
 
 
+def _select_orchestrator():
+    """Pick the phased orchestrator implementation. Default = the Python run();
+    ABENCH_ORCHESTRATOR=langgraph → the LangGraph run_graph (drop-in, same
+    signature). Lazy imports so the default path doesn't require langgraph."""
+    if os.environ.get("ABENCH_ORCHESTRATOR") == "langgraph":
+        from .orchestrator_graph import run_graph
+        return run_graph
+    from .orchestrator import run as _run_py
+    return _run_py
+
+
 _ENV_REF = re.compile(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -517,7 +528,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         make_phase_runner,
                         make_suite_runner,
                     )
-                    from .orchestrator import run as _orchestrate
+                    _orchestrate = _select_orchestrator()   # python (default) | langgraph
 
                     suite_cmd = augment_for_full_run(
                         exp.verify.command or _detect_verify(workdir))
