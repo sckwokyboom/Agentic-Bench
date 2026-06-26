@@ -16,6 +16,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# LangGraph orchestrator (opt-in via ABENCH_ORCHESTRATOR=langgraph). Narrow surface:
+# StateGraph + reducers only. Lazy-imported, so the default path doesn't need it.
+langgraph = ["langgraph>=0.2,<0.4"]
 
 [project.scripts]
 abench = "abench.cli:main"
