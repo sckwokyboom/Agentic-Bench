@@ -597,6 +597,10 @@ def _validate(exp: Experiment) -> None:
         raise ValueError("reference_path must be outside output_dir (anti-leak)")
     if not exp.conditions:
         raise ValueError("at least one condition required")
+    names = [c.name for c in exp.conditions]
+    if len(names) != len(set(names)):
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        raise ValueError(f"duplicate condition name(s): {', '.join(dupes)}")
     if exp.target_file is not None:
         full = exp.fixture_path / exp.target_file
         if not full.is_file():

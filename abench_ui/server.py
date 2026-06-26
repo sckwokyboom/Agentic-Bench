@@ -170,7 +170,7 @@ def create_app(
     def _read_exp(name: str):
         _exp_dir_for(name)  # traversal guard
         try:
-            return exp_mod.read_experiment(state["experiments_dir"], name)
+            return exp_mod.read_experiment(state["experiments_dir"], name, raw_file_aug=True)
         except exp_mod.ExperimentNotFound:
             raise HTTPException(404, f"experiment '{name}' not found")
         except ValueError as exc:
