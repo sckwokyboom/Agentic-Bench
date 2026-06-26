@@ -37,9 +37,10 @@ class _RaisingClient:
         raise RuntimeError("boom")
 
 
-def test_soft_cancel_saves_trace_and_skips_verify(tmp_path):
-    """Soft cancel: a cancel mid-run still SAVES trace.json + metrics.json for
-    analysis and marks verify_status='cancelled' (the verify suite is NOT run)."""
+def test_cancel_saves_run_marked_truncated(tmp_path):
+    """A cancel mid-run is kept as a FULL, analysable run: trace + metrics + diff are
+    saved (verify runs on the partial diff), and it is flagged truncated via
+    interrupted_reason='cancelled'."""
     import json
     import threading
     from abench.opencode_client import RunResult
@@ -69,11 +70,12 @@ def test_soft_cancel_saves_trace_and_skips_verify(tmp_path):
     run_experiment(exp, lambda e: _CancellingClient(), cancel_event=ev)
 
     runs = list((tmp_path / "runs").glob("exp1/*/baseline/rep_0"))
-    assert runs, "the cancelled run must still be saved (soft cancel)"
+    assert runs, "the cancelled run must still be saved as a full run"
     rd = runs[0]
     assert (rd / "trace.json").is_file() and (rd / "metrics.json").is_file()
+    assert (rd / "changes.patch").is_file()       # the partial diff is captured
     tr = json.loads((rd / "trace.json").read_text())
-    assert tr["verify_status"] == "cancelled"     # suite skipped, marked cancelled
+    assert tr["interrupted_reason"] == "cancelled"   # flagged truncated for analysis
 
 
 def test_workdir_cleaned_up_when_client_raises(tmp_path):

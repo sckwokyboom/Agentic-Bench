@@ -697,14 +697,13 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             verify_command = augment_for_full_run(
                 exp.verify.command or _detect_verify(workdir))
             if cancelled:
-                # Soft cancel: the trace + metrics + diff are already saved above —
-                # but do NOT run the (up to verify.timeout_s) suite. The point of a
-                # cancel is to stop NOW; the run is kept for analysis, marked
-                # verify_status='cancelled' (trace-derived stats stand; no pass-rate).
-                result.trace.verify_status = "cancelled"
-                note("[abench] soft cancel — skipped the verify suite; "
-                     "trace + metrics + diff saved for analysis")
-            elif verify_command is None:
+                # Cancelled mid-run, but the agent's PARTIAL diff is real state:
+                # verify it like a normal run (real pass-rate on what it got to) and
+                # keep the run as a full, analysable data point — flagged truncated
+                # via interrupted_reason='cancelled' (+ orchestration_outcome for phased).
+                note("[abench] cancelled mid-run — verifying the PARTIAL (truncated) "
+                     "diff; run kept + flagged interrupted_reason=cancelled")
+            if verify_command is None:
                 result.trace.verify_status = "skipped"
             else:
                 try:
