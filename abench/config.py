@@ -380,14 +380,6 @@ class IsolationCfg(BaseModel):
 class OrchestrationCfg(BaseModel):
     """Experiment-level scaffolding for phased-orchestration conditions. Generic
     knobs + per-task scaffolding live here so the orchestrator stays task-agnostic."""
-    contract_fields: list[str] = Field(
-        default_factory=list,
-        title="Contract aspect-words",
-        description=(
-            "Aspects the UNDERSTAND-phase contract should address (e.g. "
-            "['WRAP','SPAN','indent'] for putValue). Task-specific scaffolding."
-        ),
-    )
     target_label: str = Field(
         default="the target method",
         title="Target label",

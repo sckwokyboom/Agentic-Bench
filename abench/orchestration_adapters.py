@@ -193,9 +193,8 @@ def make_phase_runner(client, *, workdir, system_prompt, model, timeout_s, on_ev
 
 def build_orchestrator_config(orch_cfg, mode: str) -> OrchestratorConfig:
     """OrchestratorConfig from the experiment's orchestration block + the
-    condition's mode ('phased' | 'phased_plan')."""
+    condition's mode ('phased' | 'phased_plan' | ...)."""
     return OrchestratorConfig(
-        contract_fields=list(orch_cfg.contract_fields),
         target_label=orch_cfg.target_label,
         with_plan=(mode == "phased_plan"),
         max_diagnose_iters=orch_cfg.max_diagnose_iters,

@@ -88,10 +88,9 @@ conditions:
 target_file: src/main/java/picocli/CommandLine.java
 target_methods: [putValue]
 
-# Scaffolding for the `phased` / `phased-plan` conditions above. Task-specific
-# aspect-words + label; the controller logic itself stays task-agnostic.
+# Scaffolding for the `phased` / `phased-plan` conditions above. Task label;
+# the controller logic itself stays task-agnostic.
 orchestration:
-  contract_fields: [TRUNCATE, SPAN, WRAP, indent, wrap, row]
   target_label: "TextTable.putValue"
   max_diagnose_iters: 8
   no_progress_limit: 2

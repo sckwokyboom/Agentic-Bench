@@ -144,14 +144,12 @@ def test_make_suite_runner_probe_injects_env_and_clears_capture(tmp_path):
 def test_build_orchestrator_config_maps_mode_to_plan():
     @dataclass
     class _OrchCfg:
-        contract_fields: list
         target_label: str = "putValue"
         max_diagnose_iters: int = 8
         no_progress_limit: int = 2
         cluster_cap: int = 5
 
-    cfg = _OrchCfg(contract_fields=["WRAP", "SPAN"])
+    cfg = _OrchCfg()
     assert build_orchestrator_config(cfg, "phased").with_plan is False
     assert build_orchestrator_config(cfg, "phased_plan").with_plan is True
-    assert build_orchestrator_config(cfg, "phased").contract_fields == ["WRAP", "SPAN"]
     assert build_orchestrator_config(cfg, "phased").target_label == "putValue"
