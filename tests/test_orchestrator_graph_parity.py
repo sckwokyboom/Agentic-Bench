@@ -41,3 +41,98 @@ def test_parity_green_on_implement():
                     suite_runner=_fake_suite([_eval(0, 100), _eval(100, 0)]),
                     snapshot=s, restore=r)
     _equiv(*_both(make))
+
+
+def test_parity_green_after_one_diagnose():
+    def make():
+        s, r, _ = _snap_restore()
+        return dict(phase_runner=_fake_phase(_CONTRACT),
+                    suite_runner=_fake_suite([_eval(0, 100), _eval(60, 40), _eval(100, 0)]),
+                    snapshot=s, restore=r)
+    _equiv(*_both(make))
+
+
+def test_parity_stuck_no_progress():
+    def make():
+        s, r, _ = _snap_restore()
+        return dict(phase_runner=_fake_phase(_CONTRACT),
+                    suite_runner=_fake_suite([_eval(0, 100), _eval(60, 40), _eval(55, 45),
+                                              _eval(55, 45), _eval(50, 50), _eval(50, 50)]),
+                    snapshot=s, restore=r)
+    _equiv(*_both(make))
+
+
+def test_parity_never_reverts():
+    def make():
+        s, r, _ = _snap_restore()
+        return dict(phase_runner=_fake_phase(_CONTRACT),
+                    suite_runner=_fake_suite([_eval(50, 50)] * 40), snapshot=s, restore=r)
+    _equiv(*_both(make))
+
+
+def test_parity_fallback_contract():
+    def make():
+        s, r, _ = _snap_restore()
+        return dict(phase_runner=_fake_phase({"understand": ""}),
+                    suite_runner=_fake_suite([_eval(0, 100), _eval(100, 0)]), snapshot=s, restore=r)
+    _equiv(*_both(make))
+
+
+def test_parity_with_plan():
+    cfg = OrchestratorConfig(contract_fields=["WRAP", "SPAN", "indent"],
+                             min_understand_reads=2, with_plan=True)
+    contract = dict(_CONTRACT, plan="Use copy(BreakIterator) for WRAP; advance col for SPAN.")
+
+    def make():
+        s, r, _ = _snap_restore()
+        return dict(phase_runner=_fake_phase(contract),
+                    suite_runner=_fake_suite([_eval(0, 100), _eval(100, 0)]), snapshot=s, restore=r)
+    _equiv(*_both(make, cfg))
+
+
+def test_parity_graph_focus():
+    in_f = TestFailure(classname="picocli.HelpTest", name="inRadius", kind="failure")
+    out_f = TestFailure(classname="picocli.OtherTest", name="outside", kind="error",
+                        type="java.lang.NullPointerException")
+
+    def make():
+        s, r, _ = _snap_restore()
+        return dict(
+            phase_runner=_fake_phase(_CONTRACT),
+            suite_runner=lambda: SuiteEval(
+                result=SuiteResult(compiled=True, ran=True, executed=2, passed=0, failed=2),
+                failures=[in_f, out_f]),
+            snapshot=s, restore=r,
+            in_blast_radius=lambda f: f.name == "inRadius")
+    _equiv(*_both(make))
+
+
+def test_parity_runtime_card():
+    def make():
+        s, r, _ = _snap_restore()
+        return dict(phase_runner=_fake_phase(_CONTRACT),
+                    suite_runner=_fake_suite([_eval(0, 100), _eval(60, 40), _eval(100, 0)]),
+                    snapshot=s, restore=r,
+                    read_evidence=lambda: "RUNTIME EVIDENCE for TextTable.putValue: args [0,0]")
+    _equiv(*_both(make))
+
+
+def test_parity_failing_phases():
+    def boom_phase(name, prompt, tools):
+        raise RuntimeError(f"{name} boom")
+
+    def make():
+        s, r, _ = _snap_restore()
+        return dict(phase_runner=boom_phase, suite_runner=_fake_suite([_eval(0, 100)] * 30),
+                    snapshot=s, restore=r)
+    _equiv(*_both(make))
+
+
+def test_parity_failing_suite():
+    def boom(*_a):
+        raise RuntimeError("infra boom")
+
+    def make():
+        return dict(phase_runner=_fake_phase(_CONTRACT), suite_runner=boom,
+                    snapshot=boom, restore=boom)
+    _equiv(*_both(make))
