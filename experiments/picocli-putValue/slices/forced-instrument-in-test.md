@@ -17,7 +17,10 @@ that without spelunking a 19,000-line file:
   set** — the few of them whose assertions actually constrain it;
 - the **consumer contract** (`addRowValues`) and the **call chains** from the
   asserting tests down to `putValue` — what reads its return value, and the
-  single chokepoint every call passes through (so you know where to probe).
+  single chokepoint every call passes through (so you know where to probe);
+- **clustered call chains** (medoid path per cluster) — the typical end-to-end
+  dataflow scenarios that reach `putValue`, so you can probe the *intermediate*
+  methods on a test's path, not just `putValue` or the test itself.
 
 **Workflow:**
 1. Read the *Direct tests* and the *Consumer contract* below — that is the spec.
@@ -225,6 +228,52 @@ protected String insertSynopsisCommandName(int synopsisHeadingLength, Text optio
     textTable.addRowValues(PADDING.concat(colorScheme.commandText(commandName)).concat(optionsAndPositionalsAndCommandsDetails));
 }
 ```
+
+---
+
+## Clustered call chains (medoids)
+
+The runtime call chains that reach `putValue` were clustered (by longest-common-
+subsequence of the call sequence); below is the **medoid** of each cluster —
+i.e. the most representative full path from an entry point down to `putValue`,
+with its chain count. These are the typical dataflow scenarios that exercise
+`putValue` across the suite.
+
+Use them to debug *through the chain*, not only at the endpoints: pick the
+cluster a failing test belongs to, `grep` the intermediate methods on its path,
+and drop temporary `//[probe]` prints inside them (e.g. `render`,
+`insertSynopsisCommandName`, `addRowValues`) to see what `putValue` is actually
+handed and how the caller consumes its return value for that test. This is often
+the fastest way to understand a given test's contract w.r.t. `putValue`.
+
+```text
+[A] 498 chains · CommandLine.parseArgs → Interpreter.parse → Interpreter.validateConstraints
+      → ParseResult.validateGroups → GroupMatchContainer.updateUnmatchedGroups → Assert.assertTrue
+      → EnvironmentVariablesRenderer.render → TextTable.addRowValues → TextTable.putValue
+[C] 302 chains · CommandLine.populateCommand → CommandLine.parse → Interpreter.parse → …
+      → EnvironmentVariablesRenderer.render → TextTable.addRowValues → TextTable.putValue
+[F] 162 chains · CommandLine.getUsageMessage → CommandLine.usage
+      → EnvironmentVariablesRenderer.render → TextTable.addRowValues → TextTable.putValue
+[D] 141 chains · CommandLine.execute → TextBasedUnknownOptionHandler.handleParseException
+      → CommandLine.usage → EnvironmentVariablesRenderer.render → TextTable.addRowValues → TextTable.putValue
+[G]  44 chains · Help.synopsis → Help.detailedSynopsis → Help.makeSynopsisFromParts
+      → Help.insertSynopsisCommandName → TextTable.addRowValues → TextTable.putValue   (distinct tail)
+[H]  36 chains · CommandLine.parse → Interpreter.parse → Interpreter.validateConstraints → …
+      → EnvironmentVariablesRenderer.render → TextTable.addRowValues → TextTable.putValue
+[E]  20 chains · AutoComplete.main → CommandLine.execute → TextBasedUnknownOptionHandler.handleParseException
+      → CommandLine.usage → EnvironmentVariablesRenderer.render → TextTable.addRowValues → TextTable.putValue
+[I]  20 chains · CommandLine.usage → EnvironmentVariablesRenderer.render
+      → TextTable.addRowValues → TextTable.putValue
+[B]  17 chains · UnmatchedOptionTest.expect → CommandLine.parseArgs → Interpreter.parse → …
+      → EnvironmentVariablesRenderer.render → TextTable.addRowValues → TextTable.putValue
+[J]  16 chains · CommandLine.run → CommandLine.parseWithHandlers → DefaultExceptionHandler.handleParseException
+      → DefaultExceptionHandler.internalHandleParseException → CommandLine.usage
+      → EnvironmentVariablesRenderer.render → TextTable.addRowValues → TextTable.putValue
+```
+
+Two tails dominate: `…render → addRowValues → putValue` (option/env tables, all
+clusters except G) and `…insertSynopsisCommandName → addRowValues → putValue`
+(the synopsis path, G). `addRowValues` is on every chain — see the chokepoint below.
 
 ---
 
