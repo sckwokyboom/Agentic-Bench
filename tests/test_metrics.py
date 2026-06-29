@@ -401,3 +401,15 @@ def test_failed_verify_status_yields_pass_rate_over_expected():
     m = extract(tr, "", _cfg())
     assert m["tests_pass_rate"] == 2435 / 2437   # full suite ran → genuine rate
     assert m["success"] is False
+
+
+def test_executed_total_and_compiled_fields():
+    cfg = _cfg()
+    m = extract(Trace(verify_status="passed", verify_passed_count=2437,
+                      verify_failed_count=0), "", cfg)
+    assert m["executed_total"] == 2437 and m["compiled"] is True
+    m2 = extract(Trace(verify_status="error", verify_passed_count=0,
+                       verify_failed_count=0), "", cfg)   # compile break → ran 0
+    assert m2["executed_total"] == 0 and m2["compiled"] is False
+    m3 = extract(Trace(), "", cfg)                        # no verify counts → unknown
+    assert m3["executed_total"] is None and m3["compiled"] is None

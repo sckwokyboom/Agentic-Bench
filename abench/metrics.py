@@ -150,6 +150,13 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
     else:
         tests_pass_rate = None
 
+    # How many tests actually executed (passed+failed) vs whether the build even
+    # compiled — makes a verify UNDERCOUNT visible in the data (executed_total far
+    # below the reference suite) instead of hiding behind a single pass/fail cell.
+    executed_total = (
+        vp + vf if (vp is not None and vf is not None) else None)
+    compiled = None if executed_total is None else executed_total > 0
+
     return {
         "duration_s": duration,
         "n_steps": n_steps,
@@ -183,6 +190,8 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "verify_passed_count": trace.verify_passed_count,
         "verify_failed_count": trace.verify_failed_count,
         "verify_expected_total": trace.verify_expected_total,
+        "executed_total": executed_total,
+        "compiled": compiled,
         "verify_failed_names": list(trace.verify_failed_names),
         "verify_reason": trace.verify_reason,
         "verify_message": trace.verify_message,

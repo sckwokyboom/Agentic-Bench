@@ -164,7 +164,46 @@ def test_summary_json_excludes_interrupted_and_handles_empty(tmp_path: Path):
     assert out["deltas"] == {}
 
     empty = report.summary_json(tmp_path / "nope")
-    assert empty == {"conditions": [], "deltas": {}, "total_runs": 0, "valid_runs": 0}
+    assert empty == {"conditions": [], "deltas": {}, "total_runs": 0,
+                     "valid_runs": 0, "crashed_runs": 0}
+
+
+def test_summary_json_excludes_crash_runs(tmp_path: Path):
+    """Infra/crash runs (a service error, or zero steps — opencode never started)
+    must NOT count as agent failures or drag the means. They're excluded from
+    valid/success_rate and surfaced as crashed_runs."""
+    root = tmp_path / "runs"
+    ok = {"interrupted_reason": None, "success": True, "n_steps": 10, "n_service_errors": 0}
+    _write_summary_run(root, "tool", 0, ok)
+    # 0-step crash (the augmented-tool rep0 case): success recorded False, 0 steps.
+    _write_summary_run(root, "tool", 1, {"interrupted_reason": None, "success": False,
+                                         "n_steps": 0, "n_service_errors": 1})
+    out = report.summary_json(root)
+    assert out["total_runs"] == 2
+    assert out["valid_runs"] == 1
+    assert out["crashed_runs"] == 1
+    cond = {c["name"]: c for c in out["conditions"]}["tool"]
+    assert cond["runs"] == 1
+    assert cond["success_rate"] == 1.0          # the crash is NOT a failure
+
+
+def test_summary_json_invalid_verify_excluded_from_pass_rate_but_kept_for_effort(tmp_path: Path):
+    """An 'invalid' (undercount) run has real step/cost effort (keep it in the means)
+    but an unusable verdict (exclude from the pass-rate sum + success_rate)."""
+    root = tmp_path / "runs"
+    _write_summary_run(root, "phased", 0, {"interrupted_reason": None, "success": True,
+                       "n_steps": 100, "verify_status": "passed",
+                       "verify_passed_count": 2437, "verify_failed_count": 0,
+                       "verify_expected_total": 2437})
+    _write_summary_run(root, "phased", 1, {"interrupted_reason": None, "success": None,
+                       "n_steps": 120, "verify_status": "invalid",
+                       "verify_passed_count": 58, "verify_failed_count": 10,
+                       "verify_expected_total": 2437})
+    cond = {c["name"]: c for c in report.summary_json(root)["conditions"]}["phased"]
+    assert cond["runs"] == 2                          # both kept for effort means
+    assert cond["metrics"]["n_steps"]["mean"] == 110.0
+    assert cond["tests_pass_rate"] == 1.0            # the 58/2437 undercount NOT summed in
+    assert cond["success_rate"] == 1.0               # invalid (success None) dropped, not a fail
 
 
 def test_load_runs_tolerates_missing_manifest(tmp_path: Path):

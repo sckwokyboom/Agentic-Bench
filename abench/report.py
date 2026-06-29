@@ -21,6 +21,25 @@ def _rep_from_dirname(name: str) -> int:
     return int(suffix) if suffix.isdigit() else 0
 
 
+def _valid_runs(df: pd.DataFrame) -> pd.DataFrame:
+    """Runs that count toward the comparison. Excludes:
+      - interrupted runs (cancelled / looping / timeout), and
+      - infra/crash runs that never measured the agent: a service error
+        (`n_service_errors > 0`) or zero steps (`n_steps == 0`, e.g. opencode
+        failed to launch — the `augmented-tool rep0` case). These would otherwise
+        be scored as a spurious agent failure and drag the efficiency means.
+    Invalid-verify (undercount) runs are KEPT here — their step/time/cost effort is
+    real — but are excluded from the pass-rate SUM (their verdict is unusable)."""
+    m = df["interrupted_reason"].isna()
+    if "n_service_errors" in df.columns:
+        m = m & (df["n_service_errors"].fillna(0) == 0)
+    if "n_steps" in df.columns:
+        # Exclude only an EXPLICIT zero-step run (opencode never produced a step —
+        # a crash). A MISSING value is unknown, not a crash, so keep it.
+        m = m & ~(df["n_steps"].notna() & (df["n_steps"] == 0))
+    return df[m]
+
+
 def load_runs(root: Path) -> pd.DataFrame:
     rows = []
     for metrics_file in sorted(Path(root).glob("*/*/metrics.json")):
@@ -57,12 +76,17 @@ def load_runs(root: Path) -> pd.DataFrame:
         row["verify_passed_count"] = metrics.get("verify_passed_count")
         row["verify_failed_count"] = metrics.get("verify_failed_count")
         row["verify_expected_total"] = metrics.get("verify_expected_total")
+        # Hygiene columns: verdict + how many tests actually ran + did it compile —
+        # so an undercount (executed_total ≪ expected) and crashes are visible.
+        row["verify_status"] = metrics.get("verify_status")
+        row["executed_total"] = metrics.get("executed_total")
+        row["compiled"] = metrics.get("compiled")
         rows.append(row)
     return pd.DataFrame(rows)
 
 
 def summarize(df: pd.DataFrame) -> pd.DataFrame:
-    valid = df[df["interrupted_reason"].isna()]
+    valid = _valid_runs(df)
     return valid.groupby("condition")[NUMERIC].agg(["mean", "median", "std"])
 
 
@@ -72,13 +96,19 @@ def summary_json(root: Path) -> dict:
     baseline percent deltas. NaN -> None; numpy scalars -> native floats."""
     df = load_runs(Path(root))
     if df.empty:
-        return {"conditions": [], "deltas": {}, "total_runs": 0, "valid_runs": 0}
+        return {"conditions": [], "deltas": {}, "total_runs": 0, "valid_runs": 0,
+                "crashed_runs": 0}
 
-    valid = df[df["interrupted_reason"].isna()]
+    valid = _valid_runs(df)
     total_runs = int(len(df))
     valid_runs = int(len(valid))
+    # Infra/crash runs (service error or 0 steps) that aren't interrupted — surfaced
+    # so a dropped crash never looks like a silent agent failure.
+    interrupted_runs = int(df["interrupted_reason"].notna().sum())
+    crashed_runs = total_runs - valid_runs - interrupted_runs
     if valid.empty:
-        return {"conditions": [], "deltas": {}, "total_runs": total_runs, "valid_runs": valid_runs}
+        return {"conditions": [], "deltas": {}, "total_runs": total_runs,
+                "valid_runs": valid_runs, "crashed_runs": crashed_runs}
 
     mean = valid.groupby("condition")[NUMERIC].mean()
     median = valid.groupby("condition")[NUMERIC].median()
@@ -117,7 +147,12 @@ def summary_json(root: Path) -> dict:
         if {"verify_passed_count", "verify_failed_count"} <= set(sub.columns):
             expected_col = (sub["verify_expected_total"]
                             if "verify_expected_total" in sub.columns else [None] * len(sub))
-            for p, f, e in zip(sub["verify_passed_count"], sub["verify_failed_count"], expected_col):
+            status_col = (sub["verify_status"]
+                          if "verify_status" in sub.columns else [None] * len(sub))
+            for p, f, e, st in zip(sub["verify_passed_count"], sub["verify_failed_count"],
+                                   expected_col, status_col):
+                if st == "invalid":
+                    continue  # undercount: verdict unusable → keep out of the pass rate
                 if pd.notna(p) and pd.notna(f) and (p + f) > 0:
                     # Denominator is the full expected suite when known, so tests
                     # that never ran in a failing run count as not-passed.
@@ -159,11 +194,12 @@ def summary_json(root: Path) -> dict:
         "deltas": deltas,
         "total_runs": total_runs,
         "valid_runs": valid_runs,
+        "crashed_runs": crashed_runs,
     }
 
 
 def _to_markdown(df: pd.DataFrame) -> str:
-    valid = df[df["interrupted_reason"].isna()]
+    valid = _valid_runs(df)
     means = valid.groupby("condition")[NUMERIC].mean()
     conditions = list(means.index)
 
