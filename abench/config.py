@@ -66,6 +66,29 @@ class Condition(BaseModel):
             "block (and, for phased_runtime, its `probe_targets`)."
         ),
     )
+    restore_non_target_before_verify: bool = Field(
+        default=False,
+        title="Restore non-target files before verify",
+        description=(
+            "Before grading, revert every file EXCEPT target_file to the seed "
+            "fixture and drop untracked scratch files. Enables a condition that "
+            "lets the agent temporarily instrument tests (add debug prints) while "
+            "it works: the instrumentation is stripped so the verdict reflects "
+            "only the agent's target-method edit. A no-op for conditions whose "
+            "agent never touches anything outside target_file (e.g. baseline), so "
+            "it introduces no A/B confound."
+        ),
+    )
+    system_augmentation: str | None = Field(
+        default=None,
+        title="System-prompt augmentation",
+        description=(
+            "Path to (or inline) text appended to the experiment's system prompt "
+            "for THIS condition only. Use to grant a condition-specific capability "
+            "the base system prompt otherwise forbids — e.g. permitting temporary "
+            "test instrumentation. None = base system prompt unchanged (baseline)."
+        ),
+    )
 
 
 class ProviderCfg(BaseModel):
@@ -556,6 +579,7 @@ def load_experiment(path: str | Path) -> Experiment:
     data["system_prompt"] = _resolve_text(data["system_prompt"], base)
     for cond in data.get("conditions", []):
         cond["augmentation"] = _resolve_text(cond.get("augmentation"), base)
+        cond["system_augmentation"] = _resolve_text(cond.get("system_augmentation"), base)
         overlay = cond.get("overlay")
         cond["overlay"] = str((base / overlay).resolve()) if overlay else None
 

@@ -508,8 +508,15 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                 # Isolation: grounding guard + nonce-prefix in system_prompt
                 # (rebuilt per attempt so each gets a fresh nonce).
                 nonce = uuid.uuid4().hex if exp.isolation.nonce_prefix else None
+                # Per-condition system-prompt augmentation (e.g. forced-instrument
+                # lifts the base prompt's "don't touch tests" rule). Appended to
+                # the base; None for baseline → base prompt unchanged.
+                base_system = exp.system_prompt
+                _sys_aug = getattr(cond, "system_augmentation", None)
+                if _sys_aug and _sys_aug.strip():
+                    base_system = f"{(exp.system_prompt or '').rstrip()}\n\n{_sys_aug.strip()}"
                 system_prompt_eff = build_system_prompt(
-                    exp.system_prompt,
+                    base_system,
                     nonce=nonce,
                     fixture_sha=sha,
                     forbid_external_sources=exp.isolation.forbid_external_sources,
@@ -694,6 +701,22 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
 
         # ── Verify (post-rep, before cleanup) ────────────────────────
         if exp.verify.enabled:
+            # Strip non-target edits (e.g. temporary test instrumentation from
+            # the forced-instrument condition) before grading, so the verdict
+            # reflects ONLY the agent's target-method implementation. The final
+            # diff above (changes.patch) already captured the instrumentation
+            # for analysis; this only affects what verify runs against. No-op for
+            # conditions whose agent never edits outside target_file (baseline),
+            # so it adds no A/B confound.
+            if (getattr(cond, "restore_non_target_before_verify", False)
+                    and exp.target_file and workdir is not None):
+                try:
+                    from .git_snapshot import restore_except
+                    restore_except(workdir, [exp.target_file])
+                    note("[abench] restored non-target files before verify "
+                         "(test instrumentation stripped)")
+                except Exception as exc:
+                    _log(f"[abench] WARN restore_except failed: {exc!r}")
             verify_command = augment_for_full_run(
                 exp.verify.command or _detect_verify(workdir))
             if cancelled:

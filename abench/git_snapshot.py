@@ -49,6 +49,31 @@ def restore(repo: Path, tree: str) -> None:
         pass
 
 
+def restore_except(repo: Path, keep: list[str]) -> None:
+    """Revert the worktree to the seed commit (HEAD) for EVERY tracked path
+    except those in ``keep`` (the graded target file), and drop untracked files
+    the agent created (scratch tests, debug `main`s). gitignored build output is
+    left intact so verify need not recompile from scratch.
+
+    Used by the forced-instrument condition to strip temporary test
+    instrumentation before grading: the agent is allowed to add debug prints to
+    tests while it works, but the verdict must reflect ONLY its edits to the
+    target file. A no-op when the agent changed nothing outside ``keep``.
+    """
+    # ':(exclude)<path>' magic pathspec keeps the target's edits while every
+    # other tracked file is reset to HEAD.
+    excludes = [f":(exclude){p}" for p in keep]
+    _git(repo, "checkout", "HEAD", "--", ".", *excludes)
+    # Remove untracked files the round added (new scratch test files, debug
+    # harnesses). Plain -fd keeps gitignored build/ (no -x), so the warmed
+    # Gradle output survives. Best-effort: a residual root-owned/locked file
+    # must not abort the run.
+    try:
+        _git(repo, "clean", "-fd")
+    except Exception:
+        pass
+
+
 def forbidden_changes(repo: Path, allowed_prefixes: list[str]) -> list[str]:
     """Changed paths (tracked or untracked) that fall OUTSIDE the allowlist —
     e.g. edits to src/test, build.gradle, configs. The orchestrator reverts

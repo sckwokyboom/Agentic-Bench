@@ -1,0 +1,60 @@
+name: picocli-putValue-forced-instrument
+fixture_path: ./stripped
+reference_path: ./original
+task_prompt: ./prompts/task.md
+system_prompt: ./prompts/system.md
+
+# Focused A/B: does forcing a "instrument-the-test, observe the data flow, THEN
+# implement" methodology beat the autonomous baseline on this task?
+#   - baseline           : the exact baseline of experiment.yaml (no augmentation,
+#                          no tools, no orchestration).
+#   - forced-instrument  : SAME model/fixture/system-prompt/sandbox; the ONLY
+#                          difference is the methodology slice appended to the
+#                          task prompt, plus the harness reverting the agent's
+#                          temporary test instrumentation before grading
+#                          (restore_non_target_before_verify) so the verdict
+#                          still reflects only the putValue implementation.
+#
+# Compare by: pass-rate AND cost (duration_s, n_steps, tokens) — a methodology
+# that wins pass-rate but doubles wall-time may not be worth it under a budget.
+
+model: deepseek/deepseek-v4-flash
+
+# deepseek-v4-flash is flaky at n=1 (one run can degenerate to a one-word turn);
+# 5 reps/condition averages that out. Drop to 3 for a faster first look.
+repetitions: 5
+output_dir: ./runs
+timeout_s: null
+
+opencode:
+  agent: abench
+  # No tools_lib: this A/B isolates the prompt methodology, not any custom tool.
+  providers:
+    - id: deepseek
+      name: DeepSeek API
+      base_url: https://api.deepseek.com/v1
+      models: [deepseek-v4-flash, deepseek-chat, deepseek-reasoner]
+      api_key_env: DEEPSEEK_API_KEY
+  sandbox:
+    mode: container
+    cache_mounts: []
+
+conditions:
+  - {name: baseline,          augmentation: null,                            tools: []}
+  - name: forced-instrument
+    augmentation: ./slices/forced-instrument-in-test.md          # the methodology (task prompt)
+    system_augmentation: ./slices/forced-instrument-system.md    # lifts the "don't touch tests" system rule
+    tools: []
+    restore_non_target_before_verify: true                       # strip instrumentation before grading
+
+target_file: src/main/java/picocli/CommandLine.java
+target_methods: [putValue]
+
+verify:
+  timeout_s: 1800
+
+metrics:
+  test_command_patterns:
+    - "(mvn|mvnw)( |$)"
+    - "(gradle|gradlew)( |$)"
+    - "junit"

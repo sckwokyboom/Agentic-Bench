@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from abench.git_snapshot import snapshot, restore, forbidden_changes, _git as _git_call
+from abench.git_snapshot import (
+    snapshot, restore, restore_except, forbidden_changes, _git as _git_call,
+)
 
 
 def _git(repo, *args):
@@ -35,6 +37,40 @@ def test_restore_reverts_modify_create_and_delete(tmp_path):
     assert (r / "src" / "D.java").read_text() == "dee\n"     # delete restored
     assert not (r / "src" / "B.java").exists()               # untracked removed
     assert not (r / "C.txt").exists()                        # staged-new removed
+
+
+def test_restore_except_keeps_target_strips_everything_else(tmp_path):
+    """forced-instrument guard: the agent's edit to the target file is kept,
+    while test instrumentation (modified test) and scratch files (untracked) are
+    reverted/removed, and gitignored build output survives."""
+    r = _repo(tmp_path)
+    (r / "build").mkdir()
+    (r / "build" / "out.class").write_text("cached\n")
+    (r / ".gitignore").write_text("build/\n")
+    _git(r, "add", "-A"); _git(r, "commit", "-qm", "with-build")
+    # agent activity
+    (r / "src" / "A.java").write_text("NEW_IMPL\n")            # target edit (keep)
+    (r / "src" / "D.java").write_text("orig\n// [probe]\n")    # test instrumentation (strip)
+    (r / "src" / "Scratch.java").write_text("scratch\n")       # untracked scratch (strip)
+    (r / "build" / "out.class").write_text("recompiled\n")     # gitignored (keep)
+
+    restore_except(r, ["src/A.java"])
+
+    assert (r / "src" / "A.java").read_text() == "NEW_IMPL\n"   # target kept
+    assert (r / "src" / "D.java").read_text() == "dee\n"        # instrumentation reverted
+    assert not (r / "src" / "Scratch.java").exists()            # scratch removed
+    assert (r / "build" / "out.class").read_text() == "recompiled\n"  # build/ untouched
+
+
+def test_restore_except_is_noop_when_only_target_changed(tmp_path):
+    """Baseline never edits outside the target, so the guard must not perturb
+    anything (no confound in the A/B)."""
+    r = _repo(tmp_path)
+    (r / "src" / "A.java").write_text("only target changed\n")
+    before_d = (r / "src" / "D.java").read_text()
+    restore_except(r, ["src/A.java"])
+    assert (r / "src" / "A.java").read_text() == "only target changed\n"
+    assert (r / "src" / "D.java").read_text() == before_d
 
 
 def test_restore_removes_untracked_nested_git_repo(tmp_path):
