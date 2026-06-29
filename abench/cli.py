@@ -22,6 +22,13 @@ def main(argv: list[str] | None = None) -> int:
     report_p = sub.add_parser("report", help="build summary from a run dir")
     report_p.add_argument("run_dir", help="path to runs/<name> directory")
 
+    analyze_p = sub.add_parser(
+        "analyze", help="screening comparison (ratio+CI, Cliff's, Beta, cost/pass) from a run dir")
+    analyze_p.add_argument("run_dir", help="path to the batch dir holding <condition>/<rep>/metrics.json")
+    analyze_p.add_argument("--baseline", default="baseline", help="reference condition (default: baseline)")
+    analyze_p.add_argument("--agg", default="median", choices=["median", "mean"])
+    analyze_p.add_argument("--json", action="store_true", help="emit the panel as JSON instead of text")
+
     verify_p = sub.add_parser(
         "verify", help="re-verify saved run(s) without re-running the agent")
     verify_p.add_argument("experiment", help="path to experiment YAML")
@@ -62,6 +69,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "report":
         write_report(Path(args.run_dir))
+        return 0
+
+    if args.cmd == "analyze":
+        import json as _json
+
+        from .screening import panel_from_dir, render_text
+        panel = panel_from_dir(Path(args.run_dir), baseline=args.baseline, agg=args.agg)
+        print(_json.dumps(panel, indent=2) if args.json else render_text(panel))
         return 0
 
     if args.cmd == "run":
