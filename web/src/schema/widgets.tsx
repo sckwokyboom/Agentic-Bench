@@ -2,7 +2,6 @@ import type { WidgetProps } from "@rjsf/utils";
 import ModelValidationChip from "../components/ModelValidationChip";
 import type { CustomEndpointInput } from "../components/CustomEndpointDialog";
 import TargetMethodsChips from "../components/TargetMethodsChips";
-import AugmentationField from "../components/AugmentationField";
 import LongTextField from "../components/LongTextField";
 import ContextWindowField from "../components/ContextWindowField";
 
@@ -23,17 +22,6 @@ export function ModelValidationWidget(props: WidgetProps) {
 export function TargetMethodsWidget(props: WidgetProps) {
   const arr = Array.isArray(props.value) ? (props.value as string[]) : [];
   return <TargetMethodsChips value={arr} onChange={props.onChange} label={props.label} />;
-}
-
-export function AugmentationWidget(props: WidgetProps) {
-  return (
-    <AugmentationField
-      value={(props.value as string) ?? ""}
-      kind="text"
-      onChange={(v: string) => props.onChange(v)}
-      label={props.label}
-    />
-  );
 }
 
 export function LongTextWidget(props: WidgetProps) {

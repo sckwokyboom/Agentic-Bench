@@ -1,5 +1,5 @@
 import {
-  ModelValidationWidget, TargetMethodsWidget, AugmentationWidget, LongTextWidget,
+  ModelValidationWidget, TargetMethodsWidget, LongTextWidget,
   ContextWindowWidget,
 } from "./widgets";
 import RootObjectFieldTemplate from "./RootObjectFieldTemplate";
@@ -8,7 +8,7 @@ import VerifyField from "../components/VerifyField";
 import ConditionsField from "../components/ConditionsField";
 
 export const customWidgets = {
-  ModelValidationWidget, TargetMethodsWidget, AugmentationWidget, LongTextWidget,
+  ModelValidationWidget, TargetMethodsWidget, LongTextWidget,
   ContextWindowWidget,
 };
 export const customFields = { VerifyField, ConditionsField };
