@@ -74,12 +74,53 @@ void testTextTablePutValue_NullOrEmpty() {
 ## Which tests to instrument
 
 ### Universe — JaCoCo runtime coverage
-`putValue` is executed at runtime by **412 of the ~2437 tests**. The other ~2000
-never reach it — no point instrumenting those. But this coverage is Tier-2 ("the
-test executed the method *somewhere*"): it does **not** tell you which of the 412
-constrain `putValue`'s behaviour. ~403 of them reach it only **incidentally**,
-while rendering some unrelated feature's usage message, and assert the whole
-usage string — so they won't reveal its contract.
+
+`putValue` is executed at runtime by **412 of the ~2437 tests**, spread across **42 test classes** (full breakdown below). The other ~2000 tests never reach it — no point instrumenting those. But this coverage is Tier-2 ("the test executed the method *somewhere*"): it does **not** tell you which of the 412 constrain `putValue`'s behaviour. ~403 of them reach it only **incidentally**, while rendering some unrelated feature's usage message, and assert the whole usage string — so they won't reveal its contract. (Gradle runs by class, so this is the granularity that matters: e.g. to watch a broad data-flow sample through the chokepoint, run the whole `HelpTest` class — it holds 173 of the coverers.)
+
+| coverers | test class |
+|---:|---|
+| 173 | `picocli.HelpTest` |
+| 31 | `picocli.ArgGroupTest` |
+| 28 | `picocli.ExecuteTest` |
+| 21 | `picocli.HelpAnsiTest` |
+| 19 | `picocli.HelpSubCommandTest` |
+| 14 | `picocli.EndOfOptionsDelimiterTest` |
+| 13 | `picocli.MixinTest` |
+| 12 | `picocli.I18nTest` |
+| 12 | `picocli.ModelUsageMessageSpecTest` |
+| 9 | `picocli.InterpolatedModelTest` |
+| 8 | `picocli.CommandMethodTest` |
+| 7 | `picocli.AtFileTest` |
+| 7 | `picocli.SubcommandTests` |
+| 6 | `picocli.ModelCommandSpecTest` |
+| 5 | `picocli.AutoCompleteTest` |
+| 5 | `picocli.DefaultProviderTest` |
+| 4 | `picocli.Issue1565HideParamOnUnknownOption` |
+| 4 | `picocli.NegatableOptionTest` |
+| 3 | `picocli.AbbreviationMatcherTest` |
+| 3 | `picocli.SplitSynopsisLabelTest` |
+| 2 | `picocli.CompletionCandidatesTest` |
+| 2 | `picocli.Issue1225UnmatchedArgBadIndex` |
+| 2 | `picocli.Issue1351` |
+| 2 | `picocli.RangeTest` |
+| 2 | `picocli.TextTableTest` |
+| 2 | `picocli.UnmatchedArgumentExceptionTest` |
+| 1 | `picocli.CommandAnnotationInheritedTest` |
+| 1 | `picocli.CommandLineTest` |
+| 1 | `picocli.InheritedOptionTest` |
+| 1 | `picocli.Issue1125_1538_OptionNameOrSubcommandAsOptionValue` |
+| 1 | `picocli.Issue1528` |
+| 1 | `picocli.Issue2309` |
+| 1 | `picocli.Issue2341` |
+| 1 | `picocli.Issue2413ArgGroupHelpOrdering` |
+| 1 | `picocli.Issue776ArgGroupsIgnoredInMixinTest` |
+| 1 | `picocli.Issue779ExceptionWhenNestedGroupInMixin` |
+| 1 | `picocli.MapOptionsTest` |
+| 1 | `picocli.ModelTransformerTest` |
+| 1 | `picocli.OrderedArgGroupSynopsisTest` |
+| 1 | `picocli.OrderedSynopsisTest` |
+| 1 | `picocli.ParameterPreprocessorTest` |
+| 1 | `picocli.ResourceBundlePropagationTest` |
 
 ### Where to start — the focus set (2 direct + 7 TextTable-targeted)
 These are the coverers whose **oracle actually pins `putValue`**. Instrument
