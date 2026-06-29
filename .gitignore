@@ -4,6 +4,7 @@ __pycache__/
 runs/
 .pytest_cache/
 .idea
+.DS_Store
 
 # Git worktrees for feature work (never tracked).
 .worktrees/
