@@ -154,6 +154,22 @@ def s_artifacts(force):
                     f"committed/{name}", f"fresh/{name}"))[:2000]
                 print(f"[prepare:artifacts] WARNING: drift vs committed {name}:\n{diff}")
             committed.write_text(fresh, encoding="utf-8")
+    published_budget = out / "slices" / "putValue.budget.md"
+    budgets = [
+        path for path in sorted((out / "slice-work").glob("*.budget.md"))
+        if path.read_bytes() == published_budget.read_bytes()
+    ]
+    if len(budgets) != 1:
+        sys.exit(f"[prepare:artifacts] expected one sidecar-backed budget matching "
+                 f"{published_budget}, found {len(budgets)}")
+    budget = budgets[0]
+    sidecar = budget.with_name(budget.name.replace(".budget.md", ".json"))
+    run([sys.executable, HERE.parents[1] / "scripts" / "export_chain_snippets.py",
+         "--budget", budget,
+         "--sidecar", sidecar,
+         "--slice", HERE / "slices" / "forced-instrument-in-test.md",
+         "--target-fqn", TARGET_FQN,
+         "--overrides", HERE / "chain-snippet-overrides.json"])
     impact_dst = HERE / "overlays" / "impact-artifacts" / ".impact"
     _rmtree(impact_dst)
     shutil.copytree(out / "impact", impact_dst)

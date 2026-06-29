@@ -277,6 +277,288 @@ clusters except G) and `…insertSynopsisCommandName → addRowValues → putVal
 
 ---
 
+## Chain methods (call-site snippets)
+
+Use the full chains above to choose methods to inspect and to place temporary
+`//[probe]` diagnostics along the relevant path. These compact fragments show
+how arguments and calls flow toward `putValue`; each method-level edge appears
+once. They show caller code only—the body of the target method is intentionally
+omitted.
+
+- `CommandLine.parseArgs → Interpreter.parse`:
+```java
+public ParseResult parseArgs(String... args) {
+        interpreter.parse(args);
+}
+```
+
+- `Interpreter.parse → Interpreter.parse`:
+```java
+List<CommandLine> parse(String... args) {
+            Stack<String> arguments = new Stack<String>();
+    // ...
+            List<CommandLine> result = new ArrayList<CommandLine>();
+            parse(result, arguments, args, new ArrayList<Object>(), new HashSet<ArgSpec>());
+}
+```
+
+- `Interpreter.parse → Interpreter.validateConstraints`:
+```java
+private void parse(List<CommandLine> parsedCommands, Stack<String> argumentStack, String[] originalArgs, List<Object> nowProcessing, Collection<ArgSpec> inheritedRequired, Set<ArgSpec> initialized) {
+            List<ArgSpec> required = new ArrayList<ArgSpec>(commandSpec.requiredArgs());
+    // ...
+            if (!anyHelpRequested) {
+                validateConstraints(argumentStack, required, initialized);
+}
+```
+
+- `Interpreter.validateConstraints → ParseResult.validateGroups`:
+```java
+private void validateConstraints(Stack<String> argumentStack, List<ArgSpec> required, Set<ArgSpec> matched) {
+            ParseResult pr = parseResultBuilder.build();
+            pr.validateGroups();
+}
+```
+
+- `ParseResult.validateGroups → GroupMatchContainer.updateUnmatchedGroups`:
+```java
+void validateGroups() {
+            for (ArgGroupSpec group : commandSpec.argGroups()) {
+                groupMatchContainer.updateUnmatchedGroups(group);
+}
+```
+
+- `GroupMatchContainer.updateUnmatchedGroups → Assert.assertTrue`:
+```java
+void updateUnmatchedGroups(final ArgGroupSpec group) {
+                Assert.assertTrue(Assert.equals(group(), group.parentGroup()), new IHelpSectionRenderer() {public String render(Help h) {
+                    return "Internal error: expected " + group.parentGroup() + " (the parent of " + group + "), but was " + group(); }});
+}
+```
+
+- `Assert.assertTrue → EnvironmentVariablesRenderer.render`:
+```java
+static void assertTrue(boolean condition, IHelpSectionRenderer producer) {
+    if (!condition) throw new IllegalStateException(producer.render(null));
+}
+```
+
+- `EnvironmentVariablesRenderer.render → TextTable.addRowValues`:
+```java
+public String render(CommandLine.Help help) {
+    // ...
+                new Column(width(help) - (keyLength + 3), 2, Column.Overflow.WRAP));
+    // ...
+        for (Map.Entry<String, String> entry : env.entrySet()) {
+            textTable.addRowValues(String.format(entry.getKey()), String.format(entry.getValue()));
+}
+```
+
+- `TextTable.addRowValues → TextTable.addRowValues`:
+```java
+public void addRowValues(String... values) {
+                final int numColumns = values.length;
+    // ...
+                Text[] rowValues = new Text[numColumns];
+                for (int row = 0; row < maxRows; row++) {
+                    addRowValues(rowValues);
+}
+```
+
+- `TextTable.addRowValues → TextTable.putValue`:
+```java
+public void addRowValues(Text... values) {
+                for (int col = 0; col < values.length; col++) {
+                    int row = rowCount() - 1;// write to last row: previous value may have wrapped to next row
+                    Cell cell = putValue(row, col, values[col]);
+    // ...
+                    if ((cell.row != row || cell.column != col) && col != values.length - 1) {
+}
+```
+
+- `CommandLine.populateCommand → CommandLine.parse`:
+```java
+public static T populateCommand(T command, String... args) {
+        CommandLine cli = toCommandLine(command, new DefaultFactory());
+        cli.parse(args);
+}
+```
+
+- `CommandLine.parse → Interpreter.parse`:
+```java
+public List<CommandLine> parse(String... args) {
+        return interpreter.parse(args);
+}
+```
+
+- `CommandLine.getUsageMessage → CommandLine.usage`:
+```java
+public String getUsageMessage() {
+        return usage(new StringBuilder(), getHelp()).toString();
+}
+```
+
+- `CommandLine.usage → EnvironmentVariablesRenderer.render`:
+```java
+private StringBuilder usage(StringBuilder sb, Help help) {
+    for (String key : getHelpSectionKeys()) {
+        IHelpSectionRenderer renderer = getHelpSectionMap().get(key);
+        if (renderer != null) { sb.append(renderer.render(help)); }
+    }
+    return sb;
+}
+```
+
+- `CommandLine.execute → TextBasedUnknownOptionHandler.handleParseException`:
+```java
+public int execute(String... args) {
+    // ...
+    try {
+        parseResult[0] = parseArgs(args);
+        return enrichForBackwardsCompatibility(getExecutionStrategy()).execute(parseResult[0]);
+    } catch (ParameterException ex) {
+        return getParameterExceptionHandler().handleParseException(ex, args);
+    }
+```
+
+- `TextBasedUnknownOptionHandler.handleParseException → CommandLine.usage`:
+```java
+public int handleParseException(ParameterException ex, String[] args) {
+            CommandLine cmd = ex.getCommandLine();
+            PrintWriter writer = cmd.getErr();
+            CommandLine.Help.ColorScheme colorScheme = cmd.getColorScheme();
+    // ...
+            if (!UnmatchedArgumentException.printSuggestions(ex, writer)) {
+                ex.getCommandLine().usage(writer, colorScheme);
+}
+```
+
+- `CommandLine.usage → CommandLine.usage`:
+```java
+public void usage(PrintWriter writer, Help.ColorScheme colorScheme) {
+        writer.print(usage(new StringBuilder(), getHelpFactory().create(getCommandSpec(), colorScheme)));
+}
+```
+
+- `Help.synopsis → Help.detailedSynopsis`:
+```java
+public String synopsis(int synopsisHeadingLength) {
+            Comparator<OptionSpec> sortStrategy = commandSpec.usageMessage().sortSynopsis()
+                ? createShortOptionArityAndNameComparator() // alphabetic sort
+                : createOrderComparatorIfNecessary(commandSpec.options()); // explicit sort
+            boolean clusterBooleanOptions = commandSpec.parser().posixClusteredShortOptionsAllowed();
+            return commandSpec.usageMessage().abbreviateSynopsis() ? abbreviatedSynopsis()
+                    : detailedSynopsis(synopsisHeadingLength, sortStrategy, clusterBooleanOptions);
+}
+```
+
+- `Help.detailedSynopsis → Help.makeSynopsisFromParts`:
+```java
+public String detailedSynopsis(int synopsisHeadingLength, Comparator<OptionSpec> optionSort, boolean clusterBooleanOptions) {
+    // ...
+            Text positionalParamText = createDetailedSynopsisPositionalsText(argsInGroups);
+            Text commandText = createDetailedSynopsisCommandText();
+    // ...
+            return makeSynopsisFromParts(synopsisHeadingLength, optionText, groupsText, endOfOptionsText, positionalParamText, commandText);
+}
+```
+
+- `Help.makeSynopsisFromParts → Help.insertSynopsisCommandName`:
+```java
+protected String makeSynopsisFromParts(int synopsisHeadingLength, Text optionText, Text groupsText, Text endOfOptionsText, Text positionalParamText, Text commandText) {
+                text = optionText.concat(groupsText).concat(endOfOptionsText).concat(positionalParamText).concat(commandText);
+    // ...
+            return insertSynopsisCommandName(synopsisHeadingLength, text);
+}
+```
+
+- `Help.insertSynopsisCommandName → TextTable.addRowValues`:
+```java
+protected String insertSynopsisCommandName(int synopsisHeadingLength, Text optionsAndPositionalsAndCommandsDetails) {
+            String commandName = commandSpec.qualifiedName();
+    // ...
+            TextTable textTable = TextTable.forColumnWidths(colorScheme, width());
+    // ...
+            Text PADDING = Ansi.OFF.new Text(stringOf('X', synopsisHeadingLength), optionsAndPositionalsAndCommandsDetails.colorScheme);
+            textTable.addRowValues(PADDING.concat(colorScheme.commandText(commandName)).concat(optionsAndPositionalsAndCommandsDetails));
+}
+```
+
+- `AutoComplete.main → CommandLine.execute`:
+```java
+public static void main(String... args) {
+    // ...
+        };
+        int exitCode = new CommandLine(new App())
+                .setExecutionExceptionHandler(errorHandler)
+                .execute(args);
+        if ((exitCode == EXIT_CODE_SUCCESS && exitOnSuccess()) || (exitCode != EXIT_CODE_SUCCESS && exitOnError())) {
+    // ...
+```
+
+- `UnmatchedOptionTest.expect → UnmatchedOptionTest.expect`:
+```java
+static void expect(Object userObject, String errorMessage, Class<? extends Exception> cls, String... args) {
+        expect(new CommandLine(userObject), errorMessage, cls, args);
+}
+```
+
+- `UnmatchedOptionTest.expect → CommandLine.parseArgs`:
+```java
+static void expect(CommandLine cmd, String errorMessage, Class<? extends Exception> cls, String... args) {
+        try {
+            cmd.parseArgs(args);
+            fail("Expected exception");
+    // ...
+            assertTrue("Wrong exception: " + ex + ", expected " + cls.getName(), cls.isAssignableFrom(ex.getClass()));
+            assertEquals(errorMessage, ex.getMessage());
+}
+```
+
+- `CommandLine.run → CommandLine.run`:
+```java
+public static void run(R runnable, String... args) {
+        run(runnable, System.out, System.err, Help.Ansi.AUTO, args);
+}
+```
+
+- `CommandLine.run → CommandLine.parseWithHandlers`:
+```java
+public static void run(R runnable, PrintStream out, PrintStream err, Help.Ansi ansi, String... args) {
+        CommandLine cmd = new CommandLine(runnable);
+        cmd.parseWithHandlers(new RunLast().useOut(out).useAnsi(ansi), new DefaultExceptionHandler<List<Object>>().useErr(err).useAnsi(ansi), args);
+}
+```
+
+- `CommandLine.parseWithHandlers → DefaultExceptionHandler.handleParseException`:
+```java
+@Deprecated public <R> R parseWithHandlers(IParseResultHandler2<R> handler, IExceptionHandler2<R> exceptionHandler, String... args) {
+    // ...
+    try {
+        parseResult = parseArgs(args);
+        return handler.handleParseResult(parseResult);
+    } catch (ParameterException ex) {
+        return exceptionHandler.handleParseException(ex, args);
+    }
+```
+
+- `DefaultExceptionHandler.handleParseException → DefaultExceptionHandler.internalHandleParseException`:
+```java
+public R handleParseException(ParameterException ex, String[] args) {
+            internalHandleParseException(ex, newPrintWriter(err(), getStderrEncoding()), colorScheme()); return returnResultOrExit(null); }
+}
+```
+
+- `DefaultExceptionHandler.internalHandleParseException → CommandLine.usage`:
+```java
+static void internalHandleParseException(ParameterException ex, PrintWriter writer, Help.ColorScheme colorScheme) {
+            if (!UnmatchedArgumentException.printSuggestions(ex, writer)) {
+                ex.getCommandLine().usage(writer, colorScheme);
+}
+```
+
+---
+
 ## Broad data flow in one run (the chokepoint)
 
 `addRowValues` is the **single consumer** of `putValue` and sits on **every** one
