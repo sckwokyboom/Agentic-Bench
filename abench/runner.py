@@ -715,12 +715,19 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             if (getattr(cond, "restore_non_target_before_verify", False)
                     and exp.target_file and workdir is not None):
                 try:
-                    from .git_snapshot import restore_except
+                    from .git_snapshot import restore_except, strip_marked_lines
                     restore_except(workdir, [exp.target_file])
+                    # Strip any forgotten //[probe] debug lines from the GRADED
+                    # target file (restore_except handles all other files; the
+                    # target keeps the agent's edits, so its probes need their
+                    # own strip — else a leftover println corrupts stdout-capture
+                    # tests at verify).
+                    n_probes = strip_marked_lines(workdir, exp.target_file)
                     note("[abench] restored non-target files before verify "
-                         "(test instrumentation stripped)")
+                         f"(test instrumentation stripped; {n_probes} //[probe] "
+                         "line(s) stripped from target)")
                 except Exception as exc:
-                    _log(f"[abench] WARN restore_except failed: {exc!r}")
+                    _log(f"[abench] WARN restore_except/strip failed: {exc!r}")
             verify_command = augment_for_full_run(
                 exp.verify.command or _detect_verify(workdir))
             if cancelled:

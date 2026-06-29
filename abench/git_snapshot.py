@@ -74,6 +74,32 @@ def restore_except(repo: Path, keep: list[str]) -> None:
         pass
 
 
+def strip_marked_lines(repo: Path, rel_path: str, marker: str = "//[probe]") -> int:
+    """Delete every line containing ``marker`` from repo/rel_path; return the
+    count removed.
+
+    The forced-instrument condition encourages the agent to add temporary debug
+    prints — and to mark each with a trailing ``//[probe]`` comment — INTO the
+    code too, not just tests. Test-file probes are reverted wholesale by
+    restore_except, but the graded target file keeps the agent's edits, so a
+    forgotten probe there would survive into verify (corrupting stdout-capturing
+    tests → a spurious fail) and into the artifact. This strips the marked debug
+    lines from the target before grading, leaving the real implementation (which
+    carries no marker) untouched. Best-effort: a missing/binary file is a no-op.
+    """
+    p = repo / rel_path
+    try:
+        text = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return 0
+    lines = text.splitlines(keepends=True)
+    kept = [ln for ln in lines if marker not in ln]
+    removed = len(lines) - len(kept)
+    if removed:
+        p.write_text("".join(kept), encoding="utf-8")
+    return removed
+
+
 def forbidden_changes(repo: Path, allowed_prefixes: list[str]) -> list[str]:
     """Changed paths (tracked or untracked) that fall OUTSIDE the allowlist —
     e.g. edits to src/test, build.gradle, configs. The orchestrator reverts

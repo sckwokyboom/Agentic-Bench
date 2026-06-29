@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from abench.git_snapshot import (
-    snapshot, restore, restore_except, forbidden_changes, _git as _git_call,
+    snapshot, restore, restore_except, strip_marked_lines, forbidden_changes,
+    _git as _git_call,
 )
 
 
@@ -71,6 +72,34 @@ def test_restore_except_is_noop_when_only_target_changed(tmp_path):
     restore_except(r, ["src/A.java"])
     assert (r / "src" / "A.java").read_text() == "only target changed\n"
     assert (r / "src" / "D.java").read_text() == before_d
+
+
+def test_strip_marked_lines_removes_only_marked(tmp_path):
+    """forced-instrument code-probe guard: lines carrying the //[probe] marker are
+    removed from the graded target; the real implementation is untouched."""
+    p = tmp_path / "T.java"
+    p.write_text(
+        "int x = compute();\n"
+        'System.out.println("[probe] x=" + x);  //[probe]\n'
+        "return x;\n"
+        "doThing();  //[probe] inline trailing probe\n"
+        "int y = 2;\n"
+    )
+    removed = strip_marked_lines(tmp_path, "T.java")
+    assert removed == 2
+    assert p.read_text() == "int x = compute();\nreturn x;\nint y = 2;\n"
+
+
+def test_strip_marked_lines_noop_without_marker(tmp_path):
+    p = tmp_path / "T.java"
+    src = "int x = compute();\nreturn x;\n"
+    p.write_text(src)
+    assert strip_marked_lines(tmp_path, "T.java") == 0
+    assert p.read_text() == src
+
+
+def test_strip_marked_lines_missing_file_is_noop(tmp_path):
+    assert strip_marked_lines(tmp_path, "does/not/exist.java") == 0
 
 
 def test_restore_removes_untracked_nested_git_repo(tmp_path):
