@@ -74,6 +74,7 @@ def write_experiment(root: Path, name: str, payload: dict) -> None:
     - system_prompt → prompts/system.md
     - task_prompt   → prompts/task.md
     - condition.augmentation (if not None) → slices/<condition>.md
+    - condition.system_augmentation (if not None) → slices/<condition>-system.md
     - everything else → experiment.yaml (with paths replaced by relative .md refs)
     """
     exp_dir = Path(root) / name
@@ -96,11 +97,18 @@ def write_experiment(root: Path, name: str, payload: dict) -> None:
 
     for cond in conditions:
         aug = cond.get("augmentation")
-        if aug is None:
-            continue
-        slice_path = f"./{_SLICES_DIR}/{cond['name']}.md"
-        _atomic_write(exp_dir / _SLICES_DIR / f"{cond['name']}.md", aug)
-        cond["augmentation"] = slice_path
+        if aug is not None:
+            slice_path = f"./{_SLICES_DIR}/{cond['name']}.md"
+            _atomic_write(exp_dir / _SLICES_DIR / f"{cond['name']}.md", aug)
+            cond["augmentation"] = slice_path
+        # Externalise the per-condition system-prompt augmentation too, so it is
+        # stored as a .md ref rather than inlined into the YAML (an inlined
+        # multi-line blob would then be (mis)read back as a filesystem path).
+        sys_aug = cond.get("system_augmentation")
+        if sys_aug is not None:
+            sys_path = f"./{_SLICES_DIR}/{cond['name']}-system.md"
+            _atomic_write(exp_dir / _SLICES_DIR / f"{cond['name']}-system.md", sys_aug)
+            cond["system_augmentation"] = sys_path
 
     # Make path fields relative if they live under exp_dir, else absolute
     for key in ("fixture_path", "reference_path", "output_dir"):

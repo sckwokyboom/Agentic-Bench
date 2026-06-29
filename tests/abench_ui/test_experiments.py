@@ -93,6 +93,56 @@ def test_read_experiment_not_found(tmp_path):
         read_experiment(tmp_path, "ghost")
 
 
+def test_system_augmentation_round_trips_as_md_ref(tmp_path):
+    """A condition's system_augmentation must externalise to slices/<name>-system.md
+    on write (NOT inline its text into the YAML — an inlined multi-line blob is
+    then mis-stat'd as a path and 500s read_experiment)."""
+    import yaml as _yaml
+    exp_dir = _make_skeleton(tmp_path, "exp-a")
+    (exp_dir / "slices" / "fi.md").write_text("METHODOLOGY")
+    (exp_dir / "slices" / "fi-sys.md").write_text("SYS\nLINE2\nLINE3")
+    yaml_p = exp_dir / "experiment.yaml"
+    data = _yaml.safe_load(yaml_p.read_text())
+    data["conditions"].append({
+        "name": "forced-instrument",
+        "augmentation": "./slices/fi.md",
+        "system_augmentation": "./slices/fi-sys.md",
+        "restore_non_target_before_verify": True,
+    })
+    yaml_p.write_text(_yaml.safe_dump(data, sort_keys=False))
+
+    payload = read_experiment(tmp_path, "exp-a")           # resolves to text
+    fi = next(c for c in payload["conditions"] if c["name"] == "forced-instrument")
+    assert fi["system_augmentation"] == "SYS\nLINE2\nLINE3"
+    assert fi["restore_non_target_before_verify"] is True
+
+    write_experiment(tmp_path, "exp-a", payload)           # must re-externalise
+    yaml_text = (exp_dir / "experiment.yaml").read_text()
+    assert "./slices/forced-instrument-system.md" in yaml_text
+    assert "LINE2" not in yaml_text                        # text NOT inlined into yaml
+    assert (exp_dir / "slices" / "forced-instrument-system.md").read_text() == "SYS\nLINE2\nLINE3"
+
+    payload2 = read_experiment(tmp_path, "exp-a")          # round-trips cleanly
+    fi2 = next(c for c in payload2["conditions"] if c["name"] == "forced-instrument")
+    assert fi2["system_augmentation"] == "SYS\nLINE2\nLINE3"
+    assert fi2["restore_non_target_before_verify"] is True
+
+
+def test_read_survives_inlined_system_augmentation(tmp_path):
+    """Defence in depth: even if the YAML already has system_augmentation inlined
+    as multi-line text (e.g. saved by an older UI build), read must not 500 —
+    the loader returns the text verbatim instead of stat-ing it as a path."""
+    exp_dir = _make_skeleton(tmp_path, "exp-a")
+    blob = "do X\n" * 500                                  # multi-line, > NAME_MAX
+    import yaml as _yaml
+    data = _yaml.safe_load((exp_dir / "experiment.yaml").read_text())
+    data["conditions"].append({"name": "fi", "system_augmentation": blob})
+    (exp_dir / "experiment.yaml").write_text(_yaml.safe_dump(data))
+    payload = read_experiment(tmp_path, "exp-a")           # must not raise
+    fi = next(c for c in payload["conditions"] if c["name"] == "fi")
+    assert fi["system_augmentation"] == blob
+
+
 def test_write_experiment_atomically(tmp_path):
     _make_skeleton(tmp_path, "exp-a")
     payload = read_experiment(tmp_path, "exp-a")

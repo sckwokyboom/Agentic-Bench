@@ -564,9 +564,18 @@ class Experiment(BaseModel):
 def _resolve_text(value: str | None, base: Path) -> str | None:
     if value is None:
         return None
-    candidate = base / value
-    if candidate.is_file():
-        return candidate.read_text()
+    # Treat the value as a path only if it plausibly is one. A multi-line or
+    # over-long value is inline text (e.g. a slice the web UI round-tripped
+    # inline rather than as a .md ref) — os.stat on it raises (ENAMETOOLONG, or
+    # ValueError on an embedded NUL), which would 500 the loader. So never stat
+    # such a value; return it verbatim. is_file() is guarded too as a backstop.
+    if "\n" not in value and len(value) <= 4096:
+        try:
+            candidate = base / value
+            if candidate.is_file():
+                return candidate.read_text()
+        except OSError:
+            pass
     return value
 
 
