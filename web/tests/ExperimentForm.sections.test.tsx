@@ -4,17 +4,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { RJSFSchema } from "@rjsf/utils";
 import ExperimentForm from "../src/components/ExperimentForm";
 import { uiSchema } from "../src/schema/uiSchema";
-import {
-  ModelValidationWidget, TargetMethodsWidget, AugmentationWidget,
-} from "../src/schema/widgets";
-import RootObjectFieldTemplate from "../src/schema/RootObjectFieldTemplate";
-import VerifyField from "../src/components/VerifyField";
+import { customWidgets, customFields, customTemplates } from "../src/schema/registry";
 // Real (nullable-collapsed) experiment schema, captured from pydantic.
 import realSchema from "./fixtures/experimentSchema.json";
 
-const widgets = { ModelValidationWidget, TargetMethodsWidget, AugmentationWidget };
-const fields = { VerifyField };
-const templates = { ObjectFieldTemplate: RootObjectFieldTemplate };
+const cond = (over: Record<string, unknown>) => ({
+  name: "x", augmentation: null, augmentation_kind: "text", overlay: null,
+  tools: [], orchestration: null, engine: "python", system_prompt: null, ...over,
+});
 
 const formData = {
   name: "demo",
@@ -25,8 +22,8 @@ const formData = {
   model: "anthropic/claude",
   output_dir: "out",
   conditions: [
-    { name: "baseline", augmentation: null },
-    { name: "augmented", augmentation: "ctx.md" },
+    cond({ name: "baseline" }),
+    cond({ name: "augmented", augmentation: "ctx.md", tools: ["impact"], orchestration: "phased" }),
   ],
   repetitions: 1,
   verify: { command: null, enabled: true, timeout_s: 300 },
@@ -40,24 +37,21 @@ function renderForm() {
         schema={realSchema as unknown as RJSFSchema}
         uiSchema={uiSchema}
         formData={formData}
-        widgets={widgets}
-        fields={fields}
-        templates={templates}
+        widgets={customWidgets}
+        fields={customFields}
+        templates={customTemplates}
         onSave={() => {}}
       />
     </QueryClientProvider>,
   );
 }
 
-test("renders an Advanced accordion with metrics/isolation inside it (collapsed by default)", () => {
+test("renders an Advanced accordion (collapsed by default)", () => {
   renderForm();
-  // The Advanced accordion summary is present.
-  const summary = screen.getByText(/Advanced \(metrics, isolation, tuning\)/i);
-  expect(summary).toBeInTheDocument();
-
+  // The Advanced accordion summary is present (label lists the advanced sections).
+  expect(screen.getByText(/Advanced \(/i)).toBeInTheDocument();
   // The accordion is collapsed by default → its region is not expanded.
-  const region = screen.getByRole("region", { hidden: true });
-  expect(region).toBeInTheDocument();
+  expect(screen.getByRole("region", { hidden: true })).toBeInTheDocument();
 });
 
 test("a core field (name) is visible at the top without expanding Advanced", () => {
@@ -72,7 +66,7 @@ test("a core field (name) is visible at the top without expanding Advanced", () 
 test("metrics/isolation controls live inside the Advanced region", async () => {
   renderForm();
   // Expand the accordion.
-  await userEvent.click(screen.getByText(/Advanced \(metrics, isolation, tuning\)/i));
+  await userEvent.click(screen.getByText(/Advanced \(/i));
   // After expanding, an isolation control (Nonce prefix) becomes reachable.
   const region = screen.getByRole("region");
   expect(within(region).getByText(/Nonce prefix/i)).toBeInTheDocument();
@@ -84,18 +78,16 @@ test("the verify section is a Build system dropdown, not a raw command anyOf pic
   renderForm();
   // Build system Select present.
   expect(screen.getByRole("combobox", { name: /build system/i })).toBeInTheDocument();
-  // No leftover anyOf type-picker for verify.command: there must be no select
-  // whose options include the bare "string"/"null" type-picker entries, and no
-  // raw "Verify command" text input rendered by the default object template.
+  // No leftover raw "Verify command" text input rendered by the default object template.
   expect(screen.queryByText(/^Verify command$/)).toBeNull();
 });
 
-test("conditions are titled by their name, not by index", () => {
+test("conditions render as rows (by name) with an Add control, not a nested array form", () => {
   renderForm();
-  // The label is "Condition: " + the data-derived name, rendered as two text
-  // nodes inside one element, so match on the element's full textContent.
-  const byText = (re: RegExp) =>
-    screen.getByText((_content, el) => !!el && re.test(el.textContent ?? ""));
-  expect(byText(/^Condition: baseline$/)).toBeInTheDocument();
-  expect(byText(/^Condition: augmented$/)).toBeInTheDocument();
+  // The custom ConditionsField shows an "Add condition" action…
+  expect(screen.getByRole("button", { name: /add condition/i })).toBeInTheDocument();
+  // …and one row per condition, labelled by the condition's name.
+  expect(screen.getByText("augmented")).toBeInTheDocument();
+  // "baseline" appears both as a row name and as the augmentation chip → at least one.
+  expect(screen.getAllByText("baseline").length).toBeGreaterThan(0);
 });

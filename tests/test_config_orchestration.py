@@ -11,8 +11,6 @@ def test_condition_orchestration_mode_parses():
 
 
 def test_orchestration_cfg_defaults_and_fields():
-    c = OrchestrationCfg(contract_fields=["WRAP", "SPAN"], target_label="putValue")
-    assert c.contract_fields == ["WRAP", "SPAN"] and c.target_label == "putValue"
+    c = OrchestrationCfg(target_label="putValue")
+    assert c.target_label == "putValue"
     assert c.max_diagnose_iters == 8 and c.no_progress_limit == 2 and c.cluster_cap == 5
-    # empty by default — task scaffolding is opt-in
-    assert OrchestrationCfg().contract_fields == []

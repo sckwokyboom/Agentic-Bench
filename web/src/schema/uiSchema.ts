@@ -1,5 +1,4 @@
 import type { UiSchema } from "@rjsf/utils";
-import ConditionItemTemplate from "./ConditionItemTemplate";
 
 // Custom widget names must match the keys we register on the Form's `widgets` prop.
 export const uiSchema: UiSchema = {
@@ -7,27 +6,20 @@ export const uiSchema: UiSchema = {
   // Core fields first; remaining (advanced) fields fall under "*", which the
   // RootObjectFieldTemplate routes into the collapsible Advanced accordion.
   "ui:order": [
-    "name", "fixture_path", "reference_path", "model",
-    "task_prompt", "system_prompt", "conditions",
-    "repetitions", "verify", "*",
+    "name", "model", "model_context_window",
+    "task_prompt", "system_prompt", "target_file", "target_methods",
+    "fixture_path", "reference_path",
+    "conditions", "repetitions", "verify", "*",
   ],
   model:       { "ui:widget": "ModelValidationWidget" },
+  model_context_window: { "ui:widget": "ContextWindowWidget" },
   target_methods: { "ui:widget": "TargetMethodsWidget" },
   // v2 forward-compat fields — hide from v1 UI.
   isolation: {
     user_field_template: { "ui:widget": "hidden" },
     api_key_env_list:    { "ui:widget": "hidden" },
   },
-  conditions: {
-    // Title each condition by its `name` value rather than its index. The
-    // ArrayFieldItemTemplate override is resolved from the ARRAY-level uiSchema
-    // (rjsf 5.24 reads it via getUiOptions(uiSchema) in ArrayFieldTemplate), so
-    // it must live here, not under `items`.
-    "ui:ArrayFieldItemTemplate": ConditionItemTemplate,
-    items: {
-      augmentation: { "ui:widget": "AugmentationWidget" },
-    },
-  },
+  conditions: { "ui:field": "ConditionsField" },
   // String-array metric knobs: keep the array's human title+description (from the
   // schema), but drop the redundant per-item "<name>-0 *" row labels.
   metrics: {
@@ -46,8 +38,9 @@ export const uiSchema: UiSchema = {
       },
     },
   },
-  // System prompt can be long → multiline.
-  system_prompt: { "ui:widget": "textarea", "ui:options": { rows: 10 } },
+  // Task/system prompts can be long → expandable editor.
+  task_prompt:   { "ui:widget": "LongTextWidget" },
+  system_prompt: { "ui:widget": "LongTextWidget" },
   // VerifyField owns the entire verify object rendering (build-system dropdown,
   // enabled switch, timeout). This replaces the old raw command help/placeholder.
   verify: { "ui:field": "VerifyField" },

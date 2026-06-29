@@ -12,22 +12,22 @@ def _trace_with_reads(n):
     return Trace(steps=steps)
 
 
-_CFG = OrchestratorConfig(contract_fields=["WRAP", "SPAN", "indent"], min_understand_reads=2)
+_CFG = OrchestratorConfig(min_understand_reads=2)
 
 
 # ── gates / prompts ───────────────────────────────────────────────────────
 
-def test_contract_ok_requires_aspects_and_reads():
+def test_contract_ok_requires_only_substance_and_reads():
     good = PhaseOutcome(_trace_with_reads(2),
                         "Contract: handles WRAP and SPAN overflow with indent.")
     assert contract_ok(good, _CFG)[0] is True
 
 
-def test_contract_rejected_when_too_few_aspects():
-    bad = PhaseOutcome(_trace_with_reads(3),
-                       "This describes the method behavior in plain prose only.")  # >=40 chars, 0 aspects
-    ok, why = contract_ok(bad, _CFG)
-    assert ok is False and "aspect" in why.lower()
+def test_contract_ok_accepts_prose_without_keywords():
+    # The aspect-word gate is gone: substantive prose + enough reads is enough.
+    ok = PhaseOutcome(_trace_with_reads(3),
+                      "This describes the method behavior in plain prose only, at length.")
+    assert contract_ok(ok, _CFG)[0] is True
 
 
 def test_contract_rejected_when_not_enough_reads():

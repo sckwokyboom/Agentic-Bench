@@ -269,3 +269,13 @@ export interface SessionSummary {
 // GET /api/sessions/{sid} returns the same enriched shape as each item of
 // GET /api/sessions, so a session can be re-opened by sid alone.
 export type SessionState = SessionSummary;
+
+export interface VerifyAugmentationResp {
+  found: boolean;
+  size: number;
+  preview: string;
+}
+
+export interface ModelContextResp {
+  context_window: number | null;
+}

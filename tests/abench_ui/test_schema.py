@@ -25,3 +25,25 @@ def test_schema_includes_nested_verify_isolation():
 def test_schema_is_json_serialisable():
     import json
     json.dumps(experiment_json_schema())  # raises if not serialisable
+
+
+def test_condition_schema_exposes_new_fields():
+    from abench_ui.schema import experiment_json_schema
+    s = experiment_json_schema()
+    cond = s["$defs"]["Condition"]["properties"]
+    assert set(cond) >= {
+        "name", "augmentation", "augmentation_kind", "overlay", "tools",
+        "orchestration", "engine", "system_prompt",
+    }
+    # orchestration is now an enum (nullable), not a free string
+    orch = cond["orchestration"]
+    # pydantic v2 emits Literal|None as anyOf[{enum:[...]},{type:null}]
+    # tolerate: top-level enum, anyOf-const, or anyOf-enum shapes
+    flat = (
+        orch.get("enum")
+        or [b.get("const") for b in orch.get("anyOf", []) if "const" in b]
+        or [v for b in orch.get("anyOf", []) for v in (b.get("enum") or [])]
+    )
+    assert "phased_runtime" in (flat or [])
+    assert cond["engine"]["default"] == "python"
+    assert cond["augmentation_kind"]["default"] == "text"

@@ -29,8 +29,16 @@ class Condition(BaseModel):
         default=None,
         title="Augmentation",
         description=(
-            "Path to the context-slice markdown injected for this condition; "
-            "blank = no augmentation (baseline)."
+            "Extra context injected for this condition. Blank = no augmentation "
+            "(baseline). See augmentation_kind for inline-text vs file."
+        ),
+    )
+    augmentation_kind: Literal["text", "file"] = Field(
+        default="text",
+        title="Augmentation kind",
+        description=(
+            "'text' = inline markdown (stored as slices/<name>.md); 'file' = a "
+            "path to an existing file whose contents are injected at run time."
         ),
     )
     overlay: str | None = Field(
@@ -46,24 +54,42 @@ class Condition(BaseModel):
         default_factory=list,
         title="Enabled tools",
         description=(
-            "OpenCode tool names this condition enables (e.g. ['impact']). Tools "
-            "shipped by opencode.tools_lib that are NOT listed are disabled for "
-            "this condition's agent — so baseline (tools: []) never sees them, "
-            "preserving the A/B contrast."
+            "OpenCode tool names this condition enables (e.g. ['impact']). A tool "
+            "shipped by opencode.tools_lib that is NOT listed is disabled for this "
+            "condition — so baseline (no tools) never sees it, preserving the A/B "
+            "contrast."
         ),
     )
-    orchestration: str | None = Field(
+    orchestration: Literal[
+        "phased", "phased_plan", "phased_graph", "phased_runtime"
+    ] | None = Field(
         default=None,
         title="Orchestration mode",
         description=(
             "None = autonomous opencode loop (baseline). 'phased' = forced "
-            "UNDERSTAND→IMPLEMENT→DIAGNOSE controller; 'phased_plan' adds the PLAN "
-            "phase; 'phased_graph' = phased + the controller focuses the DIAGNOSE "
-            "loop on failures inside the target's graph blast radius; "
-            "'phased_runtime' = phased + a runtime diagnostic card (actual args + "
-            "call corridor + throw, from a Byte Buddy probe on the test JVM) "
-            "injected into DIAGNOSE. Requires the experiment-level `orchestration` "
-            "block (and, for phased_runtime, its `probe_targets`)."
+            "UNDERSTAND→IMPLEMENT→DIAGNOSE controller; 'phased_plan' adds PLAN; "
+            "'phased_graph' focuses DIAGNOSE on the target's call-graph blast "
+            "radius; 'phased_runtime' injects a runtime diagnostic card (actual "
+            "args + call corridor + throw) into DIAGNOSE. Requires the "
+            "experiment-level orchestration block (and probe_targets for "
+            "phased_runtime)."
+        ),
+    )
+    engine: Literal["python", "langgraph"] = Field(
+        default="python",
+        title="Orchestration engine",
+        description=(
+            "Phased-controller implementation: 'python' (default) or 'langgraph' "
+            "(parity build). Ignored when orchestration is None. The "
+            "ABENCH_ORCHESTRATOR env var, if set, overrides this globally."
+        ),
+    )
+    system_prompt: str | None = Field(
+        default=None,
+        title="System prompt override",
+        description=(
+            "Per-condition system prompt; blank = use the experiment-level "
+            "system prompt."
         ),
     )
     restore_non_target_before_verify: bool = Field(
@@ -403,14 +429,6 @@ class IsolationCfg(BaseModel):
 class OrchestrationCfg(BaseModel):
     """Experiment-level scaffolding for phased-orchestration conditions. Generic
     knobs + per-task scaffolding live here so the orchestrator stays task-agnostic."""
-    contract_fields: list[str] = Field(
-        default_factory=list,
-        title="Contract aspect-words",
-        description=(
-            "Aspects the UNDERSTAND-phase contract should address (e.g. "
-            "['WRAP','SPAN','indent'] for putValue). Task-specific scaffolding."
-        ),
-    )
     target_label: str = Field(
         default="the target method",
         title="Target label",
@@ -612,6 +630,10 @@ def _validate(exp: Experiment) -> None:
         raise ValueError("reference_path must be outside output_dir (anti-leak)")
     if not exp.conditions:
         raise ValueError("at least one condition required")
+    names = [c.name for c in exp.conditions]
+    if len(names) != len(set(names)):
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        raise ValueError(f"duplicate condition name(s): {', '.join(dupes)}")
     if exp.target_file is not None:
         full = exp.fixture_path / exp.target_file
         if not full.is_file():

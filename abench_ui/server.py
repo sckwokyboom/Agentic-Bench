@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import threading
 import uuid
@@ -25,6 +26,7 @@ from pydantic import BaseModel, ValidationError
 
 from abench import report
 from abench.config import Experiment
+from abench.model_limits import fetch_context_window
 from abench.opencode_client import RealOpenCodeClient
 
 from . import experiments as exp_mod
@@ -68,6 +70,17 @@ class _VerifyStartBody(BaseModel):
     condition: str | None = None
     rep: int | None = None
     batch: str | None = None
+
+
+class _VerifyAugBody(BaseModel):
+    path: str
+    name: str | None = None      # resolve relative to this experiment's dir if given
+
+
+class _ModelContextBody(BaseModel):
+    model: str
+    base_url: str
+    api_key_env: str | None = None
 
 
 # ── Module helpers ─────────────────────────────────────────────────────────
@@ -170,7 +183,7 @@ def create_app(
     def _read_exp(name: str):
         _exp_dir_for(name)  # traversal guard
         try:
-            return exp_mod.read_experiment(state["experiments_dir"], name)
+            return exp_mod.read_experiment(state["experiments_dir"], name, raw_file_aug=True)
         except exp_mod.ExperimentNotFound:
             raise HTTPException(404, f"experiment '{name}' not found")
         except ValueError as exc:
@@ -442,6 +455,35 @@ def create_app(
             )
         except runs_mod.RunNotFound as exc:
             raise HTTPException(404, str(exc))
+
+    # ── Form-support helpers ─────────────────────────────────────────────────
+
+    @api.post("/augmentation/verify")
+    def _verify_augmentation(body: _VerifyAugBody):
+        """Resolve an augmentation FILE path the way load_experiment does (base =
+        the experiment dir when known; absolute paths respected) and report
+        whether it exists, its size, and a short preview."""
+        base = Path.cwd()
+        if body.name:
+            cand = state["experiments_dir"].resolve() / body.name
+            if cand.is_dir():
+                base = cand
+        target = (base / body.path)          # absolute body.path overrides base
+        if not target.is_file():
+            return {"found": False, "size": 0, "preview": ""}
+        size = target.stat().st_size
+        with target.open("rb") as fh:           # cap the read — preview is 200 chars
+            head = fh.read(512).decode("utf-8", "replace")[:200]
+        return {"found": True, "size": size, "preview": head}
+
+    @api.post("/model/context")
+    def _model_context(body: _ModelContextBody):
+        """Best-effort: the model's context window from its /v1/models endpoint.
+        Returns {context_window: int|None} — None on any failure (the UI falls
+        back to a manual value)."""
+        api_key = os.environ.get(body.api_key_env) if body.api_key_env else None
+        return {"context_window": fetch_context_window(
+            body.base_url, api_key, body.model)}
 
     # ── Validate / Providers ────────────────────────────────────────────────
 

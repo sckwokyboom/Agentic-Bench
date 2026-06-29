@@ -58,12 +58,10 @@ class SuiteRunner(Protocol):
 @dataclass
 class OrchestratorConfig:
     # Task-specific scaffolding (supplied per experiment, NOT hardcoded):
-    contract_fields: list[str] = field(default_factory=list)   # aspect-words the contract should address
     target_label: str = "the target method"
     # Generic knobs:
     with_plan: bool = False
     min_understand_reads: int = 2
-    min_contract_aspects: int = 2
     max_diagnose_iters: int = 8
     no_progress_limit: int = 2
     cluster_cap: int = 5
@@ -78,9 +76,6 @@ def contract_ok(outcome: PhaseOutcome, cfg: OrchestratorConfig) -> tuple[bool, s
     text = (outcome.text or "").strip()
     if len(text) < 40:
         return False, "contract is empty / too short"
-    hits = sum(1 for a in cfg.contract_fields if a.lower() in text.lower())
-    if hits < cfg.min_contract_aspects:
-        return False, f"contract addresses too few aspects (matched {hits})"
     if _count_reads(outcome.trace) < cfg.min_understand_reads:
         return False, "did not read enough sources (callers/tests)"
     return True, "ok"
@@ -136,7 +131,7 @@ def diagnose_prompt(cfg: OrchestratorConfig, contract: str, plan: str,
 def fallback_contract(failures: list[TestFailure], cfg: OrchestratorConfig) -> str:
     names = ", ".join(sorted({f.classname.rsplit('.', 1)[-1] for f in failures})[:8])
     return (f"[auto] Contract for {cfg.target_label}, derived from failing tests: "
-            f"satisfy {names}. Address: {', '.join(cfg.contract_fields)}.")
+            f"satisfy {names}.")
 
 
 def _track_best(cur: SuiteEval, best_failed: "int | None",

@@ -4,18 +4,14 @@ import {
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
-// Root properties that belong in the collapsible "Advanced" accordion. Everything
-// else (including the REQUIRED identity fields name/model/prompts/paths) stays in
-// the always-visible core section so a blocking validation error is never hidden.
-const ADVANCED = new Set<string>([
-  "metrics",
-  "isolation",
-  "opencode",
-  "timeout_s",
-  "min_seconds_between_runs",
-  "target_file",
-  "target_methods",
-]);
+// Primary fields grouped under light headers; everything else falls to Advanced.
+const GROUPS: { title: string; fields: string[] }[] = [
+  { title: "Basics", fields: ["name", "model", "model_context_window"] },
+  { title: "Task", fields: ["task_prompt", "system_prompt", "target_file", "target_methods", "fixture_path", "reference_path"] },
+  { title: "Conditions", fields: ["conditions"] },
+  { title: "Run", fields: ["repetitions", "verify"] },
+];
+const PRIMARY = new Set<string>(GROUPS.flatMap((g) => g.fields));
 
 function renderProps(properties: ObjectFieldTemplatePropertyType[]) {
   return (
@@ -57,20 +53,31 @@ export default function RootObjectFieldTemplate(props: ObjectFieldTemplateProps)
     return <Box>{header}{renderProps(props.properties)}</Box>;
   }
 
-  const core: ObjectFieldTemplatePropertyType[] = [];
+  const grouped = new Map(props.properties.map((p) => [p.name, p]));
   const advanced: ObjectFieldTemplatePropertyType[] = [];
   for (const p of props.properties) {
-    (ADVANCED.has(p.name) ? advanced : core).push(p);
+    if (!PRIMARY.has(p.name)) advanced.push(p);
   }
 
   return (
     <Box>
       {header}
-      {renderProps(core)}
+      {GROUPS.map((g) => {
+        const items = g.fields
+          .map((f) => grouped.get(f))
+          .filter((p): p is ObjectFieldTemplatePropertyType => Boolean(p));
+        if (items.length === 0) return null;
+        return (
+          <Box key={g.title} sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>{g.title}</Typography>
+            {renderProps(items)}
+          </Box>
+        );
+      })}
       {advanced.length > 0 && (
-        <Accordion defaultExpanded={false} sx={{ mt: 2 }}>
+        <Accordion defaultExpanded={false} sx={{ mt: 1 }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography>Advanced (metrics, isolation, tuning)</Typography>
+            <Typography>Advanced (output, timeouts, isolation, metrics, opencode, orchestration)</Typography>
           </AccordionSummary>
           <AccordionDetails>{renderProps(advanced)}</AccordionDetails>
         </Accordion>

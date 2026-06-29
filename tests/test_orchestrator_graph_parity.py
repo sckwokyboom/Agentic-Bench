@@ -79,8 +79,7 @@ def test_parity_fallback_contract():
 
 
 def test_parity_with_plan():
-    cfg = OrchestratorConfig(contract_fields=["WRAP", "SPAN", "indent"],
-                             min_understand_reads=2, with_plan=True)
+    cfg = OrchestratorConfig(min_understand_reads=2, with_plan=True)
     contract = dict(_CONTRACT, plan="Use copy(BreakIterator) for WRAP; advance col for SPAN.")
 
     def make():

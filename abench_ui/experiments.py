@@ -53,14 +53,31 @@ def _last_run_at(runs_dir: Path) -> str | None:
     return datetime.datetime.fromtimestamp(latest.stat().st_mtime).isoformat()
 
 
-def read_experiment(root: Path, name: str) -> dict:
-    """Return the fully-resolved Experiment payload (texts inlined)."""
+def read_experiment(root: Path, name: str, *, raw_file_aug: bool = False) -> dict:
+    """Return the Experiment payload.
+
+    `load_experiment` inlines every augmentation to its resolved TEXT (reading
+    the file for a file-kind path), which is what the RUN / recompute paths
+    need — the augmentation text is injected into the prompt. The EDITOR,
+    however, needs to show a file-kind condition's PATH (the file binding), not
+    the inlined blob: pass ``raw_file_aug=True`` and the pre-resolution path is
+    restored from the raw YAML for file-kind conditions. Text-kind conditions
+    are always inlined.
+    """
     yaml_path = Path(root) / name / "experiment.yaml"
     if not yaml_path.is_file():
         raise ExperimentNotFound(name)
     exp = load_experiment(yaml_path)
-    # model_dump returns paths as Path objects; serialise to str
     data = exp.model_dump(mode="json")
+    if raw_file_aug:
+        raw = yaml.safe_load(yaml_path.read_text()) or {}
+        raw_by_name = {c.get("name"): c for c in raw.get("conditions", [])
+                       if isinstance(c, dict)}
+        for cond in data.get("conditions", []):
+            if cond.get("augmentation_kind") == "file":
+                rc = raw_by_name.get(cond.get("name"))
+                if rc is not None:
+                    cond["augmentation"] = rc.get("augmentation")
     return data
 
 
@@ -95,9 +112,13 @@ def write_experiment(root: Path, name: str, payload: dict) -> None:
     yaml_payload["system_prompt"] = f"./{_PROMPTS_DIR}/system.md"
     yaml_payload["task_prompt"] = f"./{_PROMPTS_DIR}/task.md"
 
+    # NOTE: mutates the caller's condition dicts in place (text-kind augmentation
+    # is rewritten to its slices/<name>.md path; file-kind is left untouched).
     for cond in conditions:
         aug = cond.get("augmentation")
-        if aug is not None:
+        # File-kind augmentation is a path the user manages → store verbatim, do
+        # NOT externalize. Text-kind is inline markdown → slices/<name>.md.
+        if aug is not None and cond.get("augmentation_kind") != "file":
             slice_path = f"./{_SLICES_DIR}/{cond['name']}.md"
             _atomic_write(exp_dir / _SLICES_DIR / f"{cond['name']}.md", aug)
             cond["augmentation"] = slice_path

@@ -22,19 +22,7 @@ import {
 import { applyCustomEndpoint } from "../lib/customEndpoint";
 import { loadSchema, type JsonSchema } from "../api/schemaCache";
 import { uiSchema } from "../schema/uiSchema";
-import {
-  ModelValidationWidget, TargetMethodsWidget, AugmentationWidget,
-} from "../schema/widgets";
-import RootObjectFieldTemplate from "../schema/RootObjectFieldTemplate";
-import DescriptionFieldTemplate from "../schema/DescriptionFieldTemplate";
-import VerifyField from "../components/VerifyField";
-
-const customWidgets = { ModelValidationWidget, TargetMethodsWidget, AugmentationWidget };
-const customFields = { VerifyField };
-const customTemplates = {
-  ObjectFieldTemplate: RootObjectFieldTemplate,
-  DescriptionFieldTemplate,
-};
+import { customWidgets, customFields, customTemplates } from "../schema/registry";
 
 export default function ExperimentEdit() {
   const { name } = useParams<{ name: string }>();
@@ -164,7 +152,7 @@ export default function ExperimentEdit() {
             widgets={customWidgets}
             fields={customFields}
             templates={customTemplates}
-            formContext={{ detectedVerify: detected.data, onAddCustomEndpoint: handleAddEndpoint }}
+            formContext={{ detectedVerify: detected.data, onAddCustomEndpoint: handleAddEndpoint, formData }}
             saving={save.isPending}
             onErrorsChange={setErrors}
             onFormChange={(f) => { setFormData(f); setSaved(false); setReach(null); }}

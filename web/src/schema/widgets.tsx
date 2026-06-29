@@ -2,7 +2,8 @@ import type { WidgetProps } from "@rjsf/utils";
 import ModelValidationChip from "../components/ModelValidationChip";
 import type { CustomEndpointInput } from "../components/CustomEndpointDialog";
 import TargetMethodsChips from "../components/TargetMethodsChips";
-import AugmentationField from "../components/AugmentationField";
+import LongTextField from "../components/LongTextField";
+import ContextWindowField from "../components/ContextWindowField";
 
 export function ModelValidationWidget(props: WidgetProps) {
   return (
@@ -23,12 +24,28 @@ export function TargetMethodsWidget(props: WidgetProps) {
   return <TargetMethodsChips value={arr} onChange={props.onChange} label={props.label} />;
 }
 
-export function AugmentationWidget(props: WidgetProps) {
+export function LongTextWidget(props: WidgetProps) {
   return (
-    <AugmentationField
+    <LongTextField
       value={(props.value as string) ?? ""}
-      onChange={props.onChange}
+      onChange={(v) => props.onChange(v)}
       label={props.label}
+      helperText={props.schema.description as string | undefined}
+    />
+  );
+}
+
+export function ContextWindowWidget(props: WidgetProps) {
+  const fc = (props.formContext ?? {}) as {
+    formData?: { model?: string; opencode?: { providers?: unknown[] } };
+  };
+  return (
+    <ContextWindowField
+      value={(props.value as number | null) ?? null}
+      onChange={(v) => props.onChange(v)}
+      label={props.label}
+      model={fc.formData?.model}
+      providers={(fc.formData?.opencode?.providers as never[]) ?? []}
     />
   );
 }
