@@ -61,6 +61,47 @@ def changed_lines(diff_text: str) -> dict[str, set[int]]:
     return {f: ls for f, ls in out.items() if ls}
 
 
+def deleted_lines(diff_text: str) -> dict[str, set[int]]:
+    """Map each file to the set of OLD-side (base) line numbers it deletes.
+
+    Method attribution uses THIS, not the new side: the agent's base (git HEAD)
+    is the seed/stub, and methods.json spans are anchored to that same seed — so
+    overlapping the *deleted* lines against the spans is coordinate-consistent and
+    immune to line drift (the new side grows unboundedly as a stubbed method is
+    implemented; the deleted side stays pinned to the stub). For a pure-insertion
+    hunk (no deletions) the base anchor line is included so the insertion is still
+    attributed to its enclosing method."""
+    out: dict[str, set[int]] = {}
+    cur: str | None = None
+    oldline = 0
+    hunk_del = 0
+    hunk_anchor: int | None = None
+
+    def flush_anchor() -> None:
+        nonlocal hunk_del, hunk_anchor
+        if cur is not None and hunk_del == 0 and hunk_anchor is not None:
+            out[cur].add(hunk_anchor)
+        hunk_del = 0
+        hunk_anchor = None
+
+    for line in diff_text.splitlines():
+        if line.startswith("+++ b/"):
+            flush_anchor(); cur = line[6:]; out.setdefault(cur, set())
+        elif line.startswith("+++ "):
+            flush_anchor(); cur = None
+        elif line.startswith("@@"):
+            flush_anchor()
+            m = re.search(r"-(\d+)", line)
+            oldline = int(m.group(1)) if m else 0
+            hunk_anchor = oldline
+        elif cur is not None and line.startswith("-"):
+            out[cur].add(oldline); hunk_del += 1; oldline += 1
+        elif cur is not None and not line.startswith("+") and not line.startswith("\\"):
+            oldline += 1  # context line advances the old-side counter
+    flush_anchor()
+    return {f: ls for f, ls in out.items() if ls}
+
+
 def _path_match(changed: str, method_file: str) -> bool:
     changed = changed.lstrip("./")
     method_file = method_file.lstrip("./")
@@ -357,7 +398,11 @@ def main(argv=None) -> int:
     test_cmd = cfg.get("test_command", "./gradlew test")
     total_tests = cfg.get("total_tests")
     diff = _git_diff(config.parent.parent)
-    changes = changed_lines(diff)
+    # Attribute by DELETED (base-side) lines: the base is the seed/stub that
+    # methods.json spans are anchored to, so this is drift-immune (see
+    # deleted_lines). Using the new side mis-attributes a reconstructed stub to
+    # whatever methods followed it in the seed (the picocli putValue bug).
+    changes = deleted_lines(diff)
 
     if mode == "failures":
         stdin_text = ""

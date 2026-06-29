@@ -39,6 +39,55 @@ def test_methods_for_matches_by_path_suffix():
     assert impact_cli.methods_for({"a/b/src/X.java": {3}}, methods) == ["pkg.Cls.m"]
 
 
+def test_deleted_lines_parses_old_side_line_numbers():
+    diff = (
+        "--- a/src/X.java\n"
+        "+++ b/src/X.java\n"
+        "@@ -10,4 +10,7 @@\n"
+        " decl line 10\n"      # context: old 10
+        "-stub body 11\n"      # deleted: old 11
+        "-stub close 12\n"     # deleted: old 12
+        "+impl a\n+impl b\n+impl c\n+impl d\n"  # additions: no old-side advance
+        " after 13\n"          # context: old 13
+    )
+    assert impact_cli.deleted_lines(diff)["src/X.java"] == {11, 12}
+
+
+def test_deleted_lines_anchors_a_pure_insertion_to_its_base_line():
+    diff = ("--- a/src/X.java\n+++ b/src/X.java\n"
+            "@@ -40,0 +41,2 @@\n+new line\n+another\n")
+    # no deletions in the hunk → the base anchor (old start 40) is used
+    assert impact_cli.deleted_lines(diff)["src/X.java"] == {40}
+
+
+def test_attribution_uses_deleted_side_not_neighbors():
+    """THE picocli putValue bug: implementing a stubbed method grows the new side
+    across the FOLLOWING methods' (seed-coords) spans. Attributing by the NEW side
+    false-flags those neighbors; attributing by the DELETED side (the stub the edit
+    removed) flags only the method actually changed."""
+    # seed-coords spans (methods.json is re-anchored to the stub layout):
+    methods = {
+        "pkg.T.putValue": {"file": "src/X.java", "start": 10, "end": 12},  # 3-line stub
+        "pkg.T.length":   {"file": "src/X.java", "start": 13, "end": 16},
+        "pkg.T.copy":     {"file": "src/X.java", "start": 20, "end": 25},
+    }
+    # stub (old 11,12) replaced by a long implementation (new 11..14 and beyond):
+    diff = (
+        "--- a/src/X.java\n"
+        "+++ b/src/X.java\n"
+        "@@ -10,3 +10,6 @@\n"
+        " public Cell putValue(...) {\n"        # context old 10
+        "-    throw new UnsupportedOperationException();\n"  # deleted old 11
+        "-}\n"                                   # deleted old 12
+        "+    impl1\n+    impl2\n+    impl3\n+    impl4\n+}\n"
+        " public int length() {\n"              # context old 13
+    )
+    # NEW side (the buggy behaviour) bleeds into the neighbour `length`:
+    assert "pkg.T.length" in impact_cli.methods_for(impact_cli.changed_lines(diff), methods)
+    # DELETED side (the fix) attributes to ONLY putValue:
+    assert impact_cli.methods_for(impact_cli.deleted_lines(diff), methods) == ["pkg.T.putValue"]
+
+
 def test_build_report_lists_coverers_and_notes_missing_mutation():
     methods = {"pkg.Cls.putValue": {"file": "src/X.java", "start": 10, "end": 20}}
     coverage = {"pkg.Cls.putValue": ["pkg.HelpTest.tA", "pkg.HelpTest.tB"]}

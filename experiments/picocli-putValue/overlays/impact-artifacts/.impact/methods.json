@@ -36702,537 +36702,537 @@
 "picocli.CommandLine$Help$TextTable.putValue": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 17414,
-"end": 17459
+"end": 17416
 },
 "picocli.CommandLine$Help$TextTable.length": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17463,
-"end": 17466
+"start": 17420,
+"end": 17423
 },
 "picocli.CommandLine$Help$TextTable$Count.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17468,
-"end": 17468
+"start": 17425,
+"end": 17425
 },
 "picocli.CommandLine$Help$TextTable.copy": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17495,
-"end": 17500
+"start": 17452,
+"end": 17457
 },
 "picocli.CommandLine$Help$TextTable.toString": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17522,
-"end": 17522
+"start": 17479,
+"end": 17479
 },
 "picocli.CommandLine$Help$Column$Overflow.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17530,
-"end": 17530
+"start": 17487,
+"end": 17487
 },
 "picocli.CommandLine$Help$Column.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17540,
-"end": 17544
+"start": 17497,
+"end": 17501
 },
 "picocli.CommandLine$Help$Column.equals": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17545,
-"end": 17550
+"start": 17502,
+"end": 17507
 },
 "picocli.CommandLine$Help$Column.hashCode": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17551,
-"end": 17551
+"start": 17508,
+"end": 17508
 },
 "picocli.CommandLine$Help$Column.toString": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17552,
-"end": 17552
+"start": 17509,
+"end": 17509
 },
 "picocli.CommandLine$Help$ColorScheme.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17582,
-"end": 17592
+"start": 17539,
+"end": 17549
 },
 "picocli.CommandLine$Help$ColorScheme.commandText": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17596,
-"end": 17596
+"start": 17553,
+"end": 17553
 },
 "picocli.CommandLine$Help$ColorScheme.optionText": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17600,
-"end": 17600
+"start": 17557,
+"end": 17557
 },
 "picocli.CommandLine$Help$ColorScheme.parameterText": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17604,
-"end": 17604
+"start": 17561,
+"end": 17561
 },
 "picocli.CommandLine$Help$ColorScheme.optionParamText": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17608,
-"end": 17608
-},
-"picocli.CommandLine$Help$ColorScheme.errorText": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17613,
-"end": 17613
-},
-"picocli.CommandLine$Help$ColorScheme.stackTraceText": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17623,
-"end": 17627
-},
-"picocli.CommandLine$Help$ColorScheme.richStackTraceString": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17634,
-"end": 17634
-},
-"picocli.CommandLine$Help$ColorScheme.ansi": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17637,
-"end": 17637
-},
-"picocli.CommandLine$Help$ColorScheme.commandStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17640,
-"end": 17640
-},
-"picocli.CommandLine$Help$ColorScheme.optionStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17643,
-"end": 17643
-},
-"picocli.CommandLine$Help$ColorScheme.parameterStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17646,
-"end": 17646
-},
-"picocli.CommandLine$Help$ColorScheme.optionParamStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17649,
-"end": 17649
-},
-"picocli.CommandLine$Help$ColorScheme.errorStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17652,
-"end": 17652
-},
-"picocli.CommandLine$Help$ColorScheme.stackTraceStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17655,
-"end": 17655
-},
-"picocli.CommandLine$Help$ColorScheme.customMarkupMap": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17660,
-"end": 17660
-},
-"picocli.CommandLine$Help$ColorScheme.parse": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17667,
-"end": 17681
-},
-"picocli.CommandLine$Help$ColorScheme.resetStyle": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17687,
-"end": 17690
-},
-"picocli.CommandLine$Help$ColorScheme.equals": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17692,
-"end": 17704
-},
-"picocli.CommandLine$Help$ColorScheme.hashCode": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17705,
-"end": 17716
-},
-"picocli.CommandLine$Help$ColorScheme.toString": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17717,
-"end": 17727
-},
-"picocli.CommandLine$Help$ColorScheme.apply": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17736,
-"end": 17746
-},
-"picocli.CommandLine$Help$ColorScheme.text": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17758,
-"end": 17758
-},
-"picocli.CommandLine$Help$ColorScheme.string": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17768,
-"end": 17768
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.<init>": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17787,
-"end": 17799
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.ansi": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17803,
-"end": 17803
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.commandStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17805,
-"end": 17805
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.optionStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17807,
-"end": 17807
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.parameterStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17809,
-"end": 17809
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.optionParamStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17811,
-"end": 17811
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.errorStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17814,
-"end": 17814
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.stackTraceStyles": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17817,
-"end": 17817
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.customMarkupMap": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17825,
-"end": 17825
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.commands": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17830,
-"end": 17830
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.options": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17834,
-"end": 17834
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.parameters": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17838,
-"end": 17838
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.optionParams": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17842,
-"end": 17842
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.errors": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17847,
-"end": 17847
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.stackTraces": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17852,
-"end": 17852
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.applySystemProperties": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17865,
-"end": 17873
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.replace": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17874,
-"end": 17879
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.addAll": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17880,
-"end": 17883
-},
-"picocli.CommandLine$Help$ColorScheme$Builder.build": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17885,
-"end": 17885
-},
-"picocli.CommandLine$Help$ColorScheme.EMPTY_STYLE.IStyle$0.on": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17566,
-"end": 17566
-},
-"picocli.CommandLine$Help$ColorScheme.EMPTY_STYLE.IStyle$0.off": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 17567,
-"end": 17567
-},
-"picocli.CommandLine$Help$ColorScheme.EMPTY_STYLE.IStyle$0.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 17565,
 "end": 17565
 },
+"picocli.CommandLine$Help$ColorScheme.errorText": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17570,
+"end": 17570
+},
+"picocli.CommandLine$Help$ColorScheme.stackTraceText": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17580,
+"end": 17584
+},
+"picocli.CommandLine$Help$ColorScheme.richStackTraceString": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17591,
+"end": 17591
+},
+"picocli.CommandLine$Help$ColorScheme.ansi": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17594,
+"end": 17594
+},
+"picocli.CommandLine$Help$ColorScheme.commandStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17597,
+"end": 17597
+},
+"picocli.CommandLine$Help$ColorScheme.optionStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17600,
+"end": 17600
+},
+"picocli.CommandLine$Help$ColorScheme.parameterStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17603,
+"end": 17603
+},
+"picocli.CommandLine$Help$ColorScheme.optionParamStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17606,
+"end": 17606
+},
+"picocli.CommandLine$Help$ColorScheme.errorStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17609,
+"end": 17609
+},
+"picocli.CommandLine$Help$ColorScheme.stackTraceStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17612,
+"end": 17612
+},
+"picocli.CommandLine$Help$ColorScheme.customMarkupMap": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17617,
+"end": 17617
+},
+"picocli.CommandLine$Help$ColorScheme.parse": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17624,
+"end": 17638
+},
+"picocli.CommandLine$Help$ColorScheme.resetStyle": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17644,
+"end": 17647
+},
+"picocli.CommandLine$Help$ColorScheme.equals": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17649,
+"end": 17661
+},
+"picocli.CommandLine$Help$ColorScheme.hashCode": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17662,
+"end": 17673
+},
+"picocli.CommandLine$Help$ColorScheme.toString": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17674,
+"end": 17684
+},
+"picocli.CommandLine$Help$ColorScheme.apply": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17693,
+"end": 17703
+},
+"picocli.CommandLine$Help$ColorScheme.text": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17715,
+"end": 17715
+},
+"picocli.CommandLine$Help$ColorScheme.string": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17725,
+"end": 17725
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.<init>": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17744,
+"end": 17756
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.ansi": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17760,
+"end": 17760
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.commandStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17762,
+"end": 17762
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.optionStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17764,
+"end": 17764
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.parameterStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17766,
+"end": 17766
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.optionParamStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17768,
+"end": 17768
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.errorStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17771,
+"end": 17771
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.stackTraceStyles": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17774,
+"end": 17774
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.customMarkupMap": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17782,
+"end": 17782
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.commands": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17787,
+"end": 17787
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.options": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17791,
+"end": 17791
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.parameters": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17795,
+"end": 17795
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.optionParams": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17799,
+"end": 17799
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.errors": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17804,
+"end": 17804
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.stackTraces": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17809,
+"end": 17809
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.applySystemProperties": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17822,
+"end": 17830
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.replace": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17831,
+"end": 17836
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.addAll": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17837,
+"end": 17840
+},
+"picocli.CommandLine$Help$ColorScheme$Builder.build": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17842,
+"end": 17842
+},
+"picocli.CommandLine$Help$ColorScheme.EMPTY_STYLE.IStyle$0.on": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17523,
+"end": 17523
+},
+"picocli.CommandLine$Help$ColorScheme.EMPTY_STYLE.IStyle$0.off": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17524,
+"end": 17524
+},
+"picocli.CommandLine$Help$ColorScheme.EMPTY_STYLE.IStyle$0.<init>": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 17522,
+"end": 17522
+},
 "picocli.CommandLine$Help.defaultColorScheme": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17894,
-"end": 17902
+"start": 17851,
+"end": 17859
 },
 "picocli.CommandLine$Help$Ansi.isTTY": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17916,
-"end": 17919
+"start": 17873,
+"end": 17876
 },
 "picocli.CommandLine$Help$Ansi.isWindows": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17920,
-"end": 17920
+"start": 17877,
+"end": 17877
 },
 "picocli.CommandLine$Help$Ansi.isMac": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17921,
-"end": 17921
+"start": 17878,
+"end": 17878
 },
 "picocli.CommandLine$Help$Ansi.isXterm": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17922,
-"end": 17922
+"start": 17879,
+"end": 17879
 },
 "picocli.CommandLine$Help$Ansi.isCygwin": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17923,
-"end": 17923
+"start": 17880,
+"end": 17880
 },
 "picocli.CommandLine$Help$Ansi.hasOsType": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17925,
-"end": 17925
+"start": 17882,
+"end": 17882
 },
 "picocli.CommandLine$Help$Ansi.hintDisabled": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17929,
-"end": 17930
+"start": 17886,
+"end": 17887
 },
 "picocli.CommandLine$Help$Ansi.hintEnabled": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17935,
-"end": 17937
+"start": 17892,
+"end": 17894
 },
 "picocli.CommandLine$Help$Ansi.forceDisabled": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17939,
-"end": 17939
+"start": 17896,
+"end": 17896
 },
 "picocli.CommandLine$Help$Ansi.forceEnabled": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17942,
-"end": 17943
+"start": 17899,
+"end": 17900
 },
 "picocli.CommandLine$Help$Ansi.calcTTY": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17945,
-"end": 17959
+"start": 17902,
+"end": 17916
 },
 "picocli.CommandLine$Help$Ansi.isPseudoTTY": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17961,
-"end": 17961
+"start": 17918,
+"end": 17918
 },
 "picocli.CommandLine$Help$Ansi.ansiPossible": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17963,
-"end": 17970
+"start": 17920,
+"end": 17927
 },
 "picocli.CommandLine$Help$Ansi.isJansiConsoleInstalled": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17977,
-"end": 17980
+"start": 17934,
+"end": 17937
 },
 "picocli.CommandLine$Help$Ansi.calcIsJansiConsoleInstalled": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17987,
-"end": 18025
+"start": 17944,
+"end": 17982
 },
 "picocli.CommandLine$Help$Ansi.enabled": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18034,
-"end": 18041
+"start": 17991,
+"end": 17998
 },
 "picocli.CommandLine$Help$Ansi.text": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18052,
-"end": 18052
+"start": 18009,
+"end": 18009
 },
 "picocli.CommandLine$Help$Ansi.string": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18062,
-"end": 18062
+"start": 18019,
+"end": 18019
 },
 "picocli.CommandLine$Help$Ansi.valueOf": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18066,
-"end": 18066
+"start": 18023,
+"end": 18023
 },
 "picocli.CommandLine$Help$Ansi$IStyle.on": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18076,
-"end": 18076
+"start": 18033,
+"end": 18033
 },
 "picocli.CommandLine$Help$Ansi$IStyle.off": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18080,
-"end": 18080
+"start": 18037,
+"end": 18037
 },
 "picocli.CommandLine$Help$Ansi$Style.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18096,
-"end": 18096
+"start": 18053,
+"end": 18053
 },
 "picocli.CommandLine$Help$Ansi$Style.on": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18103,
-"end": 18109
+"start": 18060,
+"end": 18066
 },
 "picocli.CommandLine$Help$Ansi$Style.off": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18113,
-"end": 18119
+"start": 18070,
+"end": 18076
 },
 "picocli.CommandLine$Help$Ansi$Style.fg": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18127,
-"end": 18131
+"start": 18084,
+"end": 18088
 },
 "picocli.CommandLine$Help$Ansi$Style.bg": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18139,
-"end": 18143
+"start": 18096,
+"end": 18100
 },
 "picocli.CommandLine$Help$Ansi$Style.parse": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18150,
-"end": 18165
+"start": 18107,
+"end": 18122
 },
 "picocli.CommandLine$Help$Ansi$Palette256Color.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18174,
-"end": 18182
+"start": 18131,
+"end": 18139
 },
 "picocli.CommandLine$Help$Ansi$Palette256Color.on": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18183,
-"end": 18183
+"start": 18140,
+"end": 18140
 },
 "picocli.CommandLine$Help$Ansi$Palette256Color.off": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18184,
-"end": 18184
+"start": 18141,
+"end": 18141
 },
 "picocli.CommandLine$Help$Ansi$Palette256Color.equals": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18185,
-"end": 18190
+"start": 18142,
+"end": 18147
 },
 "picocli.CommandLine$Help$Ansi$Palette256Color.hashCode": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18191,
-"end": 18193
+"start": 18148,
+"end": 18150
 },
 "picocli.CommandLine$Help$Ansi$StyledSection.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18198,
-"end": 18200
+"start": 18155,
+"end": 18157
 },
 "picocli.CommandLine$Help$Ansi$StyledSection.withStartIndex": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18201,
-"end": 18203
+"start": 18158,
+"end": 18160
 },
 "picocli.CommandLine$Help$Ansi.apply": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18207,
-"end": 18209
+"start": 18164,
+"end": 18166
 },
 "picocli.CommandLine$Help$Ansi$Text.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18257,
-"end": 18298
+"start": 18214,
+"end": 18255
 },
 "picocli.CommandLine$Help$Ansi$Text.addStyledSection": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18299,
-"end": 18301
+"start": 18256,
+"end": 18258
 },
 "picocli.CommandLine$Help$Ansi$Text.clone": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18302,
-"end": 18302
+"start": 18259,
+"end": 18259
 },
 "picocli.CommandLine$Help$Ansi$Text.splitLines": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18304,
-"end": 18320
+"start": 18261,
+"end": 18277
 },
 "picocli.CommandLine$Help$Ansi$Text.substring": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18333,
-"end": 18344
+"start": 18290,
+"end": 18301
 },
 "picocli.CommandLine$Help$Ansi$Text.append": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18348,
-"end": 18348
+"start": 18305,
+"end": 18305
 },
 "picocli.CommandLine$Help$Ansi$Text.concat": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18360,
-"end": 18375
+"start": 18317,
+"end": 18332
 },
 "picocli.CommandLine$Help$Ansi$Text.getStyledChars": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18384,
-"end": 18398
+"start": 18341,
+"end": 18355
 },
 "picocli.CommandLine$Help$Ansi$Text.plainString": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18401,
-"end": 18401
+"start": 18358,
+"end": 18358
 },
 "picocli.CommandLine$Help$Ansi$Text.equals": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18403,
-"end": 18403
+"start": 18360,
+"end": 18360
 },
 "picocli.CommandLine$Help$Ansi$Text.hashCode": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18404,
-"end": 18404
+"start": 18361,
+"end": 18361
 },
 "picocli.CommandLine$Help$Ansi$Text.toString": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18409,
-"end": 18428
+"start": 18366,
+"end": 18385
 },
 "picocli.CommandLine$Help$Ansi$Text.findSectionContaining": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18430,
-"end": 18437
+"start": 18387,
+"end": 18394
 },
 "picocli.CommandLine$Help$Ansi$Text.getCJKAdjustedLength": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18451,
-"end": 18474
+"start": 18408,
+"end": 18431
 },
 "picocli.CommandLine$Help$Ansi.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 17905,
-"end": 17905
+"start": 17862,
+"end": 17862
 },
 "picocli.CommandLine$Help.createMinimalParamLabelRenderer.IParamLabelRenderer$0.renderParameterLabel": {
 "file": "src/main/java/picocli/CommandLine.java",
@@ -37251,413 +37251,413 @@
 },
 "picocli.CommandLine$Assert.notNull": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18490,
-"end": 18495
+"start": 18447,
+"end": 18452
 },
 "picocli.CommandLine$Assert.equals": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18453,
+"end": 18453
+},
+"picocli.CommandLine$Assert.hashCode": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18455,
+"end": 18455
+},
+"picocli.CommandLine$Assert.assertTrue": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18459,
+"end": 18461
+},
+"picocli.CommandLine$Assert.<init>": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18462,
+"end": 18462
+},
+"picocli.CommandLine$TraceLevel.isEnabled": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18469,
+"end": 18469
+},
+"picocli.CommandLine$TraceLevel.print": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18470,
+"end": 18472
+},
+"picocli.CommandLine$TraceLevel.prefix": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18473,
+"end": 18473
+},
+"picocli.CommandLine$TraceLevel.lookup": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18474,
+"end": 18474
+},
+"picocli.CommandLine$TraceLevel.<init>": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18467,
+"end": 18467
+},
+"picocli.CommandLine$Tracer.<init>": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18484,
+"end": 18484
+},
+"picocli.CommandLine$Tracer.getLevel": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18489,
+"end": 18489
+},
+"picocli.CommandLine$Tracer.setLevel": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18494,
+"end": 18494
+},
+"picocli.CommandLine$Tracer.isDebug": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 18496,
 "end": 18496
 },
-"picocli.CommandLine$Assert.hashCode": {
+"picocli.CommandLine$Tracer.isInfo": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 18498,
 "end": 18498
 },
-"picocli.CommandLine$Assert.assertTrue": {
+"picocli.CommandLine$Tracer.isWarn": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18500,
+"end": 18500
+},
+"picocli.CommandLine$Tracer.isOff": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 18502,
-"end": 18504
+"end": 18502
 },
-"picocli.CommandLine$Assert.<init>": {
+"picocli.CommandLine$Tracer.warn": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18505,
-"end": 18505
+"start": 18507,
+"end": 18507
 },
-"picocli.CommandLine$TraceLevel.isEnabled": {
+"picocli.CommandLine$Tracer.info": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 18512,
 "end": 18512
 },
-"picocli.CommandLine$TraceLevel.print": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18513,
-"end": 18515
-},
-"picocli.CommandLine$TraceLevel.prefix": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18516,
-"end": 18516
-},
-"picocli.CommandLine$TraceLevel.lookup": {
+"picocli.CommandLine$Tracer.debug": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 18517,
 "end": 18517
 },
-"picocli.CommandLine$TraceLevel.<init>": {
+"picocli.CommandLine$Tracer.toString": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18510,
-"end": 18510
+"start": 18518,
+"end": 18518
 },
-"picocli.CommandLine$Tracer.<init>": {
+"picocli.CommandLine.tracer": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18527,
-"end": 18527
+"start": 18523,
+"end": 18531
 },
-"picocli.CommandLine$Tracer.getLevel": {
+"picocli.CommandLine$CosineSimilarity.mostSimilar": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18532,
-"end": 18532
+"start": 18541,
+"end": 18549
 },
-"picocli.CommandLine$Tracer.setLevel": {
+"picocli.CommandLine$CosineSimilarity.similarity": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18537,
-"end": 18537
+"start": 18551,
+"end": 18555
 },
-"picocli.CommandLine$Tracer.isDebug": {
+"picocli.CommandLine$CosineSimilarity.countNgramFrequency": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18557,
+"end": 18564
+},
+"picocli.CommandLine$CosineSimilarity.dotProduct": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18566,
+"end": 18570
+},
+"picocli.CommandLine$CosineSimilarity.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 18539,
 "end": 18539
 },
-"picocli.CommandLine$Tracer.isInfo": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18541,
-"end": 18541
-},
-"picocli.CommandLine$Tracer.isWarn": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18543,
-"end": 18543
-},
-"picocli.CommandLine$Tracer.isOff": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18545,
-"end": 18545
-},
-"picocli.CommandLine$Tracer.warn": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18550,
-"end": 18550
-},
-"picocli.CommandLine$Tracer.info": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18555,
-"end": 18555
-},
-"picocli.CommandLine$Tracer.debug": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18560,
-"end": 18560
-},
-"picocli.CommandLine$Tracer.toString": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18561,
-"end": 18561
-},
-"picocli.CommandLine.tracer": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18566,
-"end": 18574
-},
-"picocli.CommandLine$CosineSimilarity.mostSimilar": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18584,
-"end": 18592
-},
-"picocli.CommandLine$CosineSimilarity.similarity": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18594,
-"end": 18598
-},
-"picocli.CommandLine$CosineSimilarity.countNgramFrequency": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18600,
-"end": 18607
-},
-"picocli.CommandLine$CosineSimilarity.dotProduct": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18609,
-"end": 18613
-},
-"picocli.CommandLine$CosineSimilarity.<init>": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18582,
-"end": 18582
-},
 "picocli.CommandLine$PicocliException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18624,
-"end": 18624
+"start": 18581,
+"end": 18581
 },
 "picocli.CommandLine$InitializationException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18631,
-"end": 18631
+"start": 18588,
+"end": 18588
 },
 "picocli.CommandLine$ExecutionException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18644,
-"end": 18647
+"start": 18601,
+"end": 18604
 },
 "picocli.CommandLine$ExecutionException.getCommandLine": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18651,
-"end": 18651
+"start": 18608,
+"end": 18608
 },
 "picocli.CommandLine$TypeConversionException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18659,
-"end": 18659
+"start": 18616,
+"end": 18616
 },
 "picocli.CommandLine$ParameterException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18708,
-"end": 18714
+"start": 18665,
+"end": 18671
 },
 "picocli.CommandLine$ParameterException.getCommandLine": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18721,
-"end": 18721
+"start": 18678,
+"end": 18678
 },
 "picocli.CommandLine$ParameterException.getArgSpec": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18684,
+"end": 18684
+},
+"picocli.CommandLine$ParameterException.getValue": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18690,
+"end": 18690
+},
+"picocli.CommandLine$ParameterException.create": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18692,
+"end": 18696
+},
+"picocli.CommandLine$MissingParameterException.<init>": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18705,
+"end": 18708
+},
+"picocli.CommandLine$MissingParameterException.getMissing": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18709,
+"end": 18709
+},
+"picocli.CommandLine$MissingParameterException.create": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18710,
+"end": 18714
+},
+"picocli.CommandLine$MutuallyExclusiveArgsException.<init>": {
+"file": "src/main/java/picocli/CommandLine.java",
+"start": 18720,
+"end": 18720
+},
+"picocli.CommandLine$DuplicateNameException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 18727,
 "end": 18727
 },
-"picocli.CommandLine$ParameterException.getValue": {
+"picocli.CommandLine$DuplicateOptionAnnotationsException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18733,
-"end": 18733
+"start": 18734,
+"end": 18734
 },
-"picocli.CommandLine$ParameterException.create": {
+"picocli.CommandLine$DuplicateOptionAnnotationsException.create": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18735,
+"start": 18736,
 "end": 18739
 },
-"picocli.CommandLine$MissingParameterException.<init>": {
+"picocli.CommandLine$ParameterIndexGapException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18748,
-"end": 18751
+"start": 18744,
+"end": 18744
 },
-"picocli.CommandLine$MissingParameterException.getMissing": {
+"picocli.CommandLine$UnmatchedArgumentException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18752,
-"end": 18752
-},
-"picocli.CommandLine$MissingParameterException.create": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18753,
+"start": 18754,
 "end": 18757
 },
-"picocli.CommandLine$MutuallyExclusiveArgsException.<init>": {
+"picocli.CommandLine$UnmatchedArgumentException.printSuggestions": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18763,
-"end": 18763
+"start": 18788,
+"end": 18797
 },
-"picocli.CommandLine$DuplicateNameException.<init>": {
+"picocli.CommandLine$UnmatchedArgumentException.getUnmatched": {
 "file": "src/main/java/picocli/CommandLine.java",
 "start": 18770,
 "end": 18770
 },
-"picocli.CommandLine$DuplicateOptionAnnotationsException.<init>": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18777,
-"end": 18777
-},
-"picocli.CommandLine$DuplicateOptionAnnotationsException.create": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18779,
-"end": 18782
-},
-"picocli.CommandLine$ParameterIndexGapException.<init>": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18787,
-"end": 18787
-},
-"picocli.CommandLine$UnmatchedArgumentException.<init>": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18797,
-"end": 18800
-},
-"picocli.CommandLine$UnmatchedArgumentException.printSuggestions": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18831,
-"end": 18840
-},
-"picocli.CommandLine$UnmatchedArgumentException.getUnmatched": {
-"file": "src/main/java/picocli/CommandLine.java",
-"start": 18813,
-"end": 18813
-},
 "picocli.CommandLine$UnmatchedArgumentException.stripErrorMessage": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18814,
-"end": 18822
+"start": 18771,
+"end": 18779
 },
 "picocli.CommandLine$UnmatchedArgumentException.isUnknownOption": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18876,
-"end": 18878
+"start": 18833,
+"end": 18835
 },
 "picocli.CommandLine$UnmatchedArgumentException.str": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18841,
-"end": 18844
+"start": 18798,
+"end": 18801
 },
 "picocli.CommandLine$UnmatchedArgumentException.prefixCommandName": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18846,
-"end": 18855
+"start": 18803,
+"end": 18812
 },
 "picocli.CommandLine$UnmatchedArgumentException.getSuggestions": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18859,
-"end": 18875
+"start": 18816,
+"end": 18832
 },
 "picocli.CommandLine$UnmatchedArgumentException.describe": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18879,
-"end": 18887
+"start": 18836,
+"end": 18844
 },
 "picocli.CommandLine$UnmatchedArgumentException.quoteElements": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18888,
-"end": 18901
+"start": 18845,
+"end": 18858
 },
 "picocli.CommandLine$MaxValuesExceededException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18906,
-"end": 18906
+"start": 18863,
+"end": 18863
 },
 "picocli.CommandLine$OverwrittenOptionException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18912,
-"end": 18915
+"start": 18869,
+"end": 18872
 },
 "picocli.CommandLine$OverwrittenOptionException.getOverwritten": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18918,
-"end": 18918
+"start": 18875,
+"end": 18875
 },
 "picocli.CommandLine$MissingTypeConverterException.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 18926,
-"end": 18926
+"start": 18883,
+"end": 18883
 },
 "picocli.CommandLine$PropertiesDefaultProvider.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19034,
-"end": 19038
+"start": 18991,
+"end": 18995
 },
 "picocli.CommandLine$PropertiesDefaultProvider.createProperties": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19056,
-"end": 19072
+"start": 19013,
+"end": 19029
 },
 "picocli.CommandLine$PropertiesDefaultProvider.loadProperties": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19074,
-"end": 19110
+"start": 19031,
+"end": 19067
 },
 "picocli.CommandLine$PropertiesDefaultProvider.defaultValue": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19112,
-"end": 19123
+"start": 19069,
+"end": 19080
 },
 "picocli.CommandLine$PropertiesDefaultProvider.optionDefaultValue": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19125,
-"end": 19129
+"start": 19082,
+"end": 19086
 },
 "picocli.CommandLine$PropertiesDefaultProvider.stripPrefix": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19130,
-"end": 19137
+"start": 19087,
+"end": 19094
 },
 "picocli.CommandLine$PropertiesDefaultProvider.positionalDefaultValue": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19139,
-"end": 19143
+"start": 19096,
+"end": 19100
 },
 "picocli.CommandLine$PropertiesDefaultProvider.getValue": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19145,
-"end": 19153
+"start": 19102,
+"end": 19110
 },
 "picocli.CommandLine$PropertiesDefaultProvider.toString": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19154,
-"end": 19156
+"start": 19111,
+"end": 19113
 },
 "picocli.CommandLine$AbbreviationMatcher$MatchResult.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19164,
-"end": 19167
+"start": 19121,
+"end": 19124
 },
 "picocli.CommandLine$AbbreviationMatcher$MatchResult.getFullName": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19169,
-"end": 19171
+"start": 19126,
+"end": 19128
 },
 "picocli.CommandLine$AbbreviationMatcher$MatchResult.hasValue": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19173,
-"end": 19175
+"start": 19130,
+"end": 19132
 },
 "picocli.CommandLine$AbbreviationMatcher$MatchResult.getValue": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19177,
-"end": 19179
+"start": 19134,
+"end": 19136
 },
 "picocli.CommandLine$AbbreviationMatcher$MatchResult.equals": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19181,
-"end": 19188
+"start": 19138,
+"end": 19145
 },
 "picocli.CommandLine$AbbreviationMatcher$MatchResult.hashCode": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19190,
-"end": 19193
+"start": 19147,
+"end": 19150
 },
 "picocli.CommandLine$AbbreviationMatcher.splitIntoChunks": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19196,
-"end": 19231
+"start": 19153,
+"end": 19188
 },
 "picocli.CommandLine$AbbreviationMatcher.makeCanonical": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19233,
-"end": 19242
+"start": 19190,
+"end": 19199
 },
 "picocli.CommandLine$AbbreviationMatcher.match": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19245,
-"end": 19267
+"start": 19202,
+"end": 19224
 },
 "picocli.CommandLine$AbbreviationMatcher.matchKeyChunks": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19269,
-"end": 19297
+"start": 19226,
+"end": 19254
 },
 "picocli.CommandLine$AbbreviationMatcher.startsWith": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19299,
-"end": 19305
+"start": 19256,
+"end": 19262
 },
 "picocli.CommandLine$AbbreviationMatcher.isNonAlphabetic": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19307,
-"end": 19313
+"start": 19264,
+"end": 19270
 },
 "picocli.CommandLine$AbbreviationMatcher.isAllCandidatesSame": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19315,
-"end": 19327
+"start": 19272,
+"end": 19284
 },
 "picocli.CommandLine$AbbreviationMatcher.<init>": {
 "file": "src/main/java/picocli/CommandLine.java",
-"start": 19159,
-"end": 19159
+"start": 19116,
+"end": 19116
 },
 "picocli.CommandLine.getCommandMethods.Comparator$0.compare": {
 "file": "src/main/java/picocli/CommandLine.java",

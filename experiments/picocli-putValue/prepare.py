@@ -39,6 +39,42 @@ SLICE_TARGET = "src/main/java/picocli/CommandLine.java#TextTable.putValue(int,in
 CAPTURE_TESTS = "picocli.HelpTest,picocli.TextTableTest"
 
 
+def _reanchor_methods_to_seed(methods_path: Path) -> int:
+    """methods.json spans come from joern on the ORIGINAL tree, but the agent edits
+    the STRIPPED/seed tree (only the target file is stubbed). Re-anchor the target
+    file's method [start,end] to seed coordinates via a difflib line map, so spans
+    match the agent's git HEAD — the impact tool attributes a diff by its DELETED
+    (base-side) lines, which only lines up when methods.json is in seed coords.
+    Other files are byte-identical in both trees → untouched. Returns #spans moved."""
+    rel = LOCK["file"]
+    orig = (HERE / "original" / rel).read_text(encoding="utf-8").splitlines()
+    seed = (HERE / "stripped" / rel).read_text(encoding="utf-8").splitlines()
+    lmap: dict[int, int] = {}
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
+            a=orig, b=seed, autojunk=False).get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                lmap[i1 + k + 1] = j1 + k + 1
+        else:  # collapse a replaced/deleted original block onto the seed block start
+            for k in range(i1, i2):
+                lmap[k + 1] = j1 + 1
+    base = rel.rsplit("/", 1)[-1]
+    methods = json.loads(methods_path.read_text(encoding="utf-8"))
+    moved = 0
+    for loc in methods.values():
+        if not str(loc.get("file", "")).endswith(base):
+            continue
+        s = lmap.get(loc["start"])
+        if s is None:
+            continue
+        e = max(lmap.get(loc["end"], s), s)
+        if [s, e] != [loc["start"], loc["end"]]:
+            loc["start"], loc["end"] = s, e
+            moved += 1
+    methods_path.write_text(json.dumps(methods, indent=0), encoding="utf-8")
+    return moved
+
+
 def _rmtree(path: Path) -> None:
     """rmtree that survives read-only files (git objects on Windows)."""
     def _force(func, p, _exc):
@@ -121,6 +157,9 @@ def s_artifacts(force):
     impact_dst = HERE / "overlays" / "impact-artifacts" / ".impact"
     _rmtree(impact_dst)
     shutil.copytree(out / "impact", impact_dst)
+    moved = _reanchor_methods_to_seed(impact_dst / "methods.json")
+    print(f"[prepare:artifacts] re-anchored {moved} target-file method span(s) "
+          "to the seed/stub layout (impact attributes by deleted base-side lines)")
     universe = impact_dst / "executed_tests.txt"
     n = len(universe.read_text(encoding="utf-8").strip().splitlines())
     cfg = json.loads((HERE / "overlays" / "impact-artifacts" / ".opencode" / "impact.json")
