@@ -29,7 +29,8 @@ export function AugmentationWidget(props: WidgetProps) {
   return (
     <AugmentationField
       value={(props.value as string) ?? ""}
-      onChange={props.onChange}
+      kind="text"
+      onChange={(v: string) => props.onChange(v)}
       label={props.label}
     />
   );
