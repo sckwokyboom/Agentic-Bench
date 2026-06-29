@@ -46,6 +46,18 @@ conditions:
   - {name: baseline,          augmentation: null, tools: []}
   - {name: augmented,         augmentation: ./slices/putValue-graph-slice.md, tools: []}
   - {name: augmented-verbose, augmentation: ./slices/putValue-graph-slice-verbose.md, tools: []}
+  # ── Prompt-methodology A/B: forced "instrument the existing test, observe the
+  # data flow, THEN implement" vs the autonomous baseline. Prompt-only (no tools/
+  # overlay). system_augmentation lifts system.md's "don't touch tests" rule for
+  # THIS condition only (else the treatment is suppressed); restore_non_target_
+  # before_verify strips the temporary test instrumentation before grading
+  # (no-op for baseline → no confound). For a FOCUSED run, pick just `baseline` +
+  # `forced-instrument` in the UI Run dialog (or run experiment-forced-instrument.yaml).
+  - name: forced-instrument
+    augmentation: ./slices/forced-instrument-in-test.md
+    system_augmentation: ./slices/forced-instrument-system.md
+    tools: []
+    restore_non_target_before_verify: true
   - name: augmented-tool          # = the orchestration CONTROL (impact tool, autonomous loop)
     augmentation: ./slices/impact-tool-briefing.md
     overlay: ./overlays/impact-artifacts
