@@ -12,7 +12,8 @@ from .config import Experiment
 from .metrics import _success_from_status
 from .run_layout import batch_runs_dir
 from .verify import (
-    VerifyResult, augment_for_full_run, detect_command, run_verify, write_verify_log,
+    VerifyResult, augment_for_authoritative_run, detect_command, run_verify,
+    undercount_override, write_verify_log,
 )
 
 
@@ -131,15 +132,18 @@ def reverify_run(
             )
             _write_back(rundir, v, expected)
             return v
-        # Same keep-going augmentation as the live runner, so a re-verify of an
-        # old run gets the FULL suite (not the truncated count it aborted at).
-        command = augment_for_full_run(exp.verify.command or detect_command(workdir))
+        # Authoritative grading run (same as the live runner): force a FULL
+        # re-execution so the suite isn't undercounted by gradle up-to-date skips.
+        command = augment_for_authoritative_run(exp.verify.command or detect_command(workdir))
         if command is None:
             v = VerifyResult(status="skipped", reason="skipped",
                              message="no build system detected")
             _write_back(rundir, v, expected)
             return v
         v = run_verify(workdir, command, exp.verify.timeout_s)
+        _ov = undercount_override(v.status, v.passed_count, v.failed_count, expected)
+        if _ov is not None:
+            v.status, v.reason, v.message = _ov
         _write_back(rundir, v, expected)
         return v
     finally:

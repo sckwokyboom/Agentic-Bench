@@ -135,7 +135,9 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
     # "2198/2200 passed" runs that a binary success=False would hide. None when
     # verify didn't produce counts.
     vp, vf = trace.verify_passed_count, trace.verify_failed_count
-    if vp is not None and vf is not None:
+    # Only a genuine pass/fail verdict yields a rate; an 'invalid' (e.g. undercount)
+    # or 'error' run is None, not a misleading near-zero from a partial count.
+    if vp is not None and vf is not None and trace.verify_status in ("passed", "failed"):
         # Denominator is the full expected suite when known (reference verify),
         # so tests that never ran — an early abort, or a module that failed to
         # compile — count as not-passed rather than shrinking the denominator and

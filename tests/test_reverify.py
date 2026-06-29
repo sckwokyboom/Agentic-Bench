@@ -85,7 +85,7 @@ def test_reverify_augments_command_and_writes_expected_total(tmp_path):
          mock.patch("abench.reverify.detect_command", return_value="./gradlew test"):
         reverify.reverify_run(exp, "baseline", 0)
 
-    assert captured["command"] == "./gradlew test --continue"
+    assert captured["command"] == "./gradlew test --continue --rerun-tasks"
     tr = json.loads((rd / "trace.json").read_text())
     assert tr["verify_expected_total"] == 2437
     assert json.loads((rd / "metrics.json").read_text())["verify_expected_total"] == 2437

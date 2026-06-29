@@ -303,7 +303,8 @@ def test_tests_pass_rate_is_passed_over_total():
                         command_arg_keys=["command"])
     # 2198/2200 passed → ~0.999 (captures a "nearly all passed" run that
     # success=False would hide).
-    m = extract(Trace(verify_passed_count=2198, verify_failed_count=2), "", cfg)
+    m = extract(Trace(verify_status="failed", verify_passed_count=2198,
+                      verify_failed_count=2), "", cfg)
     assert round(m["tests_pass_rate"], 4) == round(2198 / 2200, 4)
     # no verify counts → None
     assert extract(Trace(), "", cfg)["tests_pass_rate"] is None
@@ -317,15 +318,20 @@ def test_tests_pass_rate_uses_expected_total_denominator():
     cfg = MetricsConfig(test_command_patterns=["pytest"], shell_tool_names=["bash"],
                         read_tool_names=["read"], search_tool_names=["grep"],
                         command_arg_keys=["command"])
-    # 2280 passed, 1 failed, but the full suite is 2437 → 156 never ran.
-    tr = Trace(verify_passed_count=2280, verify_failed_count=1, verify_expected_total=2437)
+    # 2280 passed, 1 failed, but the full suite is 2437 → 156 never ran. (2281 ran
+    # is above the undercount floor, so it stays a genuine 'failed' verdict.)
+    tr = Trace(verify_status="failed", verify_passed_count=2280,
+               verify_failed_count=1, verify_expected_total=2437)
     assert round(extract(tr, "", cfg)["tests_pass_rate"], 6) == round(2280 / 2437, 6)
     # expected <= passed+failed (or absent) → denominator stays passed+failed.
-    tr2 = Trace(verify_passed_count=2280, verify_failed_count=1, verify_expected_total=2281)
+    tr2 = Trace(verify_status="failed", verify_passed_count=2280,
+                verify_failed_count=1, verify_expected_total=2281)
     assert round(extract(tr2, "", cfg)["tests_pass_rate"], 6) == round(2280 / 2281, 6)
-    tr3 = Trace(verify_passed_count=2280, verify_failed_count=1)  # no expected → fallback
+    tr3 = Trace(verify_status="failed", verify_passed_count=2280,
+                verify_failed_count=1)  # no expected → fallback to passed+failed
     assert round(extract(tr3, "", cfg)["tests_pass_rate"], 6) == round(2280 / 2281, 6)
-    tr4 = Trace(verify_passed_count=2437, verify_failed_count=0, verify_expected_total=2437)
+    tr4 = Trace(verify_status="passed", verify_passed_count=2437,
+                verify_failed_count=0, verify_expected_total=2437)
     assert extract(tr4, "", cfg)["tests_pass_rate"] == 1.0
 
 
@@ -376,3 +382,22 @@ def test_phase_prompt_and_controller_excluded_from_n_steps():
     ])
     m = extract(tr, "", _cfg())
     assert m["n_steps"] == 1            # only the one agent turn (turn 2)
+
+
+def test_invalid_verify_status_yields_no_pass_rate():
+    """An 'invalid' (undercount) verdict must NOT produce a misleading near-zero
+    pass-rate from its partial counts — pass_rate is None and success is None, so
+    the run is excluded from the comparison rather than scored ~0."""
+    tr = Trace(verify_status="invalid", verify_passed_count=58,
+               verify_failed_count=10, verify_expected_total=2437)
+    m = extract(tr, "", _cfg())
+    assert m["tests_pass_rate"] is None
+    assert m["success"] is None
+
+
+def test_failed_verify_status_yields_pass_rate_over_expected():
+    tr = Trace(verify_status="failed", verify_passed_count=2435,
+               verify_failed_count=2, verify_expected_total=2437)
+    m = extract(tr, "", _cfg())
+    assert m["tests_pass_rate"] == 2435 / 2437   # full suite ran → genuine rate
+    assert m["success"] is False

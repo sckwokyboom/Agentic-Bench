@@ -28,9 +28,11 @@ from .opencode_client import OpenCodeClient
 from .prompt import build_system_prompt, compose
 from .trace_model import FileChange, FinalDiffSummary
 from .verify import (
+    augment_for_authoritative_run,
     augment_for_full_run,
     detect_command as _detect_verify,
     run_verify,
+    undercount_override,
     write_verify_log,
 )
 
@@ -728,7 +730,10 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                          "line(s) stripped from target)")
                 except Exception as exc:
                     _log(f"[abench] WARN restore_except/strip failed: {exc!r}")
-            verify_command = augment_for_full_run(
+            # Authoritative grading run: force a FULL re-execution (--rerun-tasks for
+            # gradle) so a prior incremental run can't leave modules up-to-date and
+            # undercount the suite (the phased "ran 68 of 2437" artifact).
+            verify_command = augment_for_authoritative_run(
                 exp.verify.command or _detect_verify(workdir))
             if cancelled:
                 # Cancelled mid-run, but the agent's PARTIAL diff is real state:
@@ -776,6 +781,18 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         result.trace.verify_expected_total = baseline["passed_count"]
                 except Exception:
                     pass
+
+            # Undercount guard: a compiled run that executed far fewer tests than
+            # the reference expects is a gradle up-to-date measurement artifact, not
+            # a failure — flag it invalid so it's excluded from pass/fail + pass-rate
+            # rather than scored ~0 (the phased "0.0238" false-negatives).
+            _ov = undercount_override(
+                result.trace.verify_status, result.trace.verify_passed_count,
+                result.trace.verify_failed_count, result.trace.verify_expected_total)
+            if _ov is not None:
+                (result.trace.verify_status, result.trace.verify_reason,
+                 result.trace.verify_message) = _ov
+                note(f"[abench] {result.trace.verify_message}")
 
             note(
                 f"[abench] verify: {result.trace.verify_status} "

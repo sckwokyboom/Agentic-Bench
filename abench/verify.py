@@ -211,6 +211,47 @@ def augment_for_full_run(command: str | None) -> str | None:
     return command
 
 
+# A grading verify (host/reverify) must run the FULL multi-module suite, even when
+# a prior run (the orchestration controller's per-round suite, or the agent's own
+# test invocations) left Gradle's tasks up-to-date — otherwise Gradle skips the
+# cached modules and only a non-cacheable module re-runs, so the parsed count is a
+# tiny subset (the phased "ran 68 of 2437" undercount). `--rerun-tasks` forces a
+# full re-execution. NOT for the controller's per-round runs (they must stay
+# incremental/fast); only for the authoritative grading verify.
+def augment_for_authoritative_run(command: str | None) -> str | None:
+    command = augment_for_full_run(command)  # keep-going flag first
+    if not command:
+        return command
+    if _system_for_command(command) == "gradle" and not re.search(
+            r"(?:^|\s)--rerun-tasks(?:\s|$)", command):
+        return f"{command} --rerun-tasks"
+    return command
+
+
+# Below this fraction of the reference's expected suite size, a COMPILED run that
+# parsed pass/fail counts almost certainly under-executed (Gradle skipped up-to-date
+# modules), rather than genuinely failing: a real failure still runs the whole suite
+# under --continue (executed ≈ expected), and a compile break yields status='error'.
+# So a gross undercount is an invalid MEASUREMENT, not a failure.
+UNDERCOUNT_RATIO = 0.5
+
+
+def undercount_override(status, passed, failed, expected_total):
+    """Return (status, reason, message) overriding a gross under-execution to
+    'invalid', else None. Pure — safe to unit-test and to apply post-hoc."""
+    if status not in ("passed", "failed"):
+        return None
+    if not expected_total or passed is None or failed is None:
+        return None
+    executed = passed + failed
+    if executed < expected_total * UNDERCOUNT_RATIO:
+        return ("invalid", "under_executed",
+                f"verify under-executed: ran {executed} of ~{expected_total} expected "
+                "tests (Gradle likely skipped up-to-date modules) — measurement "
+                "invalid, not a real failure")
+    return None
+
+
 def _clear_results(workdir: Path, system: str) -> None:
     """Delete stale JUnit XML result dirs BEFORE running verify, so the XML
     fallback can only ever read results written by THIS invocation. Without

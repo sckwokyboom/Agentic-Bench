@@ -6,7 +6,8 @@ from unittest.mock import patch
 import pytest
 
 from abench.verify import (
-    VerifyResult, augment_for_full_run, detect_command, run_verify,
+    VerifyResult, augment_for_authoritative_run, augment_for_full_run,
+    detect_command, run_verify, undercount_override,
 )
 from abench.verify_parsers import (
     parse_gradle_output,
@@ -486,3 +487,33 @@ def test_parser_for_sees_build_tool_behind_prefixes():
     assert _parser_for("JAVA_HOME=/x mvn verify") is parse_maven_surefire
     assert _parser_for("pytest -q") is parse_pytest_output
     assert _parser_for("echo hello") is None
+
+
+# ── undercount guard + authoritative grading run ──────────────────────────────
+
+def test_undercount_override_flags_gross_under_execution():
+    # the phased artifact: ran 68 of ~2437, compiled (status 'failed') → invalid
+    ov = undercount_override("failed", 58, 10, 2437)
+    assert ov is not None
+    assert ov[0] == "invalid" and ov[1] == "under_executed"
+    assert "68" in ov[2] and "2437" in ov[2]
+
+
+def test_undercount_override_passes_a_full_run():
+    # a genuine failure runs the WHOLE suite under --continue (executed ≈ expected)
+    assert undercount_override("failed", 2435, 2, 2437) is None
+    assert undercount_override("passed", 2437, 0, 2437) is None
+
+
+def test_undercount_override_ignores_non_verdict_and_missing_expected():
+    assert undercount_override("error", 0, 0, 2437) is None      # compile/build error stays
+    assert undercount_override("failed", 58, 10, None) is None   # no reference → can't judge
+    assert undercount_override("failed", 58, 10, 0) is None
+
+
+def test_augment_for_authoritative_run_forces_full_gradle_rerun():
+    cmd = augment_for_authoritative_run("./gradlew test")
+    assert "--rerun-tasks" in cmd and "--continue" in cmd
+    assert augment_for_authoritative_run(cmd) == cmd             # idempotent
+    # maven doesn't cache test up-to-date like gradle → no --rerun-tasks
+    assert "--rerun-tasks" not in (augment_for_authoritative_run("mvn test") or "")
