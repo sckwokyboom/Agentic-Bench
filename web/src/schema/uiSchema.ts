@@ -6,9 +6,10 @@ export const uiSchema: UiSchema = {
   // Core fields first; remaining (advanced) fields fall under "*", which the
   // RootObjectFieldTemplate routes into the collapsible Advanced accordion.
   "ui:order": [
-    "name", "fixture_path", "reference_path", "model",
-    "task_prompt", "system_prompt", "conditions",
-    "repetitions", "verify", "*",
+    "name", "model", "model_context_window",
+    "task_prompt", "system_prompt", "target_file", "target_methods",
+    "fixture_path", "reference_path",
+    "conditions", "repetitions", "verify", "*",
   ],
   model:       { "ui:widget": "ModelValidationWidget" },
   model_context_window: { "ui:widget": "ContextWindowWidget" },
