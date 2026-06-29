@@ -28,6 +28,13 @@ COST_METRICS = [
     "tokens_in", "tokens_out", "tokens_reasoning",
 ]
 
+# Tool-name buckets for the behaviour block. read/search shares are taken from
+# the canonical per-run n_reads/n_searches (computed at metrics time with the
+# experiment's configured tool sets); edit/bash have no per-run count, so they
+# are summed from tool_calls_by_name using config.py's default buckets.
+EDIT_TOOLS = ("edit", "write", "patch")
+BASH_TOOLS = ("bash",)
+
 
 def _clean(xs) -> np.ndarray:
     """Drop NaN/None and return a float array."""
@@ -131,6 +138,65 @@ def _verdict(is_baseline, success_rate, base_rate, cost_ratios) -> str:
     return "inconclusive"
 
 
+def _tests_pass_rate(sub: pd.DataFrame) -> float | None:
+    """Σpassed / Σ(passed+failed) over a condition's valid runs — same formula as
+    report.summary_json. Keeps failing runs in the denominator (and the full
+    expected suite when known) and drops invalid-verify (undercount) runs whose
+    verdict is unusable. None when no run carries usable verify counts."""
+    if not {"verify_passed_count", "verify_failed_count"} <= set(sub.columns):
+        return None
+    n = len(sub)
+    expected = sub["verify_expected_total"] if "verify_expected_total" in sub.columns else [None] * n
+    status = sub["verify_status"] if "verify_status" in sub.columns else [None] * n
+    tot_pass = tot_total = 0.0
+    have = False
+    for p, f, e, st in zip(sub["verify_passed_count"], sub["verify_failed_count"], expected, status):
+        if st == "invalid":
+            continue
+        if pd.notna(p) and pd.notna(f) and (p + f) > 0:
+            run_total = float(p) + float(f)
+            if e is not None and pd.notna(e) and float(e) > run_total:
+                run_total = float(e)
+            tot_pass += float(p)
+            tot_total += run_total
+            have = True
+    return (tot_pass / tot_total) if have and tot_total else None
+
+
+def _behavior(sub: pd.DataFrame, agg: str) -> dict:
+    """Tool-use shape over a condition's valid runs: read/search/edit/bash as a
+    share of all tool calls, plus the typical file-edit count. Shares are summed
+    counts ÷ summed tool calls (aggregate-independent); files_edited follows the
+    selected aggregate. None for any share whose inputs are absent."""
+    def _sum(col):
+        if col not in sub.columns:
+            return None
+        return float(pd.to_numeric(sub[col], errors="coerce").fillna(0).sum())
+
+    calls = _sum("n_tool_calls")
+
+    def _share(n):
+        return (n / calls) if (calls and n is not None) else None
+
+    by: dict[str, float] = {}
+    if "tool_calls_by_name" in sub.columns:
+        for d in sub["tool_calls_by_name"]:
+            if isinstance(d, dict):
+                for k, v in d.items():
+                    by[k] = by.get(k, 0.0) + (float(v) if v else 0.0)
+    edit_n = sum(by.get(t, 0.0) for t in EDIT_TOOLS) if by else None
+    bash_n = sum(by.get(t, 0.0) for t in BASH_TOOLS) if by else None
+
+    return {
+        "tool_calls": calls,
+        "read_share": _share(_sum("n_reads")),
+        "search_share": _share(_sum("n_searches")),
+        "edit_share": _share(edit_n),
+        "bash_share": _share(bash_n),
+        "files_edited": aggregate(sub["n_files_edited"], agg) if "n_files_edited" in sub.columns else None,
+    }
+
+
 def build_panel(df: pd.DataFrame, baseline: str = "baseline",
                 agg: str = "median", seed: int = 0) -> dict:
     """Build the comparison panel dict from a load_runs DataFrame."""
@@ -210,7 +276,9 @@ def build_panel(df: pd.DataFrame, baseline: str = "baseline",
                 "wilson": list(wilson_ci(k, n)) if n else None,
                 "beta_p_gt_baseline": (None if is_base else beta_prob_gt(k, n, base_k, base_n, seed=seed)),
             },
+            "tests_pass_rate": _tests_pass_rate(sub),
             "cost_per_pass": {"tokens": cost_tokens, "seconds": cost_seconds},
+            "behavior": _behavior(sub, agg),
             "flags": flags,
             "metrics": metrics,
             "verdict": _verdict(is_base, rate, base_rate, cost_ratios),

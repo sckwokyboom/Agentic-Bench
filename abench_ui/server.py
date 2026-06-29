@@ -16,6 +16,7 @@ from fastapi import (
     APIRouter,
     FastAPI,
     HTTPException,
+    Query,
     Request,
     Response,
     WebSocket,
@@ -267,6 +268,28 @@ def create_app(
     def _runs_summary(name: str, batch: str | None = None):
         rd = _resolve_runs_dir(name, batch)
         return report.summary_json(rd)
+
+    @api.get("/runs/{name}/panel")
+    def _runs_panel(name: str, batch: str | None = None,
+                    baseline: str = "baseline", agg: str = "median",
+                    exclude: list[str] = Query(default=[])):
+        """Screening comparison panel (abench.screening.build_panel): per-condition
+        ratio + bootstrap CI, Cliff's delta, Wilson + Bayesian P(>baseline) on the
+        pass rate, cost/pass, tests-passed %, tool-use behaviour, and a coarse
+        verdict — all vs `baseline`. `agg` selects median|mean. `exclude` is a
+        repeated query param of "condition/rep" run keys to drop before
+        aggregating, so unticking a run in the UI recomputes every aggregate."""
+        from abench.report import load_runs
+        from abench.screening import build_panel
+        rd = _resolve_runs_dir(name, batch)
+        if agg not in ("median", "mean"):
+            agg = "median"
+        df = load_runs(rd)
+        if exclude and not df.empty:
+            excl = set(exclude)
+            keys = df["condition"].astype(str) + "/" + df["rep"].astype(str)
+            df = df[~keys.isin(excl)]
+        return build_panel(df, baseline=baseline, agg=agg)
 
     @api.get("/runs/{name}/{condition}/{rep}/metrics")
     def _read_metrics(name: str, condition: str, rep: int, batch: str | None = None):

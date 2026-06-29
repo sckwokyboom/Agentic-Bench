@@ -1,8 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import RunsTable from "../src/components/RunsTable";
-import SummaryTable from "../src/components/SummaryTable";
-import type { RunSummary, RunsSummary } from "../src/api/types";
+import type { RunSummary } from "../src/api/types";
 
 function run(over: Partial<RunSummary>): RunSummary {
   return {
@@ -40,23 +39,7 @@ describe("RunsTable stuck badge", () => {
   });
 });
 
-describe("SummaryTable stuck row", () => {
-  function summary(conditions: RunsSummary["conditions"]): RunsSummary {
-    return { conditions, deltas: {}, total_runs: 0, valid_runs: 0 };
-  }
-
-  it("shows a 'stuck (looping)' row with per-condition counts when any condition looped", () => {
-    render(<SummaryTable summary={summary([
-      { name: "baseline", runs: 2, stuck: 0, success_rate: 1, tests_pass_rate: null, metrics: {} },
-      { name: "augmented", runs: 1, stuck: 2, success_rate: 0, tests_pass_rate: null, metrics: {} },
-    ])} />);
-    expect(screen.getByText(/stuck \(looping\)/i)).toBeInTheDocument();
-  });
-
-  it("hides the stuck row entirely when no condition looped", () => {
-    render(<SummaryTable summary={summary([
-      { name: "baseline", runs: 2, stuck: 0, success_rate: 1, tests_pass_rate: null, metrics: {} },
-    ])} />);
-    expect(screen.queryByText(/stuck \(looping\)/i)).toBeNull();
-  });
-});
+// The per-condition stuck/looping aggregate moved out of SummaryTable when it
+// became the panel-driven comparison view: interrupted + crashed counts are now
+// summarised in its validity footer (driven by build_panel), and per-run looping
+// is still flagged by RunsTable above. See SummaryTable.test.tsx.

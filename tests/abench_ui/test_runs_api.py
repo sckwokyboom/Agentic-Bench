@@ -91,6 +91,50 @@ def test_runs_summary_endpoint(tmp_path: Path):
     assert body["deltas"]["n_steps"] == -50.0
 
 
+def test_runs_panel_endpoint_shape_agg_and_exclude(tmp_path: Path):
+    exp_dir = tmp_path / "experiments"
+    base = {"interrupted_reason": None, "n_steps": 10, "n_tool_calls": 10,
+            "duration_s": 1000.0, "success": True,
+            "verify_status": "passed", "verify_passed_count": 100,
+            "verify_failed_count": 0, "verify_expected_total": 100,
+            "tool_calls_by_name": {"read": 5, "bash": 4, "edit": 1}}
+    _seed_run(exp_dir, "exp", "baseline", 0, base)
+    _seed_run(exp_dir, "exp", "baseline", 1, {**base, "duration_s": 1100.0})
+    _seed_run(exp_dir, "exp", "augmented", 0, {**base, "duration_s": 2000.0})
+    _seed_run(exp_dir, "exp", "augmented", 1, {**base, "duration_s": 2200.0})
+    client = TestClient(create_app(experiments_dir=exp_dir))
+
+    # default (median) panel: per-condition vs baseline.
+    body = client.get("/api/runs/exp/panel").json()
+    assert body["baseline"] == "baseline" and body["agg"] == "median"
+    conds = {c["name"]: c for c in body["conditions"]}
+    base_c, aug_c = conds["baseline"], conds["augmented"]
+    assert base_c["verdict"] == "baseline"
+    assert base_c["metrics"]["duration_s"]["ratio"] is None        # reference → no ratio
+    # augmented duration ~2x baseline, with a bootstrap CI.
+    dr = aug_c["metrics"]["duration_s"]
+    assert dr["ratio"] is not None and dr["ci"][0] is not None
+    # additive fields the comparison view needs.
+    assert base_c["tests_pass_rate"] == 1.0
+    assert abs(base_c["behavior"]["bash_share"] - 0.4) < 1e-9       # 4 bash / 10 calls
+
+    # mean toggle is honoured.
+    assert client.get("/api/runs/exp/panel?agg=mean").json()["agg"] == "mean"
+
+    # exclude one augmented rep → it drops out of that condition's aggregate.
+    excl = client.get("/api/runs/exp/panel?exclude=augmented/1").json()
+    aug_excl = next(c for c in excl["conditions"] if c["name"] == "augmented")
+    assert aug_excl["n_valid"] == 1
+    assert excl["valid_runs"] == 3
+
+
+def test_runs_panel_404_when_no_runs(tmp_path: Path):
+    exp_dir = tmp_path / "experiments"
+    (exp_dir / "exp").mkdir(parents=True)
+    client = TestClient(create_app(experiments_dir=exp_dir))
+    assert client.get("/api/runs/exp/panel").status_code == 404
+
+
 def test_runs_summary_404_when_no_runs(tmp_path: Path):
     exp_dir = tmp_path / "experiments"
     (exp_dir / "exp").mkdir(parents=True)

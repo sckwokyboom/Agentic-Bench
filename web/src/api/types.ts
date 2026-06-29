@@ -82,6 +82,60 @@ export interface RunsSummary {
   valid_runs: number;
 }
 
+// ── Screening comparison panel (GET /api/runs/{name}/panel) ──────────────────
+// Mirrors abench.screening.build_panel. Each metric carries the chosen aggregate
+// (median|mean) plus, for non-baseline conditions, the ratio vs baseline with a
+// bootstrap 95% CI and Cliff's delta.
+export type Aggregate = "median" | "mean";
+export type Verdict = "baseline" | "promising" | "inconclusive" | "dominated";
+
+export interface PanelMetric {
+  value: number | null;                       // the aggregate (median|mean) for this condition
+  ratio: number | null;                        // value / baseline value (null on baseline)
+  ci: [number | null, number | null] | null;   // bootstrap 95% CI of the ratio
+  cliffs: number | null;                       // Cliff's delta in [-1, 1]
+}
+
+export interface PanelPass {
+  k: number;                                   // passing runs
+  n: number;                                   // scored runs (valid, verdict usable)
+  rate: number | null;                         // k / n
+  wilson: [number, number] | null;             // Wilson score interval on the rate
+  beta_p_gt_baseline: number | null;           // Bayesian P(this rate > baseline rate)
+}
+
+export interface PanelBehavior {
+  tool_calls: number | null;                   // Σ tool calls over valid runs
+  read_share: number | null;                   // read / search / edit / bash as a share of tool calls
+  search_share: number | null;
+  edit_share: number | null;
+  bash_share: number | null;
+  files_edited: number | null;                 // typical (aggregate) files edited
+}
+
+export interface PanelCondition {
+  name: string;
+  n_valid: number;
+  n_total: number;
+  pass: PanelPass;
+  tests_pass_rate: number | null;              // Σpassed / Σ(passed+failed) over valid runs
+  cost_per_pass: { tokens: number | null; seconds: number | null };
+  behavior: PanelBehavior;
+  flags: { interrupted: number; crashed: number; invalid_verify?: number };
+  metrics: Record<string, PanelMetric>;
+  verdict: Verdict;
+}
+
+export interface Panel {
+  baseline: string;
+  agg: Aggregate;
+  total_runs: number;
+  valid_runs: number;
+  interrupted_runs?: number;
+  metric_order: string[];
+  conditions: PanelCondition[];
+}
+
 export type VerifyStatus = "passed" | "failed" | "skipped" | "error" | "timeout";
 
 export interface VerifySummary {

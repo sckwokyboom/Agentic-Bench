@@ -81,6 +81,10 @@ def load_runs(root: Path) -> pd.DataFrame:
         row["verify_status"] = metrics.get("verify_status")
         row["executed_total"] = metrics.get("executed_total")
         row["compiled"] = metrics.get("compiled")
+        # Per-tool call counts (e.g. {"bash": 12, "edit": 3}) — feeds the
+        # screening panel's "share of tool calls" behaviour block. May be absent
+        # on old runs; kept as-is (a dict or None) and summed downstream.
+        row["tool_calls_by_name"] = metrics.get("tool_calls_by_name")
         rows.append(row)
     return pd.DataFrame(rows)
 

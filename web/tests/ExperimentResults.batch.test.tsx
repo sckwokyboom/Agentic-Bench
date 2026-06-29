@@ -14,6 +14,11 @@ function emptySummary() {
   return { conditions: [], deltas: {}, total_runs: 0, valid_runs: 0 };
 }
 
+function emptyPanel() {
+  return { baseline: "baseline", agg: "median", total_runs: 0, valid_runs: 0,
+    metric_order: [], conditions: [] };
+}
+
 function wrap() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return (
@@ -37,6 +42,7 @@ function installHandlers(onSummary: (batch: string | null) => void) {
       onSummary(new URL(request.url).searchParams.get("batch"));
       return HttpResponse.json(emptySummary());
     }),
+    http.get("/api/runs/exp/panel", () => HttpResponse.json(emptyPanel())),
     http.get("/api/runs/exp", () => HttpResponse.json([])),
   );
 }
@@ -86,6 +92,7 @@ describe("ExperimentResults batch selector", () => {
         { id: NEWEST, total_runs: 4, valid_runs: 4, success_rate: 1 },
       ])),
       http.get("/api/runs/exp/summary", () => HttpResponse.json(emptySummary())),
+      http.get("/api/runs/exp/panel", () => HttpResponse.json(emptyPanel())),
       http.get("/api/runs/exp", () => HttpResponse.json([
         { condition: "baseline", rep: 0, finished: true, interrupted_reason: null,
           verify_status: "passed", success: true, started_at: "2026-06-02T10:00:00",
@@ -104,6 +111,7 @@ describe("ExperimentResults batch selector", () => {
         { id: NEWEST, total_runs: 4, valid_runs: 4, success_rate: 1 },
       ])),
       http.get("/api/runs/exp/summary", () => HttpResponse.json(emptySummary())),
+      http.get("/api/runs/exp/panel", () => HttpResponse.json(emptyPanel())),
       http.get("/api/runs/exp", () => HttpResponse.json([
         { condition: "baseline", rep: 0, finished: true, interrupted_reason: null,
           verify_status: "passed", success: true, started_at: "2026-06-02T10:00:00",

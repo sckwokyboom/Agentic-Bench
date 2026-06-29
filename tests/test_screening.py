@@ -90,3 +90,54 @@ def test_build_panel_shape_and_values():
 def test_build_panel_empty():
     panel = build_panel(pd.DataFrame(), baseline="baseline")
     assert panel["conditions"] == [] and panel["valid_runs"] == 0
+
+
+def _df_rich():
+    """Two conditions with verify counts, file edits and a tool-call breakdown so
+    the outcome (tests-passed %) and behaviour (tool shares) blocks have inputs."""
+    rows = []
+
+    def add(cond, rep, success, passed, failed, expected, files, by_name):
+        rows.append({
+            "condition": cond, "rep": rep, "duration_s": 1000.0,
+            "n_steps": 100, "n_tool_calls": sum(by_name.values()),
+            "n_reads": by_name.get("read", 0), "n_searches": by_name.get("grep", 0),
+            "n_files_edited": files, "tool_calls_by_name": by_name,
+            "interrupted_reason": None, "n_service_errors": 0,
+            "success": success, "verify_status": "passed" if success else "failed",
+            "verify_passed_count": passed, "verify_failed_count": failed,
+            "verify_expected_total": expected,
+        })
+
+    add("baseline", 0, True, 100, 0, 100, 4, {"read": 6, "grep": 3, "edit": 1, "bash": 10})
+    add("baseline", 1, True, 100, 0, 100, 4, {"read": 6, "grep": 3, "edit": 1, "bash": 10})
+    add("forced", 0, False, 95, 5, 100, 38, {"read": 3, "grep": 1, "edit": 20, "bash": 16})
+    add("forced", 1, True, 100, 0, 100, 30, {"read": 3, "grep": 1, "edit": 18, "bash": 18})
+    return pd.DataFrame(rows)
+
+
+def test_build_panel_tests_pass_rate_and_behavior():
+    panel = build_panel(_df_rich(), baseline="baseline", agg="median")
+    conds = {c["name"]: c for c in panel["conditions"]}
+    base, forced = conds["baseline"], conds["forced"]
+
+    # outcome: Σpassed / Σ(passed+failed), full expected suite in the denominator
+    assert base["tests_pass_rate"] == 1.0
+    assert abs(forced["tests_pass_rate"] - (195 / 200)) < 1e-9
+
+    # behaviour: read/search/edit/bash as a share of all tool calls, summed
+    b = base["behavior"]
+    assert b["tool_calls"] == 40.0           # (6+3+1+10) * 2 runs
+    assert abs(b["read_share"] - 12 / 40) < 1e-9
+    assert abs(b["bash_share"] - 20 / 40) < 1e-9
+    assert abs(b["edit_share"] - 2 / 40) < 1e-9
+    assert base["behavior"]["files_edited"] == 4   # median of [4, 4]
+    # forced edits much higher (instrument-the-test arm rewrites the suite)
+    assert forced["behavior"]["edit_share"] > base["behavior"]["edit_share"]
+
+
+def test_behavior_absent_inputs_yield_none():
+    # The lean _df() has no tool_calls_by_name / n_reads → shares are None, no crash.
+    panel = build_panel(_df(), baseline="baseline")
+    beh = panel["conditions"][0]["behavior"]
+    assert beh["read_share"] is None and beh["edit_share"] is None

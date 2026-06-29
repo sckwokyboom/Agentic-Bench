@@ -1,4 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery, useMutation, useQueryClient, keepPreviousData,
+} from "@tanstack/react-query";
 import * as t from "./types";
 import {
   apiGet, apiPostJson, apiPut, apiPostRawYaml, apiDelete, apiPatch,
@@ -19,6 +21,9 @@ export const qk = {
   runs: (name: string, batch?: string) => ["runs", name, b(batch)] as const,
   runsSummary: (name: string, batch?: string) =>
     ["runsSummary", name, b(batch)] as const,
+  panel: (name: string, batch: string | undefined, baseline: string,
+          agg: string, exclude: readonly string[]) =>
+    ["panel", name, b(batch), baseline, agg, [...exclude].sort().join(",")] as const,
   trace: (name: string, condition: string, rep: number, batch?: string) =>
     ["trace", name, condition, rep, b(batch)] as const,
   metrics: (name: string, condition: string, rep: number, batch?: string) =>
@@ -112,6 +117,32 @@ export const useRunsSummary = (name: string | undefined, batch?: string) =>
     queryKey: qk.runsSummary(name ?? "", batch),
     enabled: Boolean(name),
     queryFn: () => apiGet<t.RunsSummary>(withBatch(`/api/runs/${name}/summary`, batch)),
+  });
+
+// Screening comparison panel (ratio+CI, Cliff's, Bayesian pass-rate, cost/pass,
+// verdict). `agg` toggles median|mean; `exclude` is "condition/rep" run keys the
+// user unticked — both re-key the query so the server recomputes. keepPreviousData
+// holds the current table on screen while the recompute is in flight (no flthan).
+export const usePanel = (
+  name: string | undefined,
+  batch: string | undefined,
+  baseline: string,
+  agg: t.Aggregate,
+  exclude: readonly string[],
+) =>
+  useQuery({
+    queryKey: qk.panel(name ?? "", batch, baseline, agg, exclude),
+    enabled: Boolean(name),
+    placeholderData: keepPreviousData,
+    queryFn: () => {
+      const qs = new URLSearchParams();
+      if (batch) qs.set("batch", batch);
+      if (baseline) qs.set("baseline", baseline);
+      qs.set("agg", agg);
+      for (const key of exclude) qs.append("exclude", key);
+      const q = qs.toString();
+      return apiGet<t.Panel>(`/api/runs/${name}/panel${q ? `?${q}` : ""}`);
+    },
   });
 
 export const useTrace = (name: string, condition: string, rep: number, batch?: string) =>

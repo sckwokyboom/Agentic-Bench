@@ -12,10 +12,10 @@ import EditIcon from "@mui/icons-material/Edit";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useRuns, useRunsSummary, useBatches, useStartReverify, useReverifyStatus,
-  useRecomputeMetrics,
+  useRecomputeMetrics, usePanel,
 } from "../api/queries";
 import { ApiError } from "../api/client";
-import type { RunBatch } from "../api/types";
+import type { Aggregate, RunBatch } from "../api/types";
 import SummaryTable from "../components/SummaryTable";
 import RunsTable from "../components/RunsTable";
 import ResultsExportButton from "../components/ResultsExportButton";
@@ -48,6 +48,20 @@ export default function ExperimentResults() {
 
   const runs = useRuns(name, batch);
   const summary = useRunsSummary(name, batch);
+
+  // Screening comparison panel: median|mean aggregate + a per-run include/exclude
+  // set (keyed "condition/rep"). Both feed usePanel so the server recomputes every
+  // aggregate. Reset the exclusions when the batch changes — their keys are stale.
+  const [agg, setAgg] = useState<Aggregate>("median");
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  useEffect(() => { setExcluded(new Set()); }, [batch]);
+  const panel = usePanel(name, batch, "baseline", agg, [...excluded]);
+  const toggleRun = (key: string) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
 
   const qc = useQueryClient();
   const start = useStartReverify();
@@ -161,14 +175,24 @@ export default function ExperimentResults() {
       {anyInsensitive && <ValiditySignals verifyInsensitive />}
 
       <Box>
-        <Typography variant="subtitle2" gutterBottom>Aggregate (baseline vs augmented)</Typography>
-        {summary.isLoading && <CircularProgress size={20} />}
-        {summary.error && (
-          (summary.error as ApiError)?.status === 404
-            ? <Typography variant="body2" color="text.secondary">No runs yet — nothing to aggregate.</Typography>
-            : <Alert severity="error">Failed to load summary.</Alert>
+        <Typography variant="subtitle2" gutterBottom>Comparison vs baseline</Typography>
+        {panel.isLoading && <CircularProgress size={20} />}
+        {panel.error && (
+          (panel.error as ApiError)?.status === 404
+            ? <Typography variant="body2" color="text.secondary">No runs yet — nothing to compare.</Typography>
+            : <Alert severity="error">Failed to load comparison.</Alert>
         )}
-        {summary.data && <SummaryTable summary={summary.data} />}
+        {panel.data && (
+          <SummaryTable
+            panel={panel.data}
+            agg={agg}
+            onAggChange={setAgg}
+            runs={runs.data}
+            excluded={excluded}
+            onToggleRun={toggleRun}
+            busy={panel.isFetching && !panel.isLoading}
+          />
+        )}
       </Box>
 
       <Box>
