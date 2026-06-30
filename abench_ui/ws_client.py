@@ -21,6 +21,7 @@ class WSPublishingClient:
         user_message: str,
         timeout_s: int | None,
         agent_tools: "dict[str, bool] | None" = None,
+        temperature: "float | None" = None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         debug_sink: Callable[[str], None] | None = None,
@@ -32,6 +33,7 @@ class WSPublishingClient:
         return self._inner.run_task(
             workdir=workdir, system_prompt=system_prompt, model=model,
             user_message=user_message, timeout_s=timeout_s, agent_tools=agent_tools,
+            temperature=temperature,
             on_event=on_event_relay, log_sink=log_sink, debug_sink=debug_sink,
             cancel_event=cancel_event,
         )
