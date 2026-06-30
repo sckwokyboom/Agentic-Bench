@@ -413,3 +413,10 @@ def test_executed_total_and_compiled_fields():
     assert m2["executed_total"] == 0 and m2["compiled"] is False
     m3 = extract(Trace(), "", cfg)                        # no verify counts → unknown
     assert m3["executed_total"] is None and m3["compiled"] is None
+
+
+def test_extract_carries_temperature():
+    m = extract(Trace(temperature=0.7), "", _cfg())
+    assert m["temperature"] == 0.7
+    m0 = extract(Trace(), "", _cfg())
+    assert m0["temperature"] is None

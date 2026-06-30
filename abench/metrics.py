@@ -177,6 +177,7 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "cache_read": trace.cache_read,
         "cache_write": trace.cache_write,
         "cost": trace.cost,
+        "temperature": trace.temperature,
         "time_to_first_edit_s": ttfe,
         "finished": trace.finished,
         "interrupted_reason": trace.interrupted_reason,
