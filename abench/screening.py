@@ -13,6 +13,8 @@ functions here are seeded, so output is deterministic and testable.
 """
 from __future__ import annotations
 
+import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -294,6 +296,70 @@ def build_panel(df: pd.DataFrame, baseline: str = "baseline",
 
 def panel_from_dir(run_dir: Path, baseline: str = "baseline", agg: str = "median") -> dict:
     return build_panel(load_runs(Path(run_dir)), baseline=baseline, agg=agg)
+
+
+# ── Memoised panel ───────────────────────────────────────────────────────────
+# build_panel runs a 5000-iteration bootstrap per metric per condition, so the
+# same (batch, baseline, agg, exclusions) is wasteful to recompute on every
+# request / page reload / client. Cache it in-process, keyed additionally by a
+# fingerprint of the batch's metrics.json files (path, mtime, size) so any data
+# change — a re-verify, a recompute, a new or removed run — busts the entry
+# automatically. Bounded LRU; lock-guarded (sync endpoints run in a threadpool).
+
+_PANEL_CACHE: "OrderedDict[tuple, dict]" = OrderedDict()
+_PANEL_CACHE_MAX = 256
+_PANEL_CACHE_LOCK = threading.Lock()
+
+
+def _batch_fingerprint(run_dir: Path) -> tuple:
+    """(path, mtime_ns, size) for every metrics.json under the batch — changes
+    whenever a run's metrics are rewritten, added or deleted."""
+    out = []
+    for f in sorted(Path(run_dir).glob("*/*/metrics.json")):
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        out.append((str(f), st.st_mtime_ns, st.st_size))
+    return tuple(out)
+
+
+def _filter_excluded(df: pd.DataFrame, exclude) -> pd.DataFrame:
+    """Drop rows whose "condition/rep" key is in `exclude`."""
+    if not exclude or df.empty:
+        return df
+    excl = set(exclude)
+    keys = df["condition"].astype(str) + "/" + df["rep"].astype(str)
+    return df[~keys.isin(excl)]
+
+
+def build_panel_cached(run_dir: Path, baseline: str = "baseline",
+                       agg: str = "median", exclude=(), seed: int = 0) -> dict:
+    """Cached build_panel for a batch dir. Recomputes only on a cache miss —
+    i.e. first request for a given (batch contents, baseline, agg, exclusions)."""
+    run_dir = Path(run_dir)
+    key = (str(run_dir.resolve()), baseline, agg,
+           tuple(sorted(exclude)), _batch_fingerprint(run_dir))
+    with _PANEL_CACHE_LOCK:
+        hit = _PANEL_CACHE.get(key)
+        if hit is not None:
+            _PANEL_CACHE.move_to_end(key)
+            return hit
+    # Compute outside the lock (bootstrap is slow; don't serialise requests).
+    df = _filter_excluded(load_runs(run_dir), exclude)
+    panel = build_panel(df, baseline=baseline, agg=agg, seed=seed)
+    with _PANEL_CACHE_LOCK:
+        _PANEL_CACHE[key] = panel
+        _PANEL_CACHE.move_to_end(key)
+        while len(_PANEL_CACHE) > _PANEL_CACHE_MAX:
+            _PANEL_CACHE.popitem(last=False)
+    return panel
+
+
+def clear_panel_cache() -> None:
+    """Drop all memoised panels (tests; or a manual flush)."""
+    with _PANEL_CACHE_LOCK:
+        _PANEL_CACHE.clear()
 
 
 def render_text(panel: dict) -> str:

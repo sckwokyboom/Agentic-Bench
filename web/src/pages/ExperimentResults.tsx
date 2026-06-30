@@ -51,15 +51,28 @@ export default function ExperimentResults() {
 
   // Screening comparison panel: median|mean aggregate + a per-run include/exclude
   // set (keyed "condition/rep"). Both feed usePanel so the server recomputes every
-  // aggregate. Reset the exclusions when the batch changes — their keys are stale.
+  // aggregate. The exclusion choice is remembered per (experiment, batch) in
+  // localStorage, so a reload restores it; switching batch loads that batch's set.
   const [agg, setAgg] = useState<Aggregate>("median");
+  const exclKey = name && batch ? `ab:excluded:${name}:${batch}` : null;
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
-  useEffect(() => { setExcluded(new Set()); }, [batch]);
+  useEffect(() => {
+    if (!exclKey) { setExcluded(new Set()); return; }
+    try {
+      const raw = localStorage.getItem(exclKey);
+      setExcluded(new Set(raw ? (JSON.parse(raw) as string[]) : []));
+    } catch {
+      setExcluded(new Set());
+    }
+  }, [exclKey]);
   const panel = usePanel(name, batch, "baseline", agg, [...excluded]);
   const toggleRun = (key: string) =>
     setExcluded((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
+      if (exclKey) {
+        try { localStorage.setItem(exclKey, JSON.stringify([...next])); } catch { /* quota/private mode */ }
+      }
       return next;
     });
 
@@ -78,6 +91,8 @@ export default function ExperimentResults() {
         // Bare prefixes invalidate every batch variant of these queries.
         qc.invalidateQueries({ queryKey: ["runs", name] });
         qc.invalidateQueries({ queryKey: ["runsSummary", name] });
+        // Verdicts changed → drop the memoised comparison panels too.
+        qc.invalidateQueries({ queryKey: ["panel", name] });
       }
       setVerifyId(null);
     }

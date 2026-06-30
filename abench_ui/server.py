@@ -278,18 +278,16 @@ def create_app(
         pass rate, cost/pass, tests-passed %, tool-use behaviour, and a coarse
         verdict — all vs `baseline`. `agg` selects median|mean. `exclude` is a
         repeated query param of "condition/rep" run keys to drop before
-        aggregating, so unticking a run in the UI recomputes every aggregate."""
-        from abench.report import load_runs
-        from abench.screening import build_panel
+        aggregating, so unticking a run in the UI recomputes every aggregate.
+
+        Results are memoised per (batch contents, baseline, agg, exclusions) —
+        the bootstrap is expensive, so reloads/clients reuse the cache until a
+        run's metrics.json changes (re-verify, recompute, add/remove)."""
+        from abench.screening import build_panel_cached
         rd = _resolve_runs_dir(name, batch)
         if agg not in ("median", "mean"):
             agg = "median"
-        df = load_runs(rd)
-        if exclude and not df.empty:
-            excl = set(exclude)
-            keys = df["condition"].astype(str) + "/" + df["rep"].astype(str)
-            df = df[~keys.isin(excl)]
-        return build_panel(df, baseline=baseline, agg=agg)
+        return build_panel_cached(rd, baseline=baseline, agg=agg, exclude=exclude)
 
     @api.get("/runs/{name}/{condition}/{rep}/metrics")
     def _read_metrics(name: str, condition: str, rep: int, batch: str | None = None):

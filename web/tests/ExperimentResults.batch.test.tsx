@@ -105,6 +105,33 @@ describe("ExperimentResults batch selector", () => {
       expect(screen.getByText(/Verify can't distinguish agent work/i)).toBeInTheDocument());
   });
 
+  it("restores the excluded runs from localStorage and sends them to the panel", async () => {
+    localStorage.setItem(`ab:excluded:exp:${NEWEST}`, JSON.stringify(["baseline/0"]));
+    const panelExcludes: string[][] = [];
+    mswServer.use(
+      http.get("/api/runs/exp/batches", () => HttpResponse.json([
+        { id: NEWEST, total_runs: 2, valid_runs: 2, success_rate: 1 },
+      ])),
+      http.get("/api/runs/exp/summary", () => HttpResponse.json(emptySummary())),
+      http.get("/api/runs/exp/panel", ({ request }) => {
+        panelExcludes.push(new URL(request.url).searchParams.getAll("exclude"));
+        return HttpResponse.json(emptyPanel());
+      }),
+      http.get("/api/runs/exp", () => HttpResponse.json([
+        { condition: "baseline", rep: 0, finished: true, interrupted_reason: null,
+          verify_status: "passed", success: true, started_at: "2026-06-02T10:00:00",
+          duration_s: 10, n_steps: 1, n_tool_calls: 1, n_test_runs: 1, cost: 0.01 },
+      ])),
+    );
+    render(wrap());
+    // The restored exclusion is sent to the panel endpoint…
+    await waitFor(() => expect(panelExcludes.some((e) => e.includes("baseline/0"))).toBe(true));
+    // …and the matching run renders unticked in the Runs table.
+    const box = await screen.findByLabelText("include baseline/0") as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    localStorage.clear();
+  });
+
   it("does not show the insensitivity banner when no run is insensitive", async () => {
     mswServer.use(
       http.get("/api/runs/exp/batches", () => HttpResponse.json([

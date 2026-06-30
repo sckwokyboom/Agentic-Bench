@@ -134,6 +134,11 @@ export const usePanel = (
     queryKey: qk.panel(name ?? "", batch, baseline, agg, exclude),
     enabled: Boolean(name),
     placeholderData: keepPreviousData,
+    // The server memoises each panel; on top of that, treat an already-fetched
+    // (agg, exclusions) as fresh for 5 min so flipping median↔mean or re-ticking
+    // a run reuses the in-memory result with no refetch at all. Recompute /
+    // re-verify explicitly invalidate ["panel", name] to pull fresh numbers.
+    staleTime: 5 * 60_000,
     queryFn: () => {
       const qs = new URLSearchParams();
       if (batch) qs.set("batch", batch);
@@ -253,6 +258,8 @@ export function useRecomputeMetrics() {
     onSuccess: (_data, args) => {
       qc.invalidateQueries({ queryKey: ["runs", args.name] });
       qc.invalidateQueries({ queryKey: ["runsSummary", args.name] });
+      // Metrics changed → the memoised panel for this experiment is stale.
+      qc.invalidateQueries({ queryKey: ["panel", args.name] });
     },
   });
 }

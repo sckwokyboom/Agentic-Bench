@@ -1,7 +1,10 @@
+import json
+
 import pandas as pd
 
 from abench.screening import (
     aggregate, bootstrap_ratio_ci, cliffs_delta, wilson_ci, beta_prob_gt, build_panel,
+    build_panel_cached, clear_panel_cache,
 )
 
 
@@ -141,3 +144,43 @@ def test_behavior_absent_inputs_yield_none():
     panel = build_panel(_df(), baseline="baseline")
     beh = panel["conditions"][0]["behavior"]
     assert beh["read_share"] is None and beh["edit_share"] is None
+
+
+def _seed_batch(root, rows):
+    """Write <cond>/rep_<n>/metrics.json under a batch dir; return the dir."""
+    for cond, rep, metrics in rows:
+        d = root / cond / f"rep_{rep}"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "metrics.json").write_text(json.dumps(metrics))
+    return root
+
+
+def test_build_panel_cached_hits_and_invalidates(tmp_path):
+    clear_panel_cache()
+    base = {"interrupted_reason": None, "n_steps": 10, "duration_s": 1000.0,
+            "success": True}
+    rd = _seed_batch(tmp_path / "b", [
+        ("baseline", 0, base), ("baseline", 1, {**base, "duration_s": 1100.0}),
+        ("augmented", 0, {**base, "duration_s": 2000.0}),
+        ("augmented", 1, {**base, "duration_s": 2200.0}),
+    ])
+
+    p1 = build_panel_cached(rd, baseline="baseline", agg="median")
+    p2 = build_panel_cached(rd, baseline="baseline", agg="median")
+    assert p1 is p2                                   # identical key → same cached object
+
+    # Different exclusion is a different key (and a different result).
+    p_excl = build_panel_cached(rd, baseline="baseline", agg="median", exclude=["augmented/1"])
+    assert p_excl is not p1
+    aug = next(c for c in p_excl["conditions"] if c["name"] == "augmented")
+    assert aug["n_valid"] == 1
+
+    # Different aggregate is a different key.
+    assert build_panel_cached(rd, baseline="baseline", agg="mean") is not p1
+
+    # Rewriting a run's metrics.json busts the fingerprint → fresh object
+    # (different size + mtime), and the new value is reflected.
+    (rd / "augmented" / "rep_0" / "metrics.json").write_text(
+        json.dumps({**base, "duration_s": 123456.0, "n_tool_calls": 7}))
+    p3 = build_panel_cached(rd, baseline="baseline", agg="median")
+    assert p3 is not p1
