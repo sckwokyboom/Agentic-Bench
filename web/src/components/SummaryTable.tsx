@@ -305,7 +305,7 @@ export default function SummaryTable({ panel, agg, onAggChange, busy }: Props) {
                 {behaviorRow("search", (c) => c.behavior?.search_share ?? null, fmtPct0)}
                 {behaviorRow("edit", (c) => c.behavior?.edit_share ?? null, fmtPct0)}
                 {behaviorRow("bash", (c) => c.behavior?.bash_share ?? null, fmtPct0)}
-                {behaviorRow("edits", (c) => c.behavior?.files_edited ?? null, fmtInt)}
+                {behaviorRow("files edited", (c) => c.behavior?.files_edited ?? null, fmtInt)}
               </>
             )}
           </TableBody>

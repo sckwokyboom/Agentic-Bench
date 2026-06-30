@@ -11,6 +11,7 @@ import LoopIcon from "@mui/icons-material/Loop";
 import VerifyStatusChip from "./VerifyStatusChip";
 import { CHEATING_LABELS } from "./ValiditySignals";
 import { selectable } from "../theme";
+import { formatTokens } from "../lib/formatTokens";
 import type { RunSummary, VerifyStatus } from "../api/types";
 
 // Live re-verify progress for the visible runs. Presence of this prop means a
@@ -35,6 +36,12 @@ interface Props {
 
 function num(v: number | null | undefined, digits = 0): string {
   return v == null ? "—" : v.toFixed(digits);
+}
+
+function totalTokens(r: RunSummary): number | null {
+  const parts = [r.tokens_in, r.tokens_out, r.tokens_reasoning];
+  if (parts.every((v) => v == null)) return null;
+  return parts.reduce<number>((acc, v) => acc + (v ?? 0), 0);
 }
 
 // The verify cell. While a re-verify is in flight (`reverify` present): the
@@ -79,7 +86,7 @@ export default function RunsTable({ rows, onOpen, reverify, excluded, onToggleRu
             <TableCell align="right">steps</TableCell>
             <TableCell align="right">tools</TableCell>
             <TableCell align="right">tests</TableCell>
-            <TableCell align="right">cost ($)</TableCell>
+            <TableCell align="right">tokens</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -156,12 +163,37 @@ export default function RunsTable({ rows, onOpen, reverify, excluded, onToggleRu
               <TableCell align="right" sx={selectable}>{num(r.n_steps)}</TableCell>
               <TableCell align="right" sx={selectable}>{num(r.n_tool_calls)}</TableCell>
               <TableCell align="right" sx={selectable}>{num(r.n_test_runs)}</TableCell>
-              <TableCell align="right" sx={selectable}>{num(r.cost, 4)}</TableCell>
+              <TableCell align="right" sx={selectable}>{formatTokens(totalTokens(r))}</TableCell>
             </TableRow>
             );
           })}
         </TableBody>
       </Table>
+      <CostFooter rows={rows} />
+    </Box>
+  );
+}
+
+// $-cost estimate for the whole batch, kept out of the per-row columns so the
+// table stays comparison-focused; the number is just a rough OpenRouter-style
+// sanity check on what re-running these would cost.
+function CostFooter({ rows }: { rows: RunSummary[] }) {
+  let sum = 0;
+  let n = 0;
+  for (const r of rows) {
+    if (r.cost != null) {
+      sum += r.cost;
+      n += 1;
+    }
+  }
+  if (n === 0) return null;
+  const missing = rows.length - n;
+  return (
+    <Box sx={{ px: 1.5, py: 0.75, borderTop: 1, borderColor: "divider",
+      display: "flex", justifyContent: "flex-end", gap: 1.5,
+      fontSize: 12, color: "text.secondary" }}>
+      <span>estimated cost · ${sum.toFixed(4)} over {n} run{n === 1 ? "" : "s"}
+        {missing > 0 ? ` (${missing} without cost)` : ""}</span>
     </Box>
   );
 }
