@@ -17,12 +17,14 @@ export interface ConditionData {
   orchestration: "phased" | "phased_plan" | "phased_graph" | "phased_runtime" | null;
   engine: "python" | "langgraph";
   system_prompt: string | null;
+  temperature: number | null;
 }
 
 export function emptyCondition(name = "baseline"): ConditionData {
   return {
     name, augmentation: null, augmentation_kind: "text", overlay: null,
     tools: [], orchestration: null, engine: "python", system_prompt: null,
+    temperature: null,
   };
 }
 
@@ -72,6 +74,18 @@ export default function ConditionModal({ open, initial, experimentName, onClose,
             value={c.overlay ?? ""}
             onChange={(e) => set("overlay", e.target.value || null)}
             helperText="Per-session tool files copied into the workdir; blank = none."
+          />
+          <TextField
+            label="Temperature (optional)"
+            type="number"
+            size="small"
+            value={c.temperature ?? ""}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              set("temperature", e.target.value === "" || !Number.isFinite(n) ? null : n);
+            }}
+            inputProps={{ min: 0, max: 2, step: 0.1 }}
+            helperText="Sampling temperature 0–2 for this condition's agent; blank = provider default. Vary across conditions to A/B it."
           />
           <LongTextField
             label="System prompt override (optional)"

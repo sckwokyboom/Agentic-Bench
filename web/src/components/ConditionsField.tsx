@@ -50,6 +50,7 @@ export default function ConditionsField(props: FieldProps) {
             <Chip size="small" variant="outlined"
               label={c.orchestration ? ORCH_LABEL[c.orchestration] ?? c.orchestration : "autonomous"} />
             {c.orchestration && <Chip size="small" variant="outlined" label={c.engine} />}
+            {c.temperature != null && <Chip size="small" variant="outlined" label={`temp ${c.temperature}`} />}
             {c.system_prompt && <Chip size="small" color="info" variant="outlined" label="sys override" />}
             <Box sx={{ flexGrow: 1 }} />
             <Tooltip title="Edit"><IconButton size="small" onClick={() => setEditing(i)}><EditIcon fontSize="small" /></IconButton></Tooltip>
