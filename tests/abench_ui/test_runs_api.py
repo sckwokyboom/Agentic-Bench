@@ -438,6 +438,15 @@ def test_realshape_trace_and_metrics_flow_through_endpoints(client):
     assert "cache_read" in m and "cost" in m
 
 
+def test_list_runs_includes_temperature(tmp_path: Path):
+    exp_dir = tmp_path / "experiments"
+    _seed_run(exp_dir, "exp", "baseline", 0, {"temperature": 0.7})
+    app = create_app(experiments_dir=exp_dir)
+    client = TestClient(app)
+    rows = client.get("/api/runs/exp").json()
+    assert rows and rows[0]["temperature"] == 0.7
+
+
 def test_safe_trace_endpoints_redact(client):
     c, root = client
     name = "exp-a"

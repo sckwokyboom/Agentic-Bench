@@ -66,6 +66,7 @@ def list_runs(root_runs_dir: Path) -> list[dict]:
                 "verify_passed_count": m.get("verify_passed_count"),
                 "verify_failed_count": m.get("verify_failed_count"),
                 "cost": m.get("cost"),
+                "temperature": m.get("temperature"),
                 "tokens_in": m.get("tokens_in"),
                 "tokens_out": m.get("tokens_out"),
                 "tokens_reasoning": m.get("tokens_reasoning"),
