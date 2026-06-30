@@ -121,3 +121,15 @@ def test_orchestration_fields_roundtrip():
     assert restored.steps[0].phase == "diagnose"
     assert restored.orchestration_outcome == "green"
     assert restored.controller_test_runs == 3 and restored.reverted_rounds == 1
+
+
+def test_trace_temperature_roundtrips():
+    t = Trace(temperature=0.7)
+    d = t.to_dict()
+    assert d["temperature"] == 0.7
+    assert trace_from_dict(d).temperature == 0.7
+
+
+def test_trace_temperature_defaults_none():
+    assert Trace().temperature is None
+    assert trace_from_dict(Trace().to_dict()).temperature is None

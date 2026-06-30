@@ -83,6 +83,11 @@ class Trace:
     # didn't echo one (some OpenAI-compatible endpoints don't).
     model: str | None = None
     provider: str | None = None
+    # Sampling temperature REQUESTED for this run (the value written into the
+    # opencode.json agent block), or None when left at the provider default.
+    # Recorded like `model`: provenance of what we asked for — a provider may
+    # silently ignore it.
+    temperature: float | None = None
     # The model's context window (max input+output tokens for one request), looked
     # up best-effort from the endpoint's /v1/models (vLLM max_model_len) or an
     # experiment override. Lets the UI show "% of context used" without the
