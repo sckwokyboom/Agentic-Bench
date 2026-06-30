@@ -549,7 +549,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         client, workdir=str(workdir),
                         system_prompt=system_prompt_eff, model=exp.model,
                         timeout_s=exp.timeout_s, on_event=on_event,
-                        cancel_event=cancel_event)
+                        cancel_event=cancel_event, temperature=cond.temperature)
                     suite_runner = make_suite_runner(
                         workdir, suite_cmd, exp.verify.timeout_s)
 
@@ -621,6 +621,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         log_sink=readable_sink,
                         debug_sink=debug_sink,
                         cancel_event=cancel_event,
+                        temperature=cond.temperature,
                     )
 
                 rate_limited = result.trace.interrupted_reason == "rate_limit"

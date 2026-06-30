@@ -18,7 +18,8 @@ class FakeOpenCodeClient:
                  on_event: Callable[[dict], None],
                  log_sink: Callable[[str], None] | None = None,
                  debug_sink: Callable[[str], None] | None = None,
-                 cancel_event=None) -> RunResult:
+                 cancel_event=None,
+                 temperature: float | None = None) -> RunResult:
         if log_sink is not None:
             log_sink("[fake] starting task")
         on_event({"type": "message.start"})
