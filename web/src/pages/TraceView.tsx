@@ -148,6 +148,10 @@ export default function TraceView() {
             </Typography>
           </Stack>
         )}
+        {trace.data.temperature != null && (
+          <Chip size="small" variant="outlined"
+            label={`temperature: ${trace.data.temperature}`} sx={{ width: "fit-content" }} />
+        )}
         {obsTotal > 0 && (
           <Typography variant="caption" color="text.secondary">
             Context from tool outputs: ≈{formatTokens(obsTotal)} tok ({obsStr}) · real Σ input {formatTokens(realIn)}

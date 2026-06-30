@@ -45,6 +45,7 @@ export interface RunSummary {
   verify_passed_count?: number | null;
   verify_failed_count?: number | null;
   cost: number | null;
+  temperature?: number | null;   // sampling temperature requested for the run (null = provider default)
   tokens_in?: number | null;
   tokens_out?: number | null;
   tokens_reasoning?: number | null;
@@ -228,6 +229,7 @@ export interface Trace {
   // Model context window (max tokens) — auto-detected or overridden; basis for
   // the "% of context used" display. Null/absent when unknown.
   model_context_window?: number | null;
+  temperature?: number | null;   // requested sampling temperature (null = provider default)
   final_diff_summary: FinalDiffSummary | null;
   // Validity signals (Tasks A/B). `made_source_changes` is a metrics-only field;
   // for the trace, derive "no edits" from final_diff_summary.files.length.
