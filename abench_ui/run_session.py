@@ -80,6 +80,7 @@ class _PerRunPublishingClient:
         log_sink: Callable[[str], None] | None = None,
         debug_sink: Callable[[str], None] | None = None,
         cancel_event: "threading.Event | None" = None,
+        temperature: "float | None" = None,
     ) -> RunResult:
         # A condition×rep may invoke run_task MORE THAN ONCE: phased
         # orchestration drives the agent per phase (understand→plan→implement→
@@ -136,6 +137,7 @@ class _PerRunPublishingClient:
             log_sink=log_sink,
             debug_sink=debug_sink,
             cancel_event=cancel_event,
+            temperature=temperature,
         )
 
         tr = result.trace

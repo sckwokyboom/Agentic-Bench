@@ -56,7 +56,8 @@ class _SequenceClient:
         self._set_cancel = set_cancel
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None,
+                 temperature=None):
         self.calls += 1
         on_event({"type": "message.start", "attempt": self.calls})
         if log_sink is not None:

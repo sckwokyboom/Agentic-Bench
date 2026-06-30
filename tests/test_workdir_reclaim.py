@@ -60,7 +60,7 @@ def test_runner_reclaims_after_agent_run(tmp_path, monkeypatch):
     class _Client:
         def run_task(self, *, workdir, system_prompt, model, user_message,
                      timeout_s, agent_tools=None, on_event, log_sink=None,
-                     debug_sink=None, cancel_event=None):
+                     debug_sink=None, cancel_event=None, temperature=None):
             on_event({"type": "message.start"})
             return RunResult(
                 trace=Trace(started_at=0.0, ended_at=1.0, finished=True),

@@ -43,6 +43,8 @@ opencode:
       # file system)") and would shadow the baked cache.
 
 conditions:
+  # Optional per-condition `temperature: 0.0..2.0` (blank = provider default).
+  # Vary it across conditions to A/B sampling temperature itself.
   - {name: baseline,          augmentation: null, tools: []}
   - {name: augmented,         augmentation: ./slices/putValue-graph-slice.md, tools: []}
   - {name: augmented-verbose, augmentation: ./slices/putValue-graph-slice-verbose.md, tools: []}

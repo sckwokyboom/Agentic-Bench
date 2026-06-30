@@ -32,7 +32,8 @@ class _RaisingClient:
         self.workdir = None
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None,
+                 temperature=None):
         self.workdir = workdir
         raise RuntimeError("boom")
 
@@ -54,7 +55,7 @@ def test_cancel_saves_run_marked_truncated(tmp_path):
     class _CancellingClient:
         def run_task(self, *, workdir, system_prompt, model, user_message, timeout_s,
                      agent_tools=None, on_event, log_sink=None, debug_sink=None,
-                     cancel_event=None):
+                     cancel_event=None, temperature=None):
             ev.set()                       # user presses CANCEL mid-run
             return RunResult(trace=Trace(
                 steps=[Step(kind=StepKind.ASSISTANT_TEXT, ts=1.0, turn=0, text="hi")],

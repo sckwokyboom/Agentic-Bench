@@ -69,7 +69,8 @@ class _ServiceErrorClient:
     raw events (429 + 503), and writes a line through log_sink."""
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None,
+                 temperature=None):
         from abench.opencode_client import _count_service_errors
         from abench.opencode_client import RunResult
         from abench.trace_model import Trace
@@ -193,7 +194,8 @@ class _CancelAfterFirstClient(FakeOpenCodeClient):
         self._calls = 0
 
     def run_task(self, *, workdir, system_prompt, model, user_message,
-                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None):
+                 timeout_s, agent_tools=None, on_event, log_sink=None, debug_sink=None, cancel_event=None,
+                 temperature=None):
         self._calls += 1
         result = super().run_task(
             workdir=workdir, system_prompt=system_prompt, model=model,
@@ -292,7 +294,8 @@ def test_run_experiment_overlay_rendered_in_workdir(tmp_path, monkeypatch):
                      on_event: Callable[[dict], None],
                      log_sink: Callable[[str], None] | None = None,
                      debug_sink: Callable[[str], None] | None = None,
-                     cancel_event=None) -> RunResult:
+                     cancel_event=None,
+                     temperature=None) -> RunResult:
             rendered = Path(workdir) / "tool_config.txt"
             captured["exists"] = rendered.exists()
             if captured["exists"]:
@@ -351,7 +354,7 @@ def test_baseline_disables_gated_tools(tmp_path, monkeypatch):
     class _CaptureTools:
         def run_task(self, *, workdir, system_prompt, model, user_message,
                      timeout_s, agent_tools=None, on_event, log_sink=None,
-                     debug_sink=None, cancel_event=None):
+                     debug_sink=None, cancel_event=None, temperature=None):
             captured["tools"] = agent_tools
             on_event({"type": "message.start"})
             return RunResult(trace=Trace(started_at=0.0, ended_at=1.0, finished=True),
