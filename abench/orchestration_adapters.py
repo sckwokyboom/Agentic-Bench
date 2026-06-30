@@ -159,7 +159,7 @@ def extract_phase_text(trace: Trace) -> str:
 
 
 def make_phase_runner(client, *, workdir, system_prompt, model, timeout_s, on_event,
-                      cancel_event=None):
+                      cancel_event=None, temperature=None):
     """One opencode session per phase on the same workdir, tools scoped to the
     phase. Returns the phase trace + the agent's final text (the contract/plan).
 
@@ -177,7 +177,7 @@ def make_phase_runner(client, *, workdir, system_prompt, model, timeout_s, on_ev
             workdir=str(workdir), system_prompt=system_prompt, model=model,
             user_message=prompt, timeout_s=timeout_s,
             agent_tools={t: True for t in allowed_tools}, on_event=on_event,
-            cancel_event=cancel_event,
+            cancel_event=cancel_event, temperature=temperature,
         )
         tr = res.trace
         # ts = the phase's earliest step so the prompt sorts to the phase start
