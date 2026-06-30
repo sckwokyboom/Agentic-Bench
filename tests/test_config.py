@@ -115,3 +115,17 @@ def test_target_file_must_exist_relative_to_fixture(tmp_path):
     yaml_path.write_text(yaml_path.read_text().replace("a.py", "missing.py"))
     with pytest.raises(ValueError, match="target_file"):
         load_experiment(yaml_path)
+
+
+def test_condition_temperature_parses_and_defaults(tmp_path):
+    from abench.config import Condition
+    assert Condition(name="c").temperature is None
+    assert Condition(name="c", temperature=0.7).temperature == 0.7
+
+
+def test_condition_temperature_out_of_range_rejected():
+    from abench.config import Condition
+    with pytest.raises(Exception):
+        Condition(name="c", temperature=2.5)
+    with pytest.raises(Exception):
+        Condition(name="c", temperature=-0.1)

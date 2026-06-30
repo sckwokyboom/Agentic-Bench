@@ -115,6 +115,19 @@ class Condition(BaseModel):
             "test instrumentation. None = base system prompt unchanged (baseline)."
         ),
     )
+    temperature: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        title="Temperature",
+        description=(
+            "Sampling temperature for THIS condition's agent (0–2; lower = more "
+            "deterministic). Written into the run's opencode.json agent block and "
+            "forwarded to the provider verbatim. Blank = leave the provider "
+            "default (current behaviour). Useful as an A/B variable: e.g. a "
+            "temp=0 arm vs a temp=0.7 arm of the same task."
+        ),
+    )
 
 
 class ProviderCfg(BaseModel):
