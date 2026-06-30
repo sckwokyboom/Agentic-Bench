@@ -127,6 +127,7 @@ def build_opencode_config(
     model: str,
     system_prompt: str,
     agent_tools: dict[str, bool] | None = None,
+    temperature: float | None = None,
 ) -> dict:
     """Build the workdir-local ``opencode.json`` payload.
 
@@ -147,6 +148,10 @@ def build_opencode_config(
     # opencode (no overrides) so we skip writing a useless "tools": {} key.
     if agent_tools:
         agent_block["tools"] = agent_tools
+    # opencode's AgentConfig accepts `temperature`; forward it verbatim. Omit the
+    # key entirely when None so the provider default is used (output unchanged).
+    if temperature is not None:
+        agent_block["temperature"] = temperature
     config: dict = {
         "$schema": "https://opencode.ai/config.json",
         "model": model,
@@ -352,6 +357,7 @@ class OpenCodeClient(Protocol):
         user_message: str,
         timeout_s: int | None,
         agent_tools: "dict[str, bool] | None" = None,
+        temperature: "float | None" = None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         debug_sink: Callable[[str], None] | None = None,
@@ -399,6 +405,7 @@ class RealOpenCodeClient:
         user_message: str,
         timeout_s: int | None,
         agent_tools: "dict[str, bool] | None" = None,
+        temperature: "float | None" = None,
         on_event: Callable[[dict], None],
         log_sink: Callable[[str], None] | None = None,
         debug_sink: Callable[[str], None] | None = None,
@@ -427,7 +434,8 @@ class RealOpenCodeClient:
         # ── Approach A: write workdir-local config ────────────────────────
         workdir_path = Path(workdir)
         config_data = build_opencode_config(
-            self._cfg, model, system_prompt, agent_tools=agent_tools
+            self._cfg, model, system_prompt, agent_tools=agent_tools,
+            temperature=temperature,
         )
         (workdir_path / "opencode.json").write_text(
             json.dumps(config_data, indent=2), encoding="utf-8"
@@ -651,6 +659,7 @@ class RealOpenCodeClient:
         # run was configured with so the trace is never blank on this field.
         if not trace.model:
             trace.model = model
+        trace.temperature = temperature
         trace.started_at = started_at
         trace.ended_at = ended_at
         trace.finished = interrupted_reason is None

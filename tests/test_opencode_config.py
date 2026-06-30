@@ -180,3 +180,16 @@ def test_cache_mounts_expand_env_refs(monkeypatch):
     assert "/x:/opt/gt:ro" in cmd
     # The raw {env:...} form must NOT be in argv
     assert "{env:GT_HOME}:/opt/gt:ro" not in cmd
+
+
+def test_temperature_set_on_agent_block_when_provided():
+    cfg = OpenCodeCfg()
+    config = build_opencode_config(cfg, "openrouter/x", "sys", temperature=0.7)
+    assert config["agent"][cfg.agent]["temperature"] == 0.7
+
+
+def test_temperature_omitted_when_none_keeps_output_unchanged():
+    cfg = OpenCodeCfg()
+    config = build_opencode_config(cfg, "openrouter/x", "sys", temperature=None)
+    assert "temperature" not in config["agent"][cfg.agent]
+    assert config == build_opencode_config(cfg, "openrouter/x", "sys")
