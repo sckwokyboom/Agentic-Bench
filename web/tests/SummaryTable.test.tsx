@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import SummaryTable from "../src/components/SummaryTable";
-import type { Panel, PanelCondition, PanelMetric, RunSummary } from "../src/api/types";
+import type { Panel, PanelCondition, PanelMetric } from "../src/api/types";
 
 const m = (
   value: number, ratio: number | null = null,
@@ -71,7 +71,6 @@ const panel: Panel = {
 };
 
 const noop = () => {};
-const NONE = new Set<string>();
 
 function rgb(el: HTMLElement): { r: number; g: number; b: number } {
   const color = getComputedStyle(el).color;
@@ -81,7 +80,7 @@ function rgb(el: HTMLElement): { r: number; g: number; b: number } {
 }
 
 test("renders transposed columns: baseline reference + each condition with n", () => {
-  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} excluded={NONE} onToggleRun={noop} />);
+  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
   expect(screen.getByText(/baseline \(baseline\)/)).toBeInTheDocument();
   expect(screen.getByText("augmented")).toBeInTheDocument();
   expect(screen.getByText("forced")).toBeInTheDocument();
@@ -89,7 +88,7 @@ test("renders transposed columns: baseline reference + each condition with n", (
 });
 
 test("renders the four sections and verdict pills", () => {
-  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} excluded={NONE} onToggleRun={noop} />);
+  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
   expect(screen.getByText("summary")).toBeInTheDocument();
   expect(screen.getByText("outcome")).toBeInTheDocument();
   expect(screen.getByText(/cost · ratio vs baseline/)).toBeInTheDocument();
@@ -100,7 +99,7 @@ test("renders the four sections and verdict pills", () => {
 });
 
 test("pass rate as k / n; tokens/pass formatted; baseline labelled 'baseline'", () => {
-  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} excluded={NONE} onToggleRun={noop} />);
+  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
   expect(screen.getByText("3 / 5")).toBeInTheDocument();
   expect(screen.getByText("4 / 5")).toBeInTheDocument();
   expect(screen.getByText("1 / 5")).toBeInTheDocument();
@@ -110,14 +109,14 @@ test("pass rate as k / n; tokens/pass formatted; baseline labelled 'baseline'", 
 });
 
 test("cost cell shows ratio with [95% CI], leading zero preserved", () => {
-  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} excluded={NONE} onToggleRun={noop} />);
+  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
   // augmented duration: 1.18× [0.92–1.46] — leading zero, en-dash, brackets.
   expect(screen.getByText("1.18× [0.92–1.46]")).toBeInTheDocument();
   expect(screen.getByText("2.60× [1.50–4.10]")).toBeInTheDocument();
 });
 
 test("directional color: CI fully above 1 is bad (red), fully below 1 is good (green), crossing is neutral", () => {
-  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} excluded={NONE} onToggleRun={noop} />);
+  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
   // forced duration 2.60× [1.50–4.10] → costlier → error (red dominant)
   const bad = rgb(screen.getByText("2.60× [1.50–4.10]"));
   expect(bad.r).toBeGreaterThan(bad.g);
@@ -134,14 +133,14 @@ test("directional color: CI fully above 1 is bad (red), fully below 1 is good (g
 });
 
 test("outcome shows tests passed %, floored not rounded up", () => {
-  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} excluded={NONE} onToggleRun={noop} />);
+  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
   expect(screen.getByText("tests passed")).toBeInTheDocument();
   expect(screen.getByText("97.2%")).toBeInTheDocument();
   expect(screen.getAllByText("100%").length).toBeGreaterThanOrEqual(1);
 });
 
 test("behavior shares render as percentages", () => {
-  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} excluded={NONE} onToggleRun={noop} />);
+  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
   expect(screen.getByText("read")).toBeInTheDocument();
   expect(screen.getByText("bash")).toBeInTheDocument();
   expect(screen.getByText("52%")).toBeInTheDocument();   // forced bash share
@@ -150,40 +149,22 @@ test("behavior shares render as percentages", () => {
 
 test("aggregate toggle invokes onAggChange", async () => {
   const onAgg = vi.fn();
-  render(<SummaryTable panel={panel} agg="median" onAggChange={onAgg} excluded={NONE} onToggleRun={noop} />);
+  render(<SummaryTable panel={panel} agg="median" onAggChange={onAgg} />);
   await userEvent.click(screen.getByRole("button", { name: "mean" }));
   expect(onAgg).toHaveBeenCalledWith("mean");
 });
 
-const RUNS: RunSummary[] = [
-  { condition: "baseline", rep: 0, finished: true, interrupted_reason: null,
-    verify_status: "passed", success: true, started_at: "", duration_s: 1080,
-    n_steps: 100, n_tool_calls: 60, n_test_runs: 9, cost: 0.1,
-    tokens_in: 50000, tokens_out: 45000, n_files_edited: 4 },
-  { condition: "forced", rep: 0, finished: true, interrupted_reason: null,
-    verify_status: "failed", success: false, started_at: "", duration_s: 3852,
-    n_steps: 300, n_tool_calls: 186, n_test_runs: 25, cost: 0.4,
-    tokens_in: 200000, tokens_out: 178000, n_files_edited: 59, verify_failed_count: 67 },
-];
-
-test("raw runs table: checkbox toggles a run; excluded rows render unchecked", async () => {
-  const onToggle = vi.fn();
-  const excluded = new Set(["forced/0"]);
-  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} runs={RUNS} excluded={excluded} onToggleRun={onToggle} />);
-  expect(screen.getByText("Raw runs")).toBeInTheDocument();
-  const baselineBox = screen.getByLabelText("include baseline/0") as HTMLInputElement;
-  const forcedBox = screen.getByLabelText("include forced/0") as HTMLInputElement;
-  expect(baselineBox.checked).toBe(true);
-  expect(forcedBox.checked).toBe(false);            // excluded → unticked
-  expect(screen.getByText("fail · 67")).toBeInTheDocument();
-  await userEvent.click(baselineBox);
-  expect(onToggle).toHaveBeenCalledWith("baseline/0");
+test("points users to the Runs table for include/exclude (no embedded raw table)", () => {
+  render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
+  // The per-run include/exclude control now lives in the unified Runs table, not
+  // a duplicate table inside the comparison view.
+  expect(screen.queryByText("Raw runs")).toBeNull();
+  expect(screen.getByText(/untick a run in the runs table below/i)).toBeInTheDocument();
 });
 
-test("empty panel shows an explanatory empty-state and no raw table", () => {
+test("empty panel shows an explanatory empty-state", () => {
   const empty: Panel = { baseline: "baseline", agg: "median", total_runs: 0,
     valid_runs: 0, metric_order: [], conditions: [] };
-  render(<SummaryTable panel={empty} agg="median" onAggChange={noop} runs={RUNS} excluded={NONE} onToggleRun={noop} />);
+  render(<SummaryTable panel={empty} agg="median" onAggChange={noop} />);
   expect(screen.getByText(/no aggregate yet/i)).toBeInTheDocument();
-  expect(screen.queryByText("Raw runs")).toBeNull();
 });

@@ -187,9 +187,6 @@ export default function ExperimentResults() {
             panel={panel.data}
             agg={agg}
             onAggChange={setAgg}
-            runs={runs.data}
-            excluded={excluded}
-            onToggleRun={toggleRun}
             busy={panel.isFetching && !panel.isLoading}
           />
         )}
@@ -197,12 +194,17 @@ export default function ExperimentResults() {
 
       <Box>
         <Typography variant="subtitle2" gutterBottom>Runs</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+          Tick/untick to include a run in the comparison above; click a row to open its trace.
+        </Typography>
         {runs.isLoading && <CircularProgress size={20} />}
         {runs.error && <Alert severity="error">Failed to load runs.</Alert>}
         {runs.data && (
           <RunsTable
             rows={runs.data}
             reverify={reverifyProgress}
+            excluded={excluded}
+            onToggleRun={toggleRun}
             onOpen={(condition, rep) => navigate(`/runs/${name}/${condition}/${rep}${batchQs}`)}
           />
         )}

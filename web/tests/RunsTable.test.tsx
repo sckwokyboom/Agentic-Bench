@@ -72,3 +72,38 @@ test("re-verify: absent prop keeps the stored verify status (regression)", () =>
   expect(screen.queryByText(/verifying/i)).toBeNull();
   expect(screen.queryByText(/queued/i)).toBeNull();
 });
+
+test("no include/exclude checkbox column unless onToggleRun is given", () => {
+  render(<RunsTable rows={rows} onOpen={() => {}} />);
+  expect(screen.queryByLabelText(/include /i)).toBeNull();
+});
+
+test("checkbox column: toggling excludes a run without opening it; row click still opens", async () => {
+  const onOpen = vi.fn();
+  const onToggleRun = vi.fn();
+  const two: RunSummary[] = [
+    { ...rows[0]!, condition: "baseline", rep: 0 },
+    { ...rows[0]!, condition: "augmented", rep: 1, success: false },
+  ];
+  render(
+    <RunsTable
+      rows={two}
+      onOpen={onOpen}
+      excluded={new Set(["augmented/1"])}
+      onToggleRun={onToggleRun}
+    />,
+  );
+  const baseBox = screen.getByLabelText("include baseline/0") as HTMLInputElement;
+  const augBox = screen.getByLabelText("include augmented/1") as HTMLInputElement;
+  expect(baseBox.checked).toBe(true);
+  expect(augBox.checked).toBe(false);                 // excluded → unticked
+
+  // Clicking the checkbox toggles exclusion but must NOT open the run.
+  await userEvent.click(baseBox);
+  expect(onToggleRun).toHaveBeenCalledWith("baseline/0");
+  expect(onOpen).not.toHaveBeenCalled();
+
+  // Clicking the row body still opens the trace.
+  await userEvent.click(screen.getByText("augmented"));
+  expect(onOpen).toHaveBeenCalledWith("augmented", 1);
+});

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import {
   Table, TableHead, TableBody, TableRow, TableCell, Typography, Box, Tooltip,
-  Chip, ToggleButton, ToggleButtonGroup, Checkbox, LinearProgress,
+  Chip, ToggleButton, ToggleButtonGroup, LinearProgress,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
@@ -9,15 +9,12 @@ import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import BlockIcon from "@mui/icons-material/Block";
 import RemoveIcon from "@mui/icons-material/Remove";
 import { selectable } from "../theme";
-import type { Aggregate, Panel, PanelCondition, PanelMetric, RunSummary } from "../api/types";
+import type { Aggregate, Panel, PanelCondition, PanelMetric } from "../api/types";
 
 interface Props {
   panel: Panel;
   agg: Aggregate;
   onAggChange: (a: Aggregate) => void;
-  runs?: RunSummary[];
-  excluded: ReadonlySet<string>;
-  onToggleRun: (key: string) => void;
   /** panel is refetching (agg toggle / exclusion recompute) — show a thin bar. */
   busy?: boolean;
 }
@@ -135,9 +132,7 @@ function VerdictPill({ verdict }: { verdict: PanelCondition["verdict"] }) {
   return <Chip size="small" variant="outlined" icon={<RemoveIcon />} label="inconclusive" sx={{ height: 22 }} />;
 }
 
-export default function SummaryTable({
-  panel, agg, onAggChange, runs, excluded, onToggleRun, busy,
-}: Props) {
+export default function SummaryTable({ panel, agg, onAggChange, busy }: Props) {
   const baseName = panel.baseline;
   // Baseline is the reference column, first; the rest keep build_panel's order.
   const base = panel.conditions.find((c) => c.name === baseName);
@@ -337,59 +332,9 @@ export default function SummaryTable({
         {" — interrupted and crash runs are excluded from every aggregate above."}
       </Typography>
 
-      {/* ── Raw runs (include / exclude) ───────────────────────────────────── */}
-      {runs && runs.length > 0 && (
-        <Box sx={{ mt: 3 }}>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            Raw runs{" "}
-            <Box component="span" sx={{ color: "text.disabled", fontWeight: 400 }}>
-              — untick a run to drop it from the aggregates above (default: all included)
-            </Box>
-          </Typography>
-          <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "auto" }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell padding="checkbox" />
-                  <TableCell>condition</TableCell>
-                  <TableCell align="right">rep</TableCell>
-                  <TableCell>verify</TableCell>
-                  <TableCell align="right">duration</TableCell>
-                  <TableCell align="right">tokens</TableCell>
-                  <TableCell align="right">edits</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {[...runs]
-                  .sort((a, b2) => a.condition.localeCompare(b2.condition) || a.rep - b2.rep)
-                  .map((r) => {
-                    const key = `${r.condition}/${r.rep}`;
-                    const included = !excluded.has(key);
-                    const tokens = (r.tokens_in ?? 0) + (r.tokens_out ?? 0) + (r.tokens_reasoning ?? 0);
-                    return (
-                      <TableRow key={key} hover sx={included ? undefined : { opacity: 0.45, "& td": { textDecoration: "line-through" } }}>
-                        <TableCell padding="checkbox">
-                          <Checkbox
-                            size="small" checked={included}
-                            onChange={() => onToggleRun(key)}
-                            inputProps={{ "aria-label": `include ${key}` }}
-                            sx={{ textDecoration: "none" }}
-                          />
-                        </TableCell>
-                        <TableCell>{r.condition}</TableCell>
-                        <TableCell align="right">{r.rep}</TableCell>
-                        <TableCell><VerifyCell row={r} /></TableCell>
-                        <TableCell align="right">{r.duration_s == null ? "—" : `${Math.round(r.duration_s)}s`}</TableCell>
-                        <TableCell align="right">{tokens ? fmtTokens(tokens) : "—"}</TableCell>
-                        <TableCell align="right">{r.n_files_edited ?? "—"}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-              </TableBody>
-            </Table>
-          </Box>
-        </Box>
-      )}
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+        Untick a run in the Runs table below to drop it from these aggregates (recomputes immediately).
+      </Typography>
     </>
   );
 }
@@ -401,15 +346,4 @@ function LegendSwatch({ token, label }: { token: "success" | "error"; label: str
       {label}
     </Box>
   );
-}
-
-function VerifyCell({ row }: { row: RunSummary }) {
-  const s = row.verify_status;
-  if (s === "passed") return <Box component="span" sx={{ color: "success.main" }}>pass</Box>;
-  if (s === "failed") {
-    const n = row.verify_failed_count;
-    return <Box component="span" sx={{ color: "error.main" }}>{n != null ? `fail · ${n}` : "fail"}</Box>;
-  }
-  if (row.interrupted_reason) return <Box component="span" sx={{ color: "warning.main" }}>{row.interrupted_reason}</Box>;
-  return <Box component="span" sx={{ color: "text.disabled" }}>{s ?? "—"}</Box>;
 }
