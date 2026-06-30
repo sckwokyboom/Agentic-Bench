@@ -1,7 +1,8 @@
 import { type ReactNode } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Stack, Typography, CircularProgress, Alert, Box, Chip, Tooltip, LinearProgress } from "@mui/material";
+import { useNavigate, useParams, useSearchParams, Link as RouterLink } from "react-router-dom";
+import { Stack, Typography, CircularProgress, Alert, Box, Chip, Tooltip, LinearProgress, Link } from "@mui/material";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useTrace, useEvents, useRuns, useMetrics } from "../api/queries";
 import {
   turnsFromTrace, observationTokensByTool, observationTokensTotal, realInputTokensTotal,
@@ -41,8 +42,30 @@ export default function TraceView() {
   const metrics = useMetrics(name!, condition!, repN, batch);
   const runs = useRuns(name, batch);
 
-  if (trace.isLoading) return <CircularProgress />;
-  if (trace.error || !trace.data) return <Alert severity="error">Failed to load trace.</Alert>;
+  // Back to the comparison/metrics page for THIS experiment + batch (the batch
+  // is preserved, and the exclusion choice is restored there from localStorage).
+  const backToResults = (
+    <Link
+      component={RouterLink}
+      to={`/runs/${name}${batchQs}`}
+      variant="body2"
+      sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, alignSelf: "flex-start" }}
+    >
+      <ArrowBackIcon fontSize="inherit" /> Back to results · {name}
+    </Link>
+  );
+
+  if (trace.isLoading) {
+    return <Stack spacing={2}>{backToResults}<CircularProgress /></Stack>;
+  }
+  if (trace.error || !trace.data) {
+    return (
+      <Stack spacing={2}>
+        {backToResults}
+        <Alert severity="error">Failed to load trace.</Alert>
+      </Stack>
+    );
+  }
 
   const uiTurns = turnsFromTrace(trace.data);
   const rawByMsg = (mid: string | null) =>
@@ -86,6 +109,7 @@ export default function TraceView() {
       </Box>
 
       <Stack spacing={2} sx={{ flex: 1, minWidth: 0 }}>
+        {backToResults}
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
           <Typography variant="h5">{name} / {condition} / rep {repN}</Typography>
           <SafeTraceButton name={name!} condition={condition!} rep={repN} batch={batch} />
