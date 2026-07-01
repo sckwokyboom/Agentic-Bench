@@ -67,7 +67,9 @@ def _copy_tree(src: Path, dst: Path) -> None:
 
 def _git_init_commit(workdir: Path, message: str = "fixture") -> str:
     """Init a git repo in `workdir`, commit everything, return the HEAD sha.
-    Shared by fixture mode (create_workdir) and benchmark mode (run_benchmark)."""
+
+    Extracted from create_workdir so benchmark mode's run loop (added later in
+    Plan 2) can reuse the same "materialized dir -> committed workdir" step."""
     subprocess.run(["git", "init", "-q"], cwd=workdir, check=True)
     subprocess.run(["git", "add", "-A"], cwd=workdir, check=True)
     subprocess.run(["git", *_GIT_ID, "commit", "-q", "-m", message],
