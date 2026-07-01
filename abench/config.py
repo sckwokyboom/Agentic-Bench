@@ -661,8 +661,13 @@ def load_experiment(path: str | Path) -> Experiment:
         overlay = cond.get("overlay")
         cond["overlay"] = str((base / overlay).resolve()) if overlay else None
 
-    data["fixture_path"] = str((base / data["fixture_path"]).resolve())
-    data["reference_path"] = str((base / data["reference_path"]).resolve())
+    if data.get("fixture_path") is not None:
+        data["fixture_path"] = str((base / data["fixture_path"]).resolve())
+    if data.get("reference_path") is not None:
+        data["reference_path"] = str((base / data["reference_path"]).resolve())
+    bench = data.get("benchmark")
+    if bench and bench.get("dataset") is not None:
+        bench["dataset"] = str((base / bench["dataset"]).resolve())
     data["output_dir"] = str((base / data["output_dir"]).resolve())
 
     exp = Experiment(**data)
@@ -671,26 +676,39 @@ def load_experiment(path: str | Path) -> Experiment:
 
 
 def _validate(exp: Experiment) -> None:
-    if not exp.fixture_path.exists():
-        raise ValueError(f"fixture_path not found: {exp.fixture_path}")
-    if not exp.reference_path.exists():
-        raise ValueError(f"reference_path not found: {exp.reference_path}")
-    out = exp.output_dir.resolve()
-    ref = exp.reference_path.resolve()
-    if ref == out or str(ref).startswith(str(out) + "/"):
-        raise ValueError("reference_path must be outside output_dir (anti-leak)")
+    if exp.benchmark is None:
+        # Fixture mode (existing behaviour).
+        if not exp.fixture_path.exists():
+            raise ValueError(f"fixture_path not found: {exp.fixture_path}")
+        if not exp.reference_path.exists():
+            raise ValueError(f"reference_path not found: {exp.reference_path}")
+        out = exp.output_dir.resolve()
+        ref = exp.reference_path.resolve()
+        if ref == out or str(ref).startswith(str(out) + "/"):
+            raise ValueError("reference_path must be outside output_dir (anti-leak)")
+        if exp.target_file is not None:
+            full = exp.fixture_path / exp.target_file
+            if not full.is_file():
+                raise ValueError(
+                    f"target_file not found relative to fixture_path: {exp.target_file}"
+                )
+    else:
+        # Benchmark mode: adapter must be registered; dataset (if given) must exist.
+        from .bench import registry as _bench_registry
+        if exp.benchmark.adapter not in _bench_registry.available():
+            raise ValueError(
+                f"unknown benchmark adapter {exp.benchmark.adapter!r}; "
+                f"registered: {_bench_registry.available()}"
+            )
+        if exp.benchmark.dataset is not None and not exp.benchmark.dataset.exists():
+            raise ValueError(f"benchmark dataset not found: {exp.benchmark.dataset}")
+
     if not exp.conditions:
         raise ValueError("at least one condition required")
     names = [c.name for c in exp.conditions]
     if len(names) != len(set(names)):
         dupes = sorted({n for n in names if names.count(n) > 1})
         raise ValueError(f"duplicate condition name(s): {', '.join(dupes)}")
-    if exp.target_file is not None:
-        full = exp.fixture_path / exp.target_file
-        if not full.is_file():
-            raise ValueError(
-                f"target_file not found relative to fixture_path: {exp.target_file}"
-            )
     for cond in exp.conditions:
         if cond.overlay is not None and not Path(cond.overlay).is_dir():
             raise ValueError(f"overlay dir not found: {cond.overlay} (condition {cond.name})")
