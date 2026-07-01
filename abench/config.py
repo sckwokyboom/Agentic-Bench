@@ -627,6 +627,8 @@ class Experiment(BaseModel):
             )
         if has_fixture and self.reference_path is None:
             raise ValueError("fixture_path requires reference_path")
+        if has_bench and self.reference_path is not None:
+            raise ValueError("reference_path must be unset when benchmark is set")
         return self
 
 

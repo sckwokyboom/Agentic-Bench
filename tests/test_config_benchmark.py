@@ -82,6 +82,20 @@ def test_load_experiment_benchmark_yaml(tmp_path: Path):
     assert exp.fixture_path is None
 
 
+def test_benchmark_with_stray_reference_rejected():
+    with pytest.raises(Exception):
+        Experiment(
+            name="t",
+            reference_path="rf",
+            benchmark=BenchmarkCfg(adapter="smoke"),
+            task_prompt="p",
+            system_prompt="s",
+            model="m",
+            output_dir="out",
+            conditions=[Condition(name="baseline")],
+        )
+
+
 def test_load_experiment_unknown_adapter_rejected(tmp_path: Path):
     (tmp_path / "exp.yaml").write_text(
         "name: t\n"

@@ -1,3 +1,5 @@
+import pytest
+
 from abench.bench.base import (
     Instance, AgentView, TaskSpec, Anchors, EnvSpec, GradeResult,
     assert_no_oracle_leak,
@@ -53,3 +55,10 @@ def test_grade_result_carries_protocol_flag():
     assert g.evaluator == "e@1"
     assert g.official_report == {}
     assert g.abench == {}
+
+
+def test_guard_fires_on_injected_oracle_attr():
+    view = _make_instance().agent_view()
+    object.__setattr__(view, "oracle", {"gold_patch": "LEAK"})
+    with pytest.raises(AssertionError, match="oracle"):
+        assert_no_oracle_leak(view)
