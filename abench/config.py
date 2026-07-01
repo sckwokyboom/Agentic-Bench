@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 DEFAULT_TEST_PATTERNS = [
     "pytest",
@@ -463,18 +463,44 @@ class OrchestrationCfg(BaseModel):
     )
 
 
+class BenchmarkCfg(BaseModel):
+    """Run a standard benchmark (SWE-bench-java, JavaBench, …) instead of a local
+    fixture. The adapter supplies per-instance working trees and grading."""
+    adapter: str = Field(
+        title="Adapter",
+        description="Registered benchmark adapter id (e.g. 'swebench-java', 'javabench', 'smoke').",
+    )
+    dataset: Path | None = Field(
+        default=None,
+        title="Dataset",
+        description="Path to the benchmark dataset, resolved relative to the experiment file.",
+    )
+    subset: dict[str, str] = Field(
+        default_factory=dict,
+        title="Subset",
+        description="Filter passed to the adapter's load() (e.g. {repo: fasterxml/jackson-core}).",
+    )
+
+
 class Experiment(BaseModel):
     name: str = Field(
         title="Name",
         description="Experiment name.",
     )
-    fixture_path: Path = Field(
+    fixture_path: Path | None = Field(
+        default=None,
         title="Fixture path",
-        description="Working tree the agent edits (the stripped project).",
+        description="Working tree the agent edits (the stripped project). Omit when `benchmark` is set.",
     )
-    reference_path: Path = Field(
+    reference_path: Path | None = Field(
+        default=None,
         title="Reference path",
-        description="Ground-truth tree for comparison (the original project).",
+        description="Ground-truth tree for comparison (the original project). Omit when `benchmark` is set.",
+    )
+    benchmark: BenchmarkCfg | None = Field(
+        default=None,
+        title="Benchmark",
+        description="Run a standard benchmark instead of fixture_path/reference_path.",
     )
     task_prompt: str = Field(
         title="Task prompt",
@@ -590,6 +616,18 @@ class Experiment(BaseModel):
         title="Target methods",
         description="Method names under test — optional, for analysis.",
     )
+
+    @model_validator(mode="after")
+    def _check_task_source(self) -> "Experiment":
+        has_fixture = self.fixture_path is not None
+        has_bench = self.benchmark is not None
+        if has_fixture == has_bench:
+            raise ValueError(
+                "set EITHER fixture_path (+reference_path) OR benchmark — exactly one"
+            )
+        if has_fixture and self.reference_path is None:
+            raise ValueError("fixture_path requires reference_path")
+        return self
 
 
 def _resolve_text(value: str | None, base: Path) -> str | None:
