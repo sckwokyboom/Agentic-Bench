@@ -41,3 +41,10 @@ def test_load_per_class_instances(tmp_path: Path):
     assert not hasattr(inst.agent_view(), "oracle")
     # prompt uses code_context (sanctioned), not the raw `code`
     assert "Coordinate" in inst.task.prompt_text
+
+
+def test_load_requires_dataset():
+    import pytest
+    adapter = registry.get_adapter("javabench")
+    with pytest.raises(ValueError, match="dataset"):
+        list(adapter.load(None, {"project": "PA19"}))

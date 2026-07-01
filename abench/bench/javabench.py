@@ -36,6 +36,10 @@ class JavaBenchAdapter:
     id = "javabench"
 
     def load(self, dataset: Path | None, subset: dict[str, Any] | None) -> Iterable[Instance]:
+        if dataset is None:
+            raise ValueError(
+                "javabench adapter requires 'dataset' (path to a JavaBench checkout)"
+            )
         root = Path(dataset)
         subset = subset or {}
         context = subset.get("context", _DEFAULT_CONTEXT)
