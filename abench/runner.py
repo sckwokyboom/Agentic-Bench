@@ -354,6 +354,17 @@ def run_experiment(
     # Resolve overlay_env once before any run starts — fail-fast on missing host env.
     overlay_env = {k: expand_env_refs(v) for k, v in exp.overlay_env.items()}
 
+    # Benchmark mode: instances + grading come from the adapter, not a local
+    # fixture. Route to the benchmark loop, reusing the setup above (client,
+    # mcfg, overlay_env, root), and skip the fixture-only baseline-verify + loop.
+    if exp.benchmark is not None:
+        from .bench.run import run_benchmark
+        run_benchmark(exp, client, mcfg, overlay_env, root,
+                      emit=emit, cancel_event=cancel_event,
+                      context_window=context_window)
+        _log(f"[abench] benchmark experiment={exp.name} finished → {root}")
+        return root
+
     plan = _plan if _plan is not None else compute_plan(exp)
 
     # Baseline pre-flight verify

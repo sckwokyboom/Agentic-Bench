@@ -111,7 +111,8 @@ def main(argv: list[str] | None = None) -> int:
             progress=_cli_progress,
         )
         print(f"batch: {root.name}")
-        write_report(root)
+        if exp.benchmark is None:
+            write_report(root)
         return 0
 
     if args.cmd == "verify":
