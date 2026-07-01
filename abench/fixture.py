@@ -65,6 +65,19 @@ def _copy_tree(src: Path, dst: Path) -> None:
             shutil.copy2(item, target)
 
 
+def _git_init_commit(workdir: Path, message: str = "fixture") -> str:
+    """Init a git repo in `workdir`, commit everything, return the HEAD sha.
+    Shared by fixture mode (create_workdir) and benchmark mode (run_benchmark)."""
+    subprocess.run(["git", "init", "-q"], cwd=workdir, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=workdir, check=True)
+    subprocess.run(["git", *_GIT_ID, "commit", "-q", "-m", message],
+                   cwd=workdir, check=True)
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=workdir,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+
 def create_workdir(fixture_path: Path, parent: Path | None = None,
                    overlay_dir: Path | None = None,
                    overlay_env: dict[str, str] | None = None) -> tuple[Path, str]:
@@ -82,12 +95,7 @@ def create_workdir(fixture_path: Path, parent: Path | None = None,
         if overlay_dir is not None:
             _apply_overlay(workdir, Path(overlay_dir), overlay_env or {})
 
-        subprocess.run(["git", "init", "-q"], cwd=workdir, check=True)
-        subprocess.run(["git", "add", "-A"], cwd=workdir, check=True)
-        subprocess.run(["git", *_GIT_ID, "commit", "-q", "-m", "fixture"],
-                       cwd=workdir, check=True)
-        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=workdir,
-                             capture_output=True, text=True, check=True).stdout.strip()
+        sha = _git_init_commit(workdir)
         return workdir, sha
     except BaseException:
         shutil.rmtree(workdir, ignore_errors=True)
