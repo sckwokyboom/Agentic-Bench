@@ -2,8 +2,9 @@
 
 **Date:** 2026-07-01
 **Status:** Approved design (pre-implementation-plan)
-**First target:** SWE-bench-java-verified (91 instances). **Second target (future):** Java-Bench (OO code-gen shape).
-**Pilot slice:** `fasterxml/jackson-core` (23 instances, 1 official image).
+**Phase 1 (initial implementation):** baseline agent, no augmentation, on **SWE-bench-java-verified** (91 inst) AND **JavaBench** (4 Gradle projects, OO code-gen). De-risks the universal seam across two different task shapes with the simplest agent.
+**Phase 2 (separate experimental branch, deferred):** test-anchored tipper (§6) as its own A/B study on top of the validated layer.
+**Phase-1 pilot slices:** SWE — `fasterxml/jackson-core` (23 inst, 1 official image); JavaBench — one project (e.g. `PA19`, selective-context).
 
 ---
 
@@ -101,6 +102,8 @@ This structurally eliminates the "look up the upstream fix" leakage class — wh
 
 ## 6. Component: test-anchored tipper (agent-repro, issue-only) — the research core
 
+> **Phase 2 — deferred to a separate experimental branch.** Not part of the initial implementation. This design is retained as the record for that study; Phase 1 ships baseline-only (§9). The point of a separate branch is to actually measure what the augmentation yields, in isolation, on top of a validated baseline layer.
+
 **Anchoring setting: agent-repro, issue-only — the only tipper arm.** This sits **inside** the standard SWE-bench setting, so it is honest and leaderboard-comparable:
 
 - Agent input is exactly `problem_statement` + `repo@base_commit` (canonical).
@@ -144,12 +147,15 @@ This structurally eliminates the "look up the upstream fix" leakage class — wh
 
 Mostly reuse. `metrics.py` unchanged for tokens / tool-calls / steps / timings / diff-stats / cheating. Added `metrics.json` fields: `instance_id`, `repo`, `official.resolved`, `abench.regressions_introduced`, `repro_reproduced`, `standard_protocol`, `evaluator_pin`. Traces: `trace_stitch` / `safe_trace` unchanged; repro and tipper-probe events flow through opencode events; the runtime-corridor card (`runtime_evidence`) attaches to the trace as `phased_runtime` does today. `report.py` / `render_results` extended: per-instance → per-repo → overall aggregation; **headline = official resolved-rate + `tipper − baseline` delta with CIs, stratified by repo** (Jackson dominance ⇒ report per-repo, not just pooled); abench regression-rate as a secondary, clearly-labelled column. Trace analysis uses the same tooling, now across benchmark instances.
 
-## 9. Pilot scope
+## 9. Phasing & pilot scope
 
-- Dataset: `swe-bench-java-verified.json` (downloaded), subset `fasterxml/jackson-core` (23 instances, 1 official image).
-- Arms: `baseline` (issue-only) vs `tipper-anchored` (agent-repro, issue-only).
-- Metric: official resolved-rate (both arms) + delta; abench regression-rate secondary.
-- Success of the pilot: the harness runs end-to-end on jackson-core with `standard_protocol: true`, produces an official verdict matching the official harness on a spot-check, and yields interpretable baseline-vs-tipper numbers. If the delta signal is real → extend to the other 5 repos.
+**Phase 1 (initial implementation) — baseline agent on both benches, no augmentation.** Proves the universal seam across two different task shapes (issue-resolving + codegen) with the simplest agent, before any investment in the tipper. Condition set = `baseline` only.
+- **SWE-bench-java:** subset `fasterxml/jackson-core` (23 inst, 1 official image). Input: issue + repo@base (issue-only). Verdict: official evaluator → resolved-rate.
+- **JavaBench:** one project (e.g. `PA19`, selective-context). Input: skeleton + context + provided tests. Verdict: `evaluation.py` class-wise/test-wise Pass@1 (see §12).
+- Both carry `standard_protocol: true`; abench metrics/traces alongside; egress-locked.
+- Phase-1 success: end-to-end run on both, each verdict matching its official grader on a spot-check, interpretable per-repo/per-project numbers. Then scale SWE to the other 5 repos / JavaBench to the other 3 projects.
+
+**Phase 2 (separate branch, later) — test-anchored tipper (§6)** as its own A/B study (`baseline` vs `tipper-anchored`) on top of the validated Phase-1 layer, to isolate the augmentation delta.
 
 ## 10. Risks & open questions (for the plan)
 
@@ -166,3 +172,12 @@ Mostly reuse. `metrics.py` unchanged for tokens / tool-calls / steps / timings /
 - No with-tests / test-exposing arm under the SWE name.
 - No rebuild of the condition / orchestration / trace systems.
 - No full-suite grading by default (scoped regression only), to stay resource-light.
+
+## 12. JavaBench adapter — grounded facts (from the cloned repo)
+
+Repo `java-bench/JavaBench` (ASE 2024, arXiv 2406.12902). **Gradle** build (no Maven). 4 self-contained projects `PA19–PA22`; each ships as `PAxx/` (skeleton — stubbed classes, tests present, `gradlew`), `PAxx-Solution/` (canonical = **gold → OracleView**), `PAxx-Context/`.
+
+- **Datasets** (`datasets/<context>/data-PAxx.jsonl`, ~10 class-records/project): fields `task_id` ("PA19/Cell.java"), `target` ("game/map/cells/Cell.java"), `code` (canonical class impl → **OracleView**), `code_context` (dependency signatures → AgentView). Context settings `minimum` / `selective` / `maximum` (selective ≈ signatures — the paper's recommended balance).
+- **Tests** (`datasets/testcase/test-PAxx.jsonl`): `test_id`, `target`, `parents`, `full_deps`, `incremental_deps`. The suite is **provided** to the agent (AgentView) — there is **no test-leakage axis here**; that axis is SWE-specific. The hidden artifact is the canonical implementation.
+- **Grader** (`evaluation.py` + `app.test_env.TestEnv`): `replace(target, code)` swaps a generated class into the canonical solution, `compile()`, `run_test(target)` → `(n_pass, n_total)`. Two granularities: class-wise (`evaluate_single_class`) and test-wise (`evaluate_test_suite`, full/incremental deps). Metric Pass@k. This IS its academic criterion → delegate to it (dual-grading §7).
+- **Adapter mapping:** `env` = per-project Gradle image; `materialize` = the `PAxx` skeleton tree; `task` = codegen spec (skeleton + `code_context` + Javadoc, per context setting); `anchors` = the provided test suite; `grade` = wrap `evaluation.py`. From the harness's POV the agent "edits files → diff", identical to SWE — only the prompt shape, the grader, and the AgentView/OracleView contents differ. This is the concrete validation that the seam (§4) spans both benchmark forms.
