@@ -102,3 +102,31 @@ def test_run_benchmark_cleans_up_workdirs(tmp_path: Path):
     run_benchmark(exp, _SolvingClient(), _mcfg(), {}, root)
     after = set(glob.glob(pat))
     assert after <= before  # no leaked per-run tempdir
+
+
+def test_run_benchmark_writes_summary(tmp_path: Path):
+    exp = _bench_exp(tmp_path)
+    root = tmp_path / "root"; root.mkdir()
+    run_benchmark(exp, _SolvingClient(), _mcfg(), {}, root)
+
+    summary = json.loads((root / "benchmark_summary.json").read_text())
+    assert summary["adapter"] == "smoke"
+    assert summary["n_runs"] == 1
+    assert summary["n_errors"] == 0
+    assert summary["resolved_rate"] == 1.0
+    assert summary["runs"][0]["instance_id"] == "smoke-1"
+    assert summary["runs"][0]["condition"] == "baseline"
+    assert summary["runs"][0]["resolved"] is True
+
+
+def test_run_benchmark_summary_records_errors(tmp_path: Path):
+    exp = _bench_exp(tmp_path)
+    root = tmp_path / "root"; root.mkdir()
+    run_benchmark(exp, _RaisingClient(), _mcfg(), {}, root)
+
+    summary = json.loads((root / "benchmark_summary.json").read_text())
+    assert summary["n_runs"] == 1
+    assert summary["n_errors"] == 1
+    assert summary["resolved_rate"] == 0.0          # no scored runs
+    assert summary["runs"][0]["resolved"] is None
+    assert "error" in summary["runs"][0]

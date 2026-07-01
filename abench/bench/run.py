@@ -43,6 +43,7 @@ def run_benchmark(exp, client, mcfg, overlay_env: dict[str, str], root: Path,
     instances = list(adapter.load(exp.benchmark.dataset, exp.benchmark.subset or None))
     plan = expand_plan(exp, instances)
 
+    summary: list[dict] = []
     for run in plan:
         if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
             break
@@ -102,10 +103,35 @@ def run_benchmark(exp, client, mcfg, overlay_env: dict[str, str], root: Path,
             (rundir / "metrics.json").write_text(json.dumps(metrics, indent=2))
             emit({"phase": "bench_run", "instance": inst.instance_id,
                   "condition": cond.name, "rep": rep, "resolved": grade.resolved})
+            summary.append({
+                "instance_id": inst.instance_id,
+                "condition": cond.name,
+                "rep": rep,
+                "resolved": grade.resolved,
+            })
         except Exception as exc:
             (rundir / "error.log").write_text("".join(traceback.format_exception(exc)))
             emit({"phase": "bench_run_error", "instance": inst.instance_id,
                   "condition": cond.name, "rep": rep, "error": repr(exc)})
+            summary.append({
+                "instance_id": inst.instance_id,
+                "condition": cond.name,
+                "rep": rep,
+                "resolved": None,
+                "error": repr(exc),
+            })
         finally:
             if workdir is not None:
                 cleanup(workdir)
+
+    resolved_true = sum(1 for r in summary if r["resolved"] is True)
+    scored = sum(1 for r in summary if r["resolved"] is not None)
+    n_errors = sum(1 for r in summary if "error" in r)
+    (root / "benchmark_summary.json").write_text(json.dumps({
+        "experiment": exp.name,
+        "adapter": adapter.id,
+        "n_runs": len(summary),
+        "n_errors": n_errors,
+        "resolved_rate": (resolved_true / scored) if scored else 0.0,
+        "runs": summary,
+    }, indent=2))
