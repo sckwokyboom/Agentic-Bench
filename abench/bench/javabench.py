@@ -69,8 +69,12 @@ class JavaBenchAdapter:
                     },
                 )
 
-    def materialize(self, view: AgentView, workdir: Path) -> None:  # Task 3
-        raise NotImplementedError
+    def materialize(self, view: AgentView, workdir: Path) -> None:
+        src = Path(view.env.source_dir)
+        shutil.copytree(src, workdir, dirs_exist_ok=True)
+        gitdir = Path(workdir) / ".git"
+        if gitdir.exists():
+            shutil.rmtree(gitdir)
 
     def grade(self, inst: Instance, source_diff: str, workdir: Path) -> GradeResult:  # Task 4
         raise NotImplementedError

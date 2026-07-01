@@ -48,3 +48,22 @@ def test_load_requires_dataset():
     adapter = registry.get_adapter("javabench")
     with pytest.raises(ValueError, match="dataset"):
         list(adapter.load(None, {"project": "PA19"}))
+
+
+def test_materialize_copies_skeleton_only(tmp_path: Path):
+    root = _fake_checkout(tmp_path)
+    # add a marker file into the skeleton and into the canonical
+    (root / "projects" / "PA19" / "build.gradle").write_text("// skel\n")
+    (root / "projects" / "PA19-Solution" / "SECRET.java").write_text("gold\n")
+    adapter = registry.get_adapter("javabench")
+    inst = list(adapter.load(root, {"project": "PA19"}))[0]
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    adapter.materialize(inst.agent_view(), workdir)
+
+    assert (workdir / "build.gradle").read_text() == "// skel\n"
+    # canonical/gold must NOT be present anywhere in the workdir
+    assert not (workdir / "SECRET.java").exists()
+    assert not any(p.name == "SECRET.java" for p in workdir.rglob("*"))
+    assert not (workdir / ".git").exists()
