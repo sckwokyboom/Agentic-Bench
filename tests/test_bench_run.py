@@ -130,3 +130,12 @@ def test_run_benchmark_summary_records_errors(tmp_path: Path):
     assert summary["resolved_rate"] == 0.0          # no scored runs
     assert summary["runs"][0]["resolved"] is None
     assert "error" in summary["runs"][0]
+
+
+def test_run_benchmark_passes_context_window_to_trace(tmp_path: Path):
+    exp = _bench_exp(tmp_path)
+    root = tmp_path / "root"; root.mkdir()
+    run_benchmark(exp, _SolvingClient(), _mcfg(), {}, root, context_window=4321)
+    rundir = root / "smoke-1" / "baseline" / "rep_0"
+    trace = json.loads((rundir / "trace.json").read_text())
+    assert trace["model_context_window"] == 4321

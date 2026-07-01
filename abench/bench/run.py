@@ -3,7 +3,10 @@ instance via its adapter and grades via adapter.grade (dual-grading). Kept
 separate from the fixture-mode _run_one so the working fixture path is untouched.
 
 DEFERRED (later plans): retry / rate-limit / idle-timeout parity, isolation
-ground-rules + nonce in the system prompt, per-condition tool gating."""
+ground-rules + nonce in the system prompt, per-condition tool gating,
+per-condition system_prompt / system_augmentation overrides (benchmark mode
+uses only exp.system_prompt), overlay_env application (accepted for signature
+parity, not yet consumed)."""
 from __future__ import annotations
 
 import dataclasses
@@ -81,6 +84,11 @@ def run_benchmark(exp, client, mcfg, overlay_env: dict[str, str], root: Path,
                 )
             finally:
                 events_file.close()
+
+            # Record the model's context window so the UI can show "% of context
+            # used" (parity with fixture mode's runner._run_one).
+            if context_window is not None and result.trace.model_context_window is None:
+                result.trace.model_context_window = context_window
 
             patch = diff_workdir(workdir)
             (rundir / "changes.patch").write_text(patch)
