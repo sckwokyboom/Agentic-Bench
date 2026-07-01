@@ -36,8 +36,20 @@ def test_agent_view_carries_task_and_anchors():
     assert view.env.build_system == "maven"
 
 
+def test_guard_ignores_marker_word_in_prompt_text():
+    inst = Instance(
+        instance_id="x-2", repo="r",
+        task=TaskSpec(prompt_text="Fix the gold_patch method and the hidden_test_patch"),
+        anchors=Anchors(), env=EnvSpec(image="i", build_system="none"),
+    )
+    # Must NOT raise: marker words in prompt text are legitimate content.
+    assert_no_oracle_leak(inst.agent_view())
+
+
 def test_grade_result_carries_protocol_flag():
     g = GradeResult(resolved=True, evaluator="e@1", standard_protocol=True)
     assert g.resolved is True
     assert g.standard_protocol is True
+    assert g.evaluator == "e@1"
+    assert g.official_report == {}
     assert g.abench == {}
