@@ -62,3 +62,8 @@ def test_guard_fires_on_injected_oracle_attr():
     object.__setattr__(view, "oracle", {"gold_patch": "LEAK"})
     with pytest.raises(AssertionError, match="oracle"):
         assert_no_oracle_leak(view)
+
+
+def test_envspec_source_dir_default_and_set():
+    assert EnvSpec(image="i", build_system="none").source_dir is None
+    assert EnvSpec(image="i", build_system="gradle", source_dir="/skel").source_dir == "/skel"

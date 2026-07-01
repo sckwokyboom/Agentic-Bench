@@ -34,6 +34,8 @@ class EnvSpec:
     build_system: Literal["maven", "gradle", "none"]
     module_map: dict[str, str] = field(default_factory=dict)
     workdir_mount: str = "/work"
+    source_dir: str | None = None  # host dir to materialize the workdir from (a
+    # skeleton project). Agent-safe: never points at the gold/canonical solution.
 
 
 @dataclass(frozen=True)
