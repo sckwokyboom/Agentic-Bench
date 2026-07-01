@@ -34,6 +34,11 @@ class _SolvingClient:
         return FakeOpenCodeClient().run_task(**kwargs)
 
 
+class _RaisingClient:
+    def run_task(self, **kwargs):
+        raise RuntimeError("boom")
+
+
 def test_safe_instance_dirname():
     assert _safe_instance_dirname("apache__dubbo-10638") == "apache__dubbo-10638"
     assert _safe_instance_dirname("PA19/Cell.java") == "PA19_Cell.java"
@@ -73,3 +78,27 @@ def test_run_benchmark_unsolved(tmp_path: Path):
     assert grade["resolved"] is False
     metrics = json.loads((rundir / "metrics.json").read_text())
     assert metrics["success"] is False
+
+
+def test_run_benchmark_records_error_and_continues(tmp_path: Path):
+    exp = _bench_exp(tmp_path)
+    root = tmp_path / "root"
+    root.mkdir()
+    run_benchmark(exp, _RaisingClient(), _mcfg(), {}, root)  # must NOT raise
+    rundir = root / "smoke-1" / "baseline" / "rep_0"
+    assert (rundir / "error.log").exists()
+    assert "boom" in (rundir / "error.log").read_text()
+
+
+def test_run_benchmark_cleans_up_workdirs(tmp_path: Path):
+    import glob
+    import os
+    import tempfile as _tmp
+    pat = os.path.join(_tmp.gettempdir(), "abench-bench-*")
+    before = set(glob.glob(pat))
+    exp = _bench_exp(tmp_path)
+    root = tmp_path / "root"
+    root.mkdir()
+    run_benchmark(exp, _SolvingClient(), _mcfg(), {}, root)
+    after = set(glob.glob(pat))
+    assert after <= before  # no leaked per-run tempdir
