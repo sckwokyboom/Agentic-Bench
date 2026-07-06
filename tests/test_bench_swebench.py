@@ -143,3 +143,68 @@ def test_split_empty_and_source_only():
     only_src = "diff --git a/src/main/java/A.java b/src/main/java/A.java\n@@ -1 +1 @@\n-a\n+b\n"
     source, test = sj.split_source_test_diff(only_src)
     assert "A.java" in source and test == ""
+
+
+def test_split_space_in_test_path_does_not_leak():
+    # git does NOT quote plain spaces; the agent's own test file with a space must
+    # still be classified as TEST (never leak into the graded source-diff).
+    d = (
+        "diff --git a/src/test/java/com/x/A Test.java b/src/test/java/com/x/A Test.java\n"
+        "--- a/src/test/java/com/x/A Test.java\n"
+        "+++ b/src/test/java/com/x/A Test.java\n"
+        "@@ -1 +1,2 @@\n x\n+y\n"
+    )
+    source, test = sj.split_source_test_diff(d)
+    assert "A Test.java" in test
+    assert "A Test.java" not in source          # firewall: NOT in the graded bucket
+
+
+def test_split_space_in_source_path_still_graded():
+    d = (
+        "diff --git a/src/main/java/com/x/A B.java b/src/main/java/com/x/A B.java\n"
+        "--- a/src/main/java/com/x/A B.java\n"
+        "+++ b/src/main/java/com/x/A B.java\n"
+        "@@ -1 +1 @@\n-a\n+b\n"
+    )
+    source, test = sj.split_source_test_diff(d)
+    assert "A B.java" in source
+    assert test == ""
+
+
+def test_split_integration_test_is_test():
+    d = (
+        "diff --git a/jib-core/src/integration-test/java/com/x/LocalRegistry.java "
+        "b/jib-core/src/integration-test/java/com/x/LocalRegistry.java\n"
+        "--- a/jib-core/src/integration-test/java/com/x/LocalRegistry.java\n"
+        "+++ b/jib-core/src/integration-test/java/com/x/LocalRegistry.java\n"
+        "@@ -1 +1,2 @@\n x\n+y\n"
+    )
+    source, test = sj.split_source_test_diff(d)
+    assert "LocalRegistry.java" in test
+    assert "LocalRegistry.java" not in source
+
+
+def test_split_rename_to_test_path_is_test():
+    # rename-only section (no @@ hunk): classify by the NEW (rename to) path.
+    d = (
+        "diff --git a/src/main/java/Helper.java b/src/test/java/HelperTest.java\n"
+        "similarity index 100%\n"
+        "rename from src/main/java/Helper.java\n"
+        "rename to src/test/java/HelperTest.java\n"
+    )
+    source, test = sj.split_source_test_diff(d)
+    assert "src/test/java/HelperTest.java" in test
+    assert "Helper" not in source
+
+
+def test_split_deleted_test_file_is_test():
+    d = (
+        "diff --git a/src/test/java/GoneTest.java b/src/test/java/GoneTest.java\n"
+        "deleted file mode 100644\n"
+        "--- a/src/test/java/GoneTest.java\n"
+        "+++ /dev/null\n"
+        "@@ -1 +0,0 @@\n-x\n"
+    )
+    source, test = sj.split_source_test_diff(d)
+    assert "GoneTest.java" in test
+    assert "GoneTest.java" not in source

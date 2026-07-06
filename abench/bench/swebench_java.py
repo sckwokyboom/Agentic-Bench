@@ -65,43 +65,73 @@ def _build_prompt(rec: dict) -> str:
     )
 
 
+# Java/Maven/Gradle test source roots (jib uses a real src/integration-test/ Gradle
+# source set; src/it is Maven's invoker convention). Matched with a leading "/" so a
+# bare "src/test/..." path (no leading slash) still hits "/src/test/".
+_TEST_DIR_MARKERS = ("/src/test/", "/src/integration-test/", "/src/it/")
+
+
 def _is_test_path(path: str) -> bool:
+    """True if a repo-relative path is a TEST file (never graded, spec §7)."""
     p = path.replace("\\", "/")
-    return (
-        "/src/test/" in p
-        or p.startswith("src/test/")
-        or p.endswith("Test.java")
-        or p.endswith("Tests.java")
-        or p.endswith("IT.java")
-    )
+    if not p:
+        return False
+    q = "/" + p
+    if any(m in q for m in _TEST_DIR_MARKERS):
+        return True
+    return p.endswith("Test.java") or p.endswith("Tests.java") or p.endswith("IT.java")
+
+
+def _section_path(section: str) -> str | None:
+    """The repo-relative path a single diff section targets. Robust to spaces (git
+    leaves plain spaces unquoted) by reading LINE-ANCHORED markers instead of
+    splitting the `diff --git` header. Returns None if no path can be resolved."""
+    lines = section.splitlines()
+    for line in lines:                       # modify/new file, or rename (new path)
+        if line.startswith("+++ b/"):
+            return line[6:].split("\t", 1)[0]
+        if line.startswith("rename to "):
+            return line[len("rename to "):].split("\t", 1)[0]
+    for line in lines:                       # deleted file: +++ is /dev/null
+        if line.startswith("--- a/"):
+            return line[6:].split("\t", 1)[0]
+    for line in lines:                       # fallback: minimal/degenerate diff header
+        if line.startswith("diff --git "):
+            parts = line.split()
+            if len(parts) >= 4 and parts[3].startswith("b/"):
+                return parts[3][2:]
+    return None
 
 
 def split_source_test_diff(unified_diff: str) -> tuple[str, str]:
     """Split a unified git diff into (source_diff, test_diff) by per-file section.
-    Test files (src/test/ roots, *Test.java/*Tests.java/*IT.java) go to test_diff;
-    everything else to source_diff. Only source_diff is ever graded (spec §7)."""
+    Test files (src/test | src/integration-test | src/it roots, or
+    *Test.java/*Tests.java/*IT.java) go to test_diff; everything else to source_diff.
+    Only source_diff is ever graded (spec §7, invariant 2).
+
+    FIREWALL SAFETY: a section whose path cannot be resolved defaults to test_diff
+    (excluded from grading) — an unclassifiable edit is NEVER silently leaked into
+    the graded bucket."""
     if not unified_diff.strip():
         return "", ""
-    source_parts: list[str] = []
-    test_parts: list[str] = []
+    sections: list[str] = []
     current: list[str] = []
-    is_test = False
-
-    def _flush() -> None:
-        if current:
-            (test_parts if is_test else source_parts).append("".join(current))
-
     for line in unified_diff.splitlines(keepends=True):
         if line.startswith("diff --git "):
-            _flush()
+            if current:
+                sections.append("".join(current))
             current = [line]
-            # "diff --git a/<path> b/<path>" — classify by the b/ path.
-            parts = line.split()
-            b_path = parts[3][2:] if len(parts) >= 4 and parts[3].startswith("b/") else ""
-            is_test = _is_test_path(b_path)
         else:
             current.append(line)
-    _flush()
+    if current:
+        sections.append("".join(current))
+
+    source_parts: list[str] = []
+    test_parts: list[str] = []
+    for section in sections:
+        path = _section_path(section)
+        is_test = path is None or _is_test_path(path)   # unresolved → safe (test)
+        (test_parts if is_test else source_parts).append(section)
     return "".join(source_parts), "".join(test_parts)
 
 
