@@ -252,3 +252,63 @@ def test_grade_not_resolved(tmp_path, monkeypatch):
     g = adapter.grade(inst, _AGENT_DIFF, workdir)
     assert g.resolved is False
     assert g.standard_protocol is True
+
+
+def test_materialize_extracts_repo_and_strips_git(tmp_path, monkeypatch):
+    adapter = registry.get_adapter("swebench-java")
+    inst = list(adapter.load(_fake_dataset(tmp_path), {"repo": "fasterxml/jackson-core"}))[0]
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    seen = {}
+
+    def _fake_cp(image, src, dest):
+        seen["image"] = image
+        seen["src"] = src
+        Path(dest, "pom.xml").write_text("<project/>\n")
+        gd = Path(dest) / ".git"
+        gd.mkdir()
+        (gd / "config").write_text("[core]\n")
+
+    monkeypatch.setattr(sj._msb, "_docker_cp_repo", _fake_cp)
+    adapter.materialize(inst.agent_view(), workdir)
+    # correct image + in-image repo path
+    assert seen["image"] == "mswebench/fasterxml_m_jackson-core:pr-964"
+    assert seen["src"] == "/home/jackson-core"
+    # repo contents present, VCS history stripped
+    assert (workdir / "pom.xml").read_text().startswith("<project")
+    assert not (workdir / ".git").exists()
+
+
+def test_docker_cp_repo_missing_image_raises_clear_error(tmp_path, monkeypatch):
+    import subprocess as _sp
+    import pytest
+    from abench.bench import _msb
+
+    def _fake_run(argv, **kw):
+        if argv[:2] == ["docker", "create"]:
+            raise _sp.CalledProcessError(1, argv, stderr="Error: No such image")
+        class _R:
+            stdout = ""
+        return _R()
+
+    monkeypatch.setattr(_msb.subprocess, "run", _fake_run)
+    with pytest.raises(RuntimeError, match="pulled locally"):
+        _msb._docker_cp_repo("mswebench/x:pr-1", "/home/x", str(tmp_path))
+
+
+def test_docker_cp_repo_happy_path_calls(tmp_path, monkeypatch):
+    from abench.bench import _msb
+    calls = []
+
+    def _fake_run(argv, **kw):
+        calls.append(argv)
+        class _R:
+            stdout = "container123\n"
+        return _R()
+
+    monkeypatch.setattr(_msb.subprocess, "run", _fake_run)
+    _msb._docker_cp_repo("mswebench/fasterxml_m_jackson-core:pr-964", "/home/jackson-core", str(tmp_path))
+    # create → cp (contents via /.) → rm, threading the container id
+    assert calls[0] == ["docker", "create", "mswebench/fasterxml_m_jackson-core:pr-964"]
+    assert calls[1] == ["docker", "cp", "container123:/home/jackson-core/.", str(tmp_path)]
+    assert calls[2][:3] == ["docker", "rm", "-f"] and calls[2][3] == "container123"

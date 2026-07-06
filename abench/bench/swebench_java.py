@@ -14,6 +14,7 @@ checkout (Plan 4b); the pure parts are unit-tested with fixtures/mocks."""
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -177,11 +178,14 @@ class SweBenchAdapter:
                 },
             )
 
-    def materialize(self, view: AgentView, workdir: Path) -> None:  # Docker plan
-        raise NotImplementedError(
-            "SWE-bench-java materialize is Docker-based (repo lives inside the "
-            "official image); deferred to the Docker integration plan."
-        )
+    def materialize(self, view: AgentView, workdir: Path) -> None:
+        # The official image has the repo checked out at base.sha under /home/<repo>.
+        # Extract it to the agent's workdir, then strip VCS history.
+        repo_name = view.repo.split("/")[-1]
+        _msb._docker_cp_repo(view.env.image, f"/home/{repo_name}", str(workdir))
+        gitdir = Path(workdir) / ".git"
+        if gitdir.exists():
+            shutil.rmtree(gitdir)
 
     def grade(self, inst: Instance, source_diff: str, workdir: Path) -> GradeResult:
         # `source_diff` here is the agent's FULL workdir diff (protocol name). Split
