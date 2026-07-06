@@ -27,7 +27,16 @@ export function collapseNullable(node: unknown): unknown {
     if (Array.isArray(anyOf) && anyOf.length === 2) {
       const nullCount = anyOf.filter(isNullBranch).length;
       const nn = anyOf.find((s) => !isNullBranch(s));
-      if (nullCount === 1 && nn && typeof nn === "object") {
+      const nnType = nn && typeof nn === "object"
+        ? (nn as Record<string, unknown>).type
+        : undefined;
+      // Collapse ONLY nullable primitives, whose non-null branch carries an explicit
+      // `type`. A nullable nested model (benchmark, orchestration) has a `$ref` non-null
+      // branch with NO `type`; collapsing to it would drop the "null" option, so AJV
+      // rejects the null pydantic emits for the unset optional model and wrongly disables
+      // Save/Run. Leave those anyOf intact (recurse below) so null stays valid.
+      const primitiveNonNull = typeof nnType === "string" || Array.isArray(nnType);
+      if (nullCount === 1 && nn && typeof nn === "object" && primitiveNonNull) {
         const nnObj = nn as Record<string, unknown>;
         const { anyOf: _drop, ...rest } = obj;
         // Spread nn first so its enum/pattern/format survive; spread rest so the parent's

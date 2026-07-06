@@ -8,111 +8,113 @@ Runs an AI agent (OpenCode) on the same task in a chosen project under two condi
 
 Correctness is verified automatically: after each run the harness detects the project's build tool (`mvn` / `gradle` / `pytest` / `cargo` / …), runs the test suite against the agent's edits, and records pass/fail (you can still override the verdict by hand). Process metrics are extracted from the trace automatically.
 
-## Quick start — the picocli `putValue` example (real project)
+## Quick start — from git clone to a run in the browser
 
-The main worked example restores **one method** — `putValue(...)` — in the **full, real [picocli](https://github.com/remkop/picocli) codebase**. Only that method's body is stripped; the signature, Javadoc, every test, and the rest of the ~80 MB project stay intact as shared context. The agent has to reconstruct the body from that context (and, in the `augmented` condition, from your graph slice).
+The main worked example restores **one method** — `putValue(...)` — in the **full, real [picocli](https://github.com/remkop/picocli) codebase**, then runs it as an A/B experiment you launch and watch **from the browser UI**. Only that method's body is stripped; the signature, Javadoc, every test, and the rest of the ~80 MB project stay intact as shared context. The agent reconstructs the body from that context (and, in the augmented conditions, from your graph slice or the `impact` tool).
 
-Every step below runs from a clean machine. Commands are from the repo root unless noted.
+Every step runs from a clean machine, from the repo root unless noted.
 
-### 1. Install the harness
+**Prerequisites.** Python 3.12+, Node 18+, a **JDK 21** (the single version that satisfies the whole toolchain), **Docker** (or podman), and **opencode 1.15.x**. OS: macOS and Linux run natively; on **Windows 11 use WSL2** and treat it as Linux. Full machine checklist and per-OS notes live in [`experiments/picocli-putValue/REPRODUCE.md`](experiments/picocli-putValue/REPRODUCE.md).
+
+### 1. Clone both repos
+
+The experiment supplies its `impact` tool and graph slices from a sibling **Graph-Tipper** checkout (named Graph-Augmentator on GitHub):
 
 ```bash
 git clone https://github.com/sckwokyboom/Agentic-Bench.git
+git clone https://github.com/sckwokyboom/Graph-Augmentator.git Graph-Tipper
 cd Agentic-Bench
+```
+
+### 2. Install the harness + opencode
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# opencode 1.15.x — install if you don't have it:
-npm i -g opencode-ai
-opencode --version
-
+npm i -g opencode-ai        # opencode 1.15.x — install if you don't have it
+opencode --version          # confirm 1.15.x
 abench --help
 ```
 
-The example defaults to `opencode/deepseek-v4-flash-free` (free, no key). To use a paid model, run `opencode providers login` (pick DeepSeek, paste the key) and set `model: deepseek/deepseek-chat` in the experiment's `experiment.yaml`.
+### 3. Build the web bundle (required for the UI)
 
-### 2. Populate the fixtures
-
-The experiment ships its config, prompts, and a slice placeholder under git; you provide the two code trees, which are git-ignored (`experiments/*/original/`, `experiments/*/stripped/`):
-
-```bash
-cd experiments/picocli-putValue
-git clone https://github.com/remkop/picocli.git original
-cp -R original stripped
-```
-
-- `original/` is the **reference** (`reference_path`) — the intact project, used for comparison.
-- `stripped/` is the **fixture** (`fixture_path`) — what the agent works on, copied fresh per run.
-
-### 3. Strip the target method body in `stripped/`
-
-Open `stripped/src/main/java/picocli/CommandLine.java`, find `putValue(...)`, and replace **only its body** with:
-
-```java
-throw new UnsupportedOperationException("TODO: implement putValue");
-```
-
-Leave the signature, Javadoc, annotations, and every other file untouched — that's the context shared by both conditions. The original body now lives only in `original/`. (The task prompt that the agent sees is in [`experiments/picocli-putValue/prompts/task.md`](experiments/picocli-putValue/prompts/task.md).)
-
-### 4. (optional) Drop in a real graph slice
-
-`slices/putValue-graph-slice.md` is a placeholder. For a real comparison, your RAG/graph system writes the slice for the `augmented` condition here; for a manual smoke run, hand-write a hint modelled on [`examples/picocli-wordcount/slices/countwords-graph-slice.md`](examples/picocli-wordcount/slices/countwords-graph-slice.md).
-
-### 5. Run and read the results
-
-```bash
-cd ../..          # back to repo root, venv still active
-abench run experiments/picocli-putValue/experiment.yaml
-```
-
-This executes 2 conditions × 3 repetitions and writes the artefacts below. If the project's build tool is on `PATH` (for picocli: **Maven + a JDK**, plus network for the first dependency download), each rep is auto-verified against picocli's test suite and `success` is filled in automatically; otherwise `verify_status` is `skipped`/`error` and you set `success` by hand. Artefacts:
-
-```
-experiments/picocli-putValue/runs/picocli-putValue/
-  summary.md                              # ← start here
-  summary.csv
-  baseline/rep_{0,1,2}/{events.jsonl, trace.json, changes.patch, metrics.json, manifest.json}
-  augmented/rep_{0,1,2}/...
-```
-
-`summary.md` is the baseline vs augmented table with deltas on `n_steps`, `n_reads`, `n_searches`, `n_test_runs`, `duration_s`, `time_to_first_edit_s`. Negative deltas there are the RAG effect you are looking for. Re-aggregate any time (e.g. after a manual `success` edit in a `metrics.json`):
-
-```bash
-abench report experiments/picocli-putValue/runs/picocli-putValue
-```
-
-Full walk-through (choosing a target, stripping precisely, reading every metric, pitfalls) — [`experiments/picocli-putValue/README.md`](experiments/picocli-putValue/README.md).
-
-> **Want a 5-second synthetic smoke first?** [`examples/picocli-wordcount/`](examples/picocli-wordcount/) is a tiny self-contained maven + picocli + JUnit project (no external clone needed):
-> ```bash
-> abench run examples/picocli-wordcount/experiment.yaml
-> ```
-
-## Web UI
-
-Browse experiments, edit them in a schema-driven form, launch runs with a live ReAct stream, and inspect finished traces — all in the browser, served by one local process.
-
-Build the frontend bundle once (Node 18+):
+`abench-ui` refuses to start without the built frontend, so build it once (Node 18+):
 
 ```bash
 cd web && npm install && npm run build && cd ..
 ```
 
-Start the server (serves the REST/WebSocket API **and** the built UI on a single port — no CORS, no second process):
+### 4. One-time machine check + sandbox image
+
+```bash
+export JAVA_HOME=…          # a JDK 21 (macOS: $(/usr/libexec/java_home -v 21))
+python scripts/setup_check.py --container --build-image
+```
+
+Verifies opencode 1.15.x, JDK, git and docker/podman, and builds the `abench-sandbox:latest` image (a JDK-21 + Gradle + opencode sandbox with a warmed dependency cache). Anything missing is printed with how to get it.
+
+### 5. Register Graph-Tipper
+
+`experiment.yaml` mounts `{lib:graph-tipper}` into the sandbox, so point abench at the clone from step 1 (this writes a machine-local, gitignored `.abench.local.json` — no env var to export):
+
+```bash
+abench lib add graph-tipper /absolute/path/to/Graph-Tipper
+abench lib list
+```
+
+### 6. Prepare the fixtures
+
+```bash
+cd experiments/picocli-putValue
+python prepare.py          # clones picocli at the fixture.lock sha, strips putValue's body
+cd ../..
+```
+
+`prepare.py` populates `original/` (the intact **reference**) and `stripped/` (the **fixture** the agent works on), swapping `putValue`'s body for a `throw new UnsupportedOperationException(...)` stub; the graph slices and `impact` overlay are already committed. (Prefer to do it by hand? The manual clone-and-strip recipe is in [`experiments/picocli-putValue/README.md`](experiments/picocli-putValue/README.md).)
+
+### 7. Pick a model
+
+`experiment.yaml` defaults to the direct DeepSeek API — set your key on the host and it is forwarded into the sandbox automatically:
+
+```bash
+export DEEPSEEK_API_KEY=sk-...
+```
+
+No key? Set `model: opencode/deepseek-v4-flash-free` in the experiment for a free model instead.
+
+### 8. Launch the UI and run it from the browser
 
 ```bash
 abench-ui --experiments-dir experiments
 # → open http://127.0.0.1:8765
 ```
 
-What you get:
+In the browser: open **picocli-putValue**, hit **Run**, and watch the live ReAct stream turn-by-turn with a per-rep verify chip; when a rep finishes, open **Trace** for the verdict banner, the final diff, the `original`-vs-regenerated method comparison, and the metrics drawer. You can also tweak the experiment (model, conditions, `target_methods`) in the schema-driven **Edit** form first. This runs the full A/B — **9 conditions × 3 repetitions** in the container sandbox — and auto-verifies each rep against picocli's **Gradle** test suite (`./gradlew test`, JDK 21, baked into the image). For a focused run, trim the condition list in the Edit form (e.g. keep only `baseline` + `augmented`).
+
+### Headless alternative (CLI)
+
+Prefer the terminal? Skip step 3 and run the same experiment without the UI:
+
+```bash
+abench run experiments/picocli-putValue/experiment.yaml
+abench report experiments/picocli-putValue/runs/picocli-putValue   # re-aggregate summary.md / summary.csv
+```
+
+Results land under `experiments/picocli-putValue/runs/picocli-putValue/<batch-id>/` — start at `summary.md` (per-condition means and the augmented-vs-baseline deltas on `n_steps`, `n_reads`, `n_searches`, `n_test_runs`, `duration_s`, `time_to_first_edit_s`). Full walk-through — [`experiments/picocli-putValue/README.md`](experiments/picocli-putValue/README.md).
+
+> **Want a 5-second smoke with no Docker, no key, and no external clone?** [`examples/picocli-wordcount/`](examples/picocli-wordcount/) is a tiny self-contained maven + picocli + JUnit project — run `abench run examples/picocli-wordcount/experiment.yaml`, or open it in the UI.
+
+## Web UI
+
+The Quick start above already launches the UI (build the bundle in step 3, start the server in step 8). It serves the REST/WebSocket API **and** the built SPA on a single port — no CORS, no second process. What the screens give you:
 
 - **Experiments** — list / + New / ↑ Upload YAML / Run / Edit / Delete, with a per-experiment status pill.
 - **Edit** — a form generated live from the pydantic schema (`/api/schema`): per-field validation, a live model-availability check with an "Add API key" dialog, `target_methods` chip editor, and sticky panels for validation errors, the run plan, fixture presence, and previous runs. Invalid YAML physically cannot be saved.
 - **Run** — the live ReAct stream grouped turn-by-turn, a progress header, a per-rep sidebar with verify chips, and Cancel. Reconnects and replays if the socket drops.
 - **Trace** — verdict banner, aggregate stats, a turn-by-turn timeline (one card per model message, with "show raw"), the verify card, the final diff, an optional method comparison (`original` vs the agent's regeneration), a metrics drawer, and prev/next-rep navigation.
 
-`abench-ui` refuses to start if the bundle is missing — build it first, or pass `--skip-bundle-check` for an API-only boot. Other flags: `--host`, `--port` (default `8765`), `--experiments-dir` (default `experiments`).
+`abench-ui` refuses to start if the bundle is missing — build it (Quick start step 3), or pass `--skip-bundle-check` for an API-only boot. Other flags: `--host`, `--port` (default `8765`), `--experiments-dir` (default `experiments`).
 
 **Frontend dev mode** (hot reload; Vite proxies `/api` + `/ws` to the backend):
 
@@ -122,6 +124,28 @@ abench-ui --experiments-dir experiments --skip-bundle-check
 # terminal 2
 cd web && npm run dev          # → http://127.0.0.1:5173
 ```
+
+## Troubleshooting
+
+Common first-run errors on a clean machine (the container + UI path):
+
+- **`Missing local library path(s) in the registry (.abench.local.json): - graph-tipper`** — the Graph-Tipper clone isn't registered. `.abench.local.json` is gitignored, so a fresh clone starts with an empty registry. Fix (Quick start steps 1 + 5):
+  ```bash
+  git clone https://github.com/sckwokyboom/Graph-Augmentator.git Graph-Tipper
+  abench lib add graph-tipper /absolute/path/to/Graph-Tipper
+  abench lib list
+  ```
+- **The form won't Save/Run and shows `.benchmark -- must be object` (or `.orchestration -- must be object`)** — you're on a stale web bundle. This was a schema-collapse bug for optional nested models (`benchmark`/`orchestration` are unset in a normal fixture experiment, and the form wrongly rejected their `null`). Rebuild the bundle and restart the server:
+  ```bash
+  cd web && npm run build && cd ..   # then restart abench-ui
+  ```
+- **`container runtime 'docker' not found` or the sandbox image is missing** — install Docker Desktop (WSL2 backend on Windows) or podman, then build the image:
+  ```bash
+  python scripts/setup_check.py --container --build-image
+  ```
+- **Gradle verify fails with a Java version error** — the toolchain needs **JDK 21**. Point `JAVA_HOME` at a 21 (macOS: `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`; Linux/WSL: a `openjdk-21` install dir).
+- **Model calls fail / 401** — `experiment.yaml` uses the direct DeepSeek API; `export DEEPSEEK_API_KEY=...` before the run (it's forwarded into the sandbox), or switch `model:` to the free `opencode/deepseek-v4-flash-free`.
+- **`unable to get local issuer certificate` during docker build/run** — behind a corporate CA: drop the `*.crt` files into `docker/extra-ca/` and rebuild (`python scripts/setup_check.py --container --build-image`). A good build prints `[extra-ca] registered N cert(s)`.
 
 ## Architecture
 

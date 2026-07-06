@@ -47,6 +47,29 @@ describe("collapseNullable", () => {
     expect(collapseNullable(node)).toEqual(node);
   });
 
+  it("keeps a nullable $ref (optional nested model) intact so null stays valid", () => {
+    // The non-null branch is a $ref with no `type`; collapsing to it would drop the
+    // "null" option and make AJV reject the null pydantic emits for an unset optional
+    // model (benchmark / orchestration), which wrongly disables Save/Run in the form.
+    const node = {
+      anyOf: [{ $ref: "#/$defs/BenchmarkCfg" }, { type: "null" }],
+      default: null,
+      title: "Benchmark",
+    };
+    expect(collapseNullable(node)).toEqual(node);
+  });
+
+  it("keeps nullable $ref properties (benchmark, orchestration) intact", () => {
+    const input = {
+      type: "object",
+      properties: {
+        benchmark: { anyOf: [{ $ref: "#/$defs/BenchmarkCfg" }, { type: "null" }], default: null },
+        orchestration: { anyOf: [{ $ref: "#/$defs/OrchestrationCfg" }, { type: "null" }], default: null },
+      },
+    };
+    expect(collapseNullable(input)).toEqual(input);
+  });
+
   it("recurses into nested properties", () => {
     const input = {
       type: "object",
