@@ -135,6 +135,41 @@ def split_source_test_diff(unified_diff: str) -> tuple[str, str]:
     return "".join(source_parts), "".join(test_parts)
 
 
+_EVALUATOR_PIN = "multi-swe-bench@<pin-set-in-docker-plan>"
+
+
+def _run_swebench_evaluator(oracle: dict, source_diff: str) -> dict:
+    """Delegate to the official multi-swe-bench evaluator in a clean, OFFLINE
+    grading container: apply `source_diff` + the oracle's own `test_patch` to a
+    pristine checkout at `base_commit`, run FAIL_TO_PASS/PASS_TO_PASS, return the
+    raw report incl. a top-level `resolved: bool`. Isolated so tests monkeypatch it.
+
+    DEFERRED (Docker plan): the real body. IMPLEMENTER of the Docker plan MUST read
+    the pinned multi-swe-bench repo to confirm the exact predictions-file format and
+    CLI/entry (spec §10 open question), set `_EVALUATOR_PIN` to the pinned digest,
+    and run it with no network (offline determinism, spec §7)."""
+    raise NotImplementedError(
+        "live SWE-bench-java grading is Docker-based; deferred to the Docker plan"
+    )
+
+
+def _run_abench_verify(oracle: dict, source_diff: str, test_diff: str, workdir: Path) -> dict:
+    """abench's OWN grading methodology — run ALONGSIDE the official verdict (spec
+    §7), the same kind abench already runs on the putValue experiment. The official
+    criterion has NO regression guard (PASS_TO_PASS empty) — this is what abench
+    adds. Returns {scoped_regressions: list[str], repro_reproduced: bool,
+    abench_resolved: bool|None}. Isolated so tests monkeypatch it.
+
+    DEFERRED (Docker plan): the real body = in a clean container, apply the
+    source-fix, run the BLAST-RADIUS tests (touched methods → covering tests via the
+    graph/Joern, spec §7) before/after to find regressions; re-run the agent's own
+    repro (from test_diff) on base for repro_reproduced; abench_resolved = abench's
+    own FAIL_TO_PASS pass/fail cross-check. Docker + graph gated."""
+    raise NotImplementedError(
+        "abench's own SWE verify/regression is Docker+graph-based; deferred to the Docker plan"
+    )
+
+
 class SweBenchAdapter:
     id = "swebench-java"
 
@@ -177,8 +212,27 @@ class SweBenchAdapter:
             "official image); deferred to the Docker integration plan."
         )
 
-    def grade(self, inst: Instance, source_diff: str, workdir: Path) -> GradeResult:  # Task 3
-        raise NotImplementedError
+    def grade(self, inst: Instance, source_diff: str, workdir: Path) -> GradeResult:
+        # `source_diff` here is the agent's FULL workdir diff (protocol name). Split
+        # it: only the source part is graded; the agent's own test edits are kept
+        # for abench stats but NEVER sent to the evaluator (spec §7, invariant 2).
+        src_diff, test_diff = split_source_test_diff(source_diff)
+        # (1) OFFICIAL verdict — the comparable, exported number (spec §3).
+        official = _run_swebench_evaluator(inst.oracle, src_diff)
+        # (2) abench's OWN methodology — regressions/repro the official criterion
+        # omits (spec §7). Co-equal, but NEVER the exported SWE number.
+        own = _run_abench_verify(inst.oracle, src_diff, test_diff, workdir)
+        return GradeResult(
+            resolved=bool(official.get("resolved")),      # headline = OFFICIAL only
+            evaluator=_EVALUATOR_PIN,
+            standard_protocol=True,
+            official_report=official,
+            abench={
+                **own,                                      # scoped_regressions, repro_reproduced, abench_resolved
+                "test_diff_present": bool(test_diff.strip()),
+                "n_fail_to_pass": len(inst.oracle.get("fail_to_pass") or []),
+            },
+        )
 
 
 registry.register(SweBenchAdapter())

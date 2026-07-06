@@ -208,3 +208,75 @@ def test_split_deleted_test_file_is_test():
     source, test = sj.split_source_test_diff(d)
     assert "GoneTest.java" in test
     assert "GoneTest.java" not in source
+
+
+def _prep(tmp_path):
+    ds = _fake_dataset(tmp_path)
+    adapter = registry.get_adapter("swebench-java")
+    inst = list(adapter.load(ds, {"repo": "fasterxml/jackson-core"}))[0]
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    return adapter, inst, workdir
+
+
+_AGENT_DIFF = (
+    "diff --git a/src/main/java/A.java b/src/main/java/A.java\n@@ -1 +1 @@\n-a\n+b\n"
+    "diff --git a/src/test/java/ATest.java b/src/test/java/ATest.java\n@@ -1 +1,2 @@\n x\n+y\n"
+)
+
+
+def _mock_both_graders(monkeypatch, *, official_resolved, seen=None,
+                       abench_ret=None):
+    """Mock BOTH grade seams. `seen` (if given) captures what the official
+    evaluator received, to prove only the source-diff is sent."""
+    def _fake_official(oracle, source_diff):
+        if seen is not None:
+            seen["source_diff"] = source_diff
+        return {"resolved": official_resolved, "report": {}}
+    monkeypatch.setattr(sj, "_run_swebench_evaluator", _fake_official)
+    monkeypatch.setattr(
+        sj, "_run_abench_verify",
+        lambda oracle, source_diff, test_diff, workdir: (
+            abench_ret if abench_ret is not None
+            else {"scoped_regressions": [], "repro_reproduced": True,
+                  "abench_resolved": official_resolved}))
+
+
+def test_grade_official_verdict_and_source_only_delegation(tmp_path, monkeypatch):
+    adapter, inst, workdir = _prep(tmp_path)
+    seen = {}
+    _mock_both_graders(monkeypatch, official_resolved=True, seen=seen)
+    g = adapter.grade(inst, _AGENT_DIFF, workdir)
+    # headline verdict = OFFICIAL only
+    assert g.resolved is True
+    assert g.standard_protocol is True
+    assert g.evaluator.startswith("multi-swe-bench")
+    assert g.official_report["resolved"] is True
+    # only the SOURCE diff reached the official evaluator — the agent's test edit
+    # is stripped (firewall / no grade-gaming)
+    assert "src/main/java/A.java" in seen["source_diff"]
+    assert "ATest.java" not in seen["source_diff"]
+
+
+def test_grade_carries_abench_own_methodology(tmp_path, monkeypatch):
+    adapter, inst, workdir = _prep(tmp_path)
+    _mock_both_graders(monkeypatch, official_resolved=True, abench_ret={
+        "scoped_regressions": ["com.x.OtherTest#t"], "repro_reproduced": True,
+        "abench_resolved": False})
+    g = adapter.grade(inst, _AGENT_DIFF, workdir)
+    # dual-grading: abench's OWN methodology is first-class, alongside official
+    assert g.abench["scoped_regressions"] == ["com.x.OtherTest#t"]
+    assert g.abench["repro_reproduced"] is True
+    assert g.abench["abench_resolved"] is False        # abench's separate cross-check
+    assert g.abench["test_diff_present"] is True        # agent wrote a repro test
+    assert g.abench["n_fail_to_pass"] == 1
+    # abench's cross-check verdict must NOT override the exported (official) number
+    assert g.resolved is True
+
+
+def test_grade_not_resolved(tmp_path, monkeypatch):
+    adapter, inst, workdir = _prep(tmp_path)
+    _mock_both_graders(monkeypatch, official_resolved=False)
+    g = adapter.grade(inst, _AGENT_DIFF, workdir)
+    assert g.resolved is False
+    assert g.standard_protocol is True
