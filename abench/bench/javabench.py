@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Iterable
@@ -31,7 +32,7 @@ def _run_javabench_grader(javabench_root: str, preds_file: str, out_file: str) -
     Java/Gradle + a JavaBench checkout). IMPLEMENTER: confirm the exact CLI/entry
     from evaluation.py; it MUST run with cwd=javabench_root (relative projects/ paths)."""
     subprocess.run(
-        ["python", "-c",
+        [sys.executable, "-c",
          "import sys; sys.path.insert(0, '.'); from evaluation import evaluate_single_class; "
          f"evaluate_single_class({preds_file!r}, {out_file!r})"],
         cwd=javabench_root, check=True,
