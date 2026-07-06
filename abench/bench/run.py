@@ -2,11 +2,10 @@
 instance via its adapter and grades via adapter.grade (dual-grading). Kept
 separate from the fixture-mode _run_one so the working fixture path is untouched.
 
-DEFERRED (later plans): retry / rate-limit / idle-timeout parity, isolation
-ground-rules + nonce in the system prompt, per-condition tool gating,
-per-condition system_prompt / system_augmentation overrides (benchmark mode
-uses only exp.system_prompt), overlay_env application (accepted for signature
-parity, not yet consumed)."""
+DEFERRED (later plans): retry / rate-limit / idle-timeout parity, per-condition
+tool gating, per-condition system_prompt / system_augmentation overrides
+(benchmark mode uses only exp.system_prompt), overlay_env application
+(accepted for signature parity, not yet consumed)."""
 from __future__ import annotations
 
 import dataclasses
@@ -14,12 +13,13 @@ import json
 import re
 import tempfile
 import traceback
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
 from ..fixture import _git_init_commit, cleanup, diff_workdir
 from ..metrics import extract
-from ..prompt import compose
+from ..prompt import build_system_prompt, compose
 from . import registry
 from .expand import expand_plan
 
@@ -62,7 +62,7 @@ def run_benchmark(exp, client, mcfg, overlay_env: dict[str, str], root: Path,
         try:
             workdir = Path(tempfile.mkdtemp(prefix="abench-bench-"))
             adapter.materialize(inst.agent_view(), workdir)
-            _git_init_commit(workdir, message="materialized")
+            sha = _git_init_commit(workdir, message="materialized")
 
             events_file = (rundir / "events.jsonl").open("w")
 
@@ -71,10 +71,21 @@ def run_benchmark(exp, client, mcfg, overlay_env: dict[str, str], root: Path,
                 events_file.flush()
 
             user_message = compose(inst.task.prompt_text, cond.augmentation)
+            # Isolation: grounding guard + nonce-prefix in system_prompt, same
+            # builder fixture mode's runner._run_one uses (abench/prompt.py).
+            # Benchmark mode's base is exp.system_prompt only — per-condition
+            # system_prompt/system_augmentation overrides are deferred.
+            nonce = uuid.uuid4().hex if exp.isolation.nonce_prefix else None
+            system_prompt_eff = build_system_prompt(
+                exp.system_prompt,
+                nonce=nonce,
+                fixture_sha=sha,
+                forbid_external_sources=exp.isolation.forbid_external_sources,
+            )
             try:
                 result = client.run_task(
                     workdir=str(workdir),
-                    system_prompt=exp.system_prompt,
+                    system_prompt=system_prompt_eff,
                     model=exp.model,
                     user_message=user_message,
                     timeout_s=exp.timeout_s,
