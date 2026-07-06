@@ -108,6 +108,9 @@ class JavaBenchAdapter:
             results = _run_javabench_grader(o["javabench_root"], str(preds), str(out))
             r = results[0]
             n_pass, n_total = r.get("test_result") or [0, 0]
+            # HOST: confirm evaluate_single_class serializes compile_errors as an int
+            # COUNT, not the raw list[CompilerError]. `[] == 0` is False, so a list
+            # form would silently grade every instance unresolved. (Task 4 HOST step.)
             resolved = (r.get("compile_errors", 1) == 0 and n_total > 0 and n_pass == n_total)
             return GradeResult(
                 resolved=resolved,
