@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import registry
+from . import _msb
 from .base import Anchors, AgentView, EnvSpec, GradeResult, Instance, TaskSpec
 
 # build_system per repo (verified: 5 Maven + 1 Gradle). Pilot = jackson-core (maven).
@@ -29,40 +30,6 @@ _BUILD_SYSTEM: dict[str, str] = {
     "GoogleContainerTools/jib": "gradle",
     "apache/dubbo": "maven",
 }
-
-
-def _image_ref(repo: str, version: str) -> str:
-    """Official multi-swe-bench image ref for a repo@version. Convention isolated
-    here; the EXACT registry naming is confirmed against the real images in the
-    Docker plan — if it differs, adjust ONLY this function. Used only by the
-    deferred Docker materialize/grade, never on the agent path."""
-    slug = repo.replace("/", "_")
-    return f"mswebench/{slug}:{version}"
-
-
-def _as_list(value: Any) -> list[str]:
-    """FAIL_TO_PASS/PASS_TO_PASS are JSON-encoded STRINGS in the dataset. Decode to
-    a real list; tolerate an already-decoded list defensively. Raise on a decoded
-    non-list rather than silently iterating chars/keys (grade-data correctness)."""
-    if value is None:
-        return []
-    if isinstance(value, str):
-        decoded = json.loads(value)
-        if not isinstance(decoded, list):
-            raise ValueError(f"expected a JSON list, got {type(decoded).__name__}: {value!r}")
-        return list(decoded)
-    if not isinstance(value, list):
-        raise ValueError(f"expected a list, got {type(value).__name__}")
-    return list(value)
-
-
-def _build_prompt(rec: dict) -> str:
-    return (
-        "Resolve the following issue in this repository. Edit the project's source "
-        "files so the issue is fixed; do not modify test files (the evaluation "
-        "provides its own tests). Work only from the repository's own code.\n\n"
-        "# Issue\n" + (rec.get("problem_statement") or "").strip()
-    )
 
 
 # Java/Maven/Gradle test source roots (jib uses a real src/integration-test/ Gradle
@@ -176,33 +143,37 @@ class SweBenchAdapter:
     def load(self, dataset: Path | None, subset: dict[str, Any] | None) -> Iterable[Instance]:
         if dataset is None:
             raise ValueError(
-                "swebench-java adapter requires 'dataset' (path to swe-bench-java-verified.json)"
+                "swebench-java adapter requires 'dataset' (native Multi-SWE-bench JSONL)"
             )
         subset = subset or {}
         repo_filter = subset.get("repo")
-        records = json.loads(Path(dataset).read_text())
-        for rec in records:
-            repo = rec["repo"]
-            if repo_filter and repo != repo_filter:
+        msb_root = subset.get("msb_root")   # path to the pinned multi-swe-bench checkout (grade needs it)
+        for line in Path(dataset).read_text().splitlines():
+            if not line.strip():
                 continue
-            version = rec.get("version") or ""
+            rec = json.loads(line)
+            if repo_filter and _msb.display_repo(rec) != repo_filter:
+                continue
             yield Instance(
-                instance_id=rec["instance_id"],
-                repo=repo,
-                task=TaskSpec(prompt_text=_build_prompt(rec)),
+                instance_id=_msb.instance_id(rec),
+                repo=_msb.display_repo(rec),
+                task=TaskSpec(prompt_text=(
+                    "Resolve the following issue in this repository. Edit the project's "
+                    "SOURCE files so the issue is fixed; do not modify test files (the "
+                    "evaluation provides its own). Work only from the repo's own code.\n\n"
+                    "# Issue\n" + _msb.issue_text(rec))),
                 anchors=Anchors(),
                 env=EnvSpec(
-                    image=_image_ref(repo, version),
-                    build_system=_BUILD_SYSTEM.get(repo, "maven"),
+                    image=_msb.image_ref(rec),
+                    build_system=_BUILD_SYSTEM.get(_msb.display_repo(rec), "maven"),
                 ),
                 oracle={
-                    "repo": repo,
-                    "base_commit": rec["base_commit"],
-                    "patch": rec["patch"],
+                    "record": rec,                 # full native record → the grader writes it back verbatim
+                    "base_sha": _msb.base_sha(rec),
+                    "fix_patch": rec["fix_patch"],
                     "test_patch": rec["test_patch"],
-                    "fail_to_pass": _as_list(rec.get("FAIL_TO_PASS")),
-                    "pass_to_pass": _as_list(rec.get("PASS_TO_PASS")),
-                    "version": version,
+                    "f2p_tests": rec.get("f2p_tests") or {},
+                    "msb_root": msb_root,
                 },
             )
 
@@ -230,7 +201,7 @@ class SweBenchAdapter:
             abench={
                 **own,                                      # scoped_regressions, repro_reproduced, abench_resolved
                 "test_diff_present": bool(test_diff.strip()),
-                "n_fail_to_pass": len(inst.oracle.get("fail_to_pass") or []),
+                "n_fail_to_pass": len(inst.oracle.get("f2p_tests") or {}),
             },
         )
 

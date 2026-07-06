@@ -6,34 +6,31 @@ from abench.bench import registry
 
 
 def _fake_dataset(tmp_path: Path) -> Path:
-    """A 2-record SWE-bench-java dataset: one jackson-core, one other repo."""
-    records = [
-        {
-            "repo": "fasterxml/jackson-core",
-            "instance_id": "fasterxml__jackson-core-1111",
-            "base_commit": "abc123",
-            "problem_statement": "NPE in JsonParser when input is empty.",
-            "hints_text": "the PR fixed it in ParserBase",   # must NOT reach the agent
-            "patch": "diff --git a/src/main/java/A.java ...",   # GOLD
-            "test_patch": "diff --git a/src/test/java/ATest.java ...",  # HIDDEN
-            "FAIL_TO_PASS": json.dumps(["src:com.fasterxml.jackson.core.ATest"]),
-            "PASS_TO_PASS": json.dumps([]),
-            "version": "0.1",
-        },
-        {
-            "repo": "google/gson",
-            "instance_id": "google__gson-2222",
-            "base_commit": "def456",
-            "problem_statement": "Gson mishandles nulls.",
-            "patch": "diff --git a/gson/src/main/java/B.java ...",
-            "test_patch": "diff --git a/gson/src/test/java/BTest.java ...",
-            "FAIL_TO_PASS": json.dumps(["gson:com.google.gson.BTest"]),
-            "PASS_TO_PASS": json.dumps([]),
-            "version": "0.1",
-        },
+    """Two NATIVE Multi-SWE-bench records (jackson-core + gson)."""
+    def _rec(org, repo, number, f2p_key):
+        return {
+            "org": org, "repo": repo, "number": number,
+            "state": "closed", "title": f"Bug in {repo}",
+            "body": f"{repo} misbehaves on empty input.",
+            "base": {"label": f"{org}:main", "ref": "main", "sha": f"sha-{number}"},
+            "resolved_issues": [{"number": number - 1, "title": "linked", "body": "issue body"}],
+            "fix_patch": "diff --git a/src/main/java/A.java b/src/main/java/A.java\n@@ -1 +1 @@\n-a\n+b\n",
+            "test_patch": "diff --git a/src/test/java/ATest.java b/src/test/java/ATest.java\n@@ -1 +1,2 @@\n x\n+y\n",
+            "f2p_tests": {f2p_key: {"run": "PASS", "test": "FAIL", "fix": "PASS"}},
+            "p2p_tests": {}, "s2p_tests": {}, "n2p_tests": {}, "fixed_tests": {},
+            "run_result": {"passed_count": 0, "failed_count": 0, "skipped_count": 0,
+                           "passed_tests": [], "failed_tests": [], "skipped_tests": []},
+            "test_patch_result": {"passed_count": 0, "failed_count": 1, "skipped_count": 0,
+                                  "passed_tests": [], "failed_tests": [f2p_key], "skipped_tests": []},
+            "fix_patch_result": {"passed_count": 1, "failed_count": 0, "skipped_count": 0,
+                                 "passed_tests": [f2p_key], "failed_tests": [], "skipped_tests": []},
+        }
+    recs = [
+        _rec("fasterxml", "jackson-core", 964, "com.fasterxml.jackson.core.ATest"),
+        _rec("google", "gson", 2222, "com.google.gson.BTest"),
     ]
-    f = tmp_path / "swe-bench-java-verified.json"
-    f.write_text(json.dumps(records))
+    f = tmp_path / "java-verified.jsonl"
+    f.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
     return f
 
 
@@ -42,49 +39,35 @@ def test_swebench_registered():
 
 
 def test_load_all_instances(tmp_path: Path):
-    ds = _fake_dataset(tmp_path)
     adapter = registry.get_adapter("swebench-java")
-    insts = list(adapter.load(ds, None))
-    assert len(insts) == 2
-    ids = {i.instance_id for i in insts}
-    assert ids == {"fasterxml__jackson-core-1111", "google__gson-2222"}
+    insts = list(adapter.load(_fake_dataset(tmp_path), None))
+    assert {i.instance_id for i in insts} == {
+        "fasterxml/jackson-core:pr-964", "google/gson:pr-2222"}
 
 
 def test_load_subset_filters_by_repo(tmp_path: Path):
-    ds = _fake_dataset(tmp_path)
     adapter = registry.get_adapter("swebench-java")
-    insts = list(adapter.load(ds, {"repo": "fasterxml/jackson-core"}))
-    assert len(insts) == 1
-    assert insts[0].repo == "fasterxml/jackson-core"
+    insts = list(adapter.load(_fake_dataset(tmp_path), {"repo": "fasterxml/jackson-core"}))
+    assert len(insts) == 1 and insts[0].repo == "fasterxml/jackson-core"
 
 
-def test_firewall_oracle_holds_gold_and_tests_agentview_does_not(tmp_path: Path):
-    ds = _fake_dataset(tmp_path)
+def test_load_native_instance(tmp_path: Path):
     adapter = registry.get_adapter("swebench-java")
-    inst = list(adapter.load(ds, {"repo": "fasterxml/jackson-core"}))[0]
-    # oracle carries gold/hidden data (grade-only)
-    assert inst.oracle["patch"].startswith("diff --git")
+    inst = list(adapter.load(_fake_dataset(tmp_path), {"repo": "fasterxml/jackson-core"}))[0]
+    assert inst.instance_id == "fasterxml/jackson-core:pr-964"
+    assert inst.env.build_system == "maven"
+    assert inst.env.image == "mswebench/fasterxml_m_jackson-core:pr-964"
+    # firewall: gold + hidden tests only in oracle
+    assert inst.oracle["fix_patch"].startswith("diff --git")
     assert inst.oracle["test_patch"].startswith("diff --git")
-    assert inst.oracle["base_commit"] == "abc123"
-    # F2P/P2P decoded from JSON-encoded STRINGS into real lists
-    assert inst.oracle["fail_to_pass"] == ["src:com.fasterxml.jackson.core.ATest"]
-    assert inst.oracle["pass_to_pass"] == []
-    # firewall: agent_view() has no oracle at all
+    assert inst.oracle["base_sha"] == "sha-964"
+    assert "com.fasterxml.jackson.core.ATest" in inst.oracle["f2p_tests"]
+    assert inst.oracle["record"]["number"] == 964
     assert not hasattr(inst.agent_view(), "oracle")
-    # neither gold nor hidden tests nor hints leak into the agent-visible prompt
-    prompt = inst.task.prompt_text
-    assert "NPE in JsonParser" in prompt                 # the issue IS shown
-    assert "ParserBase" not in prompt                    # hints_text NOT shown
-    assert "diff --git" not in prompt                    # gold/test patch NOT shown
-    assert "ATest" not in prompt                         # FAIL_TO_PASS NOT shown
-
-
-def test_env_per_instance(tmp_path: Path):
-    ds = _fake_dataset(tmp_path)
-    adapter = registry.get_adapter("swebench-java")
-    inst = list(adapter.load(ds, {"repo": "fasterxml/jackson-core"}))[0]
-    assert inst.env.build_system == "maven"              # jackson = maven
-    assert inst.env.image == "mswebench/fasterxml_jackson-core:0.1"
+    # prompt = issue only; no gold/tests
+    p = inst.task.prompt_text
+    assert "Bug in jackson-core" in p and "empty input" in p
+    assert "diff --git" not in p and "ATest" not in p
 
 
 def test_load_requires_dataset():
@@ -92,20 +75,6 @@ def test_load_requires_dataset():
     adapter = registry.get_adapter("swebench-java")
     with pytest.raises(ValueError, match="dataset"):
         list(adapter.load(None, None))
-
-
-def test_as_list_rejects_non_list_json():
-    import pytest
-    from abench.bench.swebench_java import _as_list
-    # valid forms still work
-    assert _as_list(None) == []
-    assert _as_list(json.dumps(["a", "b"])) == ["a", "b"]
-    assert _as_list(["x"]) == ["x"]
-    # a JSON string that decodes to a non-list must raise, not silently make chars
-    with pytest.raises(ValueError):
-        _as_list(json.dumps("just_a_word"))
-    with pytest.raises(ValueError):
-        _as_list(json.dumps({"a": 1}))
 
 
 import abench.bench.swebench_java as sj
