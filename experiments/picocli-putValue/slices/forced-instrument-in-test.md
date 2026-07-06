@@ -12,38 +12,45 @@ name or a quick read. **Observe the real data flow at runtime, then implement
 against what you saw.** This augmentation gives you everything you need to do
 that without spelunking a 19,000-line file:
 
-- the **direct tests** (with oracles) — the precise contract;
-- **JaCoCo runtime coverage** (which tests execute `putValue`) plus a **focus
-  set** — the few of them whose assertions actually constrain it;
-- the **consumer contract** (`addRowValues`) and the **call chains** from the
-  asserting tests down to `putValue` — what reads its return value, and the
-  single chokepoint every call passes through (so you know where to probe);
-- **clustered call chains** (medoid path per cluster) — the typical end-to-end
-  dataflow scenarios that reach `putValue`, so you can probe the *intermediate*
-  methods on a test's path, not just `putValue` or the test itself.
+* the **direct tests** with oracles — the explicit edge-case contract;
+* **JaCoCo runtime coverage** plus a **focus set** — the tests that execute
+  `putValue`, and the smaller set whose assertions actually constrain it;
+* the **consumer contract** (`addRowValues`) — the single consumer of
+  `putValue`'s returned `Cell`;
+* **clustered call chains** — the typical end-to-end runtime paths that reach
+  `putValue`;
+* **call-chain snippet vertices** — compact code snippets for methods along
+  those chains. Use these vertices as concrete targets for invasive runtime
+  debugging: insert temporary debug prints inside the shown methods. Every probe must print a runtime tag like `[probe][MethodName]` and keep the source cleanup marker `//[probe]`, so the agent can observe how values are passed, constructed, transformed, and forwarded toward `putValue`.
 
 **Workflow:**
-1. Read the *Direct tests* and the *Consumer contract* below — that is the spec.
-2. **Instrument the focus-set tests** (see *Which tests to instrument*) with
-   temporary `//[probe]` print statements to watch the real data flow: the args
-   `putValue` receives, the per-cell state, and the actual-vs-expected value the
-   assertion compares. You may — and often should — also drop `//[probe]` prints
-   into the chain methods in `CommandLine.java` (especially `addRowValues`, the
-   single consumer/chokepoint) to see what `putValue` is handed and what the
-   caller does with its return value across many tests at once.
-3. Run those tests, read the `[probe]` output, and write/correct the body using
-   the values you observed — not from assumption. Re-run after each change.
-4. **Remove every `//[probe]` line before you finish.**
 
-Don't rely on `grep` alone to understand behaviour — it shows you call sites, not
-runtime values. **Search freely** for any method, type, or test you need during
-the session, open files directly when you need more than the slices below, and
-**do not hesitate to add `//[probe]` prints to tests or to the code** to see what
-is actually happening — that is the point.
+1. Read the *Direct tests*, *TextTable-targeted tests*, and the *Consumer
+   contract* below — together, these define the behaviour you need to restore.
+2. Inspect the *Clustered call chains* and the *Chain methods* snippets. Do not
+   debug only `TextTable.putValue(...)`: use the snippet vertices below to place
+   temporary `//[probe]` prints along the relevant path, especially where data is
+   passed into `addRowValues` and then into `putValue`.
+3. Instrument the focus-set execution path with temporary `//[probe]` print statements to observe the real data flow: the arguments
+   `putValue` receives, the column overflow mode, per-cell state, row count, and
+   the returned `Cell` consumed by `addRowValues`. Preferably do it in production chain methods. Avoid editing tests unless you only add temporary probe prints and never change assertions, expected strings, or control flow.
+   
+4. Run the focused tests, read the `[probe]` output, and implement or correct
+   `putValue` using the runtime values you observed — not assumptions from
+   method names or static call sites.
+5. Remove every `//[probe]` line before broad validation and final verification.
+
+Do not rely on `grep` alone to understand behaviour — it shows call sites, not
+runtime values. Use `grep`/read to locate the full bodies of the snippet methods,
+then add focused `//[probe]` prints at the points where values are constructed,
+transformed, or forwarded toward `putValue`. The snippets below are intended as
+debugging targets, not merely as background context.
+
 
 ---
 
-## Direct tests (the contract)
+## Direct tests — explicit edge cases
+These direct tests pin the explicit edge cases. The layout behavior for TRUNCATE/SPAN/WRAP is pinned by the TextTable-targeted tests below.
 
 | Test (file:line) | Args | Oracle |
 |---|---|---|
@@ -78,7 +85,7 @@ void testTextTablePutValue_NullOrEmpty() {
 
 ### Universe — JaCoCo runtime coverage
 
-`putValue` is executed at runtime by **412 of the ~2437 tests**, spread across **42 test classes** (full breakdown below). The other ~2000 tests never reach it — no point instrumenting those. But this coverage is Tier-2 ("the test executed the method *somewhere*"): it does **not** tell you which of the 412 constrain `putValue`'s behaviour. ~403 of them reach it only **incidentally**, while rendering some unrelated feature's usage message, and assert the whole usage string — so they won't reveal its contract. (Gradle runs by class, so this is the granularity that matters: e.g. to watch a broad data-flow sample through the chokepoint, run the whole `HelpTest` class — it holds 173 of the coverers.)
+`putValue` is executed at runtime by **412 of the ~2437 tests**, spread across **42 test classes** (full breakdown below). The other ~2000 tests did not reach it in the JaCoCo coverage run, so they are low-signal for deriving the local contract, but still valuable as regression tests. Treat this as a test-selection hint, not as a substitute for the final full-suite verification. But this coverage is Tier-2 ("the test executed the method *somewhere*"): it does **not** tell you which of the 412 constrain `putValue`'s behaviour. ~403 of them reach it only **incidentally**, while rendering some unrelated feature's usage message, and assert the whole usage string — so they won't reveal its contract. (Gradle runs by class, so this is the granularity that matters: e.g. to watch a broad data-flow sample through the chokepoint, run the whole `HelpTest` class — it holds 173 of the coverers.)
 
 | coverers | test class |
 |---:|---|
@@ -277,13 +284,93 @@ clusters except G) and `…insertSynopsisCommandName → addRowValues → putVal
 
 ---
 
-## Chain methods (call-site snippets)
+## Chain methods: where probes are useful
 
-Use the full chains above to choose methods to inspect and to place temporary
-`//[probe]` diagnostics along the relevant path. These compact fragments show
-how arguments and calls flow toward `putValue`; each method-level edge appears
-once. They show caller code only—the body of the target method is intentionally
-omitted.
+### Examples
+1. `TextTable.addRowValues(Text...)`, immediately before and after the call to `putValue`.
+2. `TextTable.putValue`, at entry and before return, only if the local cell state is still unclear.
+
+These probes answer:
+
+* what `(row, col, value)` is passed into `putValue`;
+* which column overflow mode is active: `TRUNCATE`, `SPAN`, or `WRAP`;
+* what indent/width/cell state is involved;
+* what `Cell` is returned;
+* whether `addRowValues` will insert an extra row because of that return value.
+```java
+// inside TextTable.addRowValues(Text...), around the putValue call
+System.err.println("[probe][TextTable.addRowValues] before putValue"
+        + " row=" + row
+        + " col=" + col
+        + " overflow=" + columns[col].overflow
+        + " indent=" + columns[col].indent
+        + " rows=" + rowCount()
+        + " valueLen=" + (values[col] == null ? -1 : values[col].length)
+        + " value='" + values[col] + "'"); // //[probe]
+
+Cell cell = putValue(row, col, values[col]);
+
+System.err.println("[probe][TextTable.addRowValues] after putValue"
+        + " inputCell=(" + col + "," + row + ")"
+        + " returnedCell=(" + cell.column + "," + cell.row + ")"
+        + " rows=" + rowCount()); // //[probe]
+```
+
+Run only focused tests while probes are present:
+
+```bash
+./gradlew test \
+  --tests 'picocli.HelpTest.testTextTable*' \
+  --tests 'picocli.TextTableTest' \
+  --info 2>&1 | grep '\[probe\]'
+```
+
+Commands piped to `grep` are for reading probe output only. Do not treat them as verification. For verification, preserve the Gradle exit code.
+
+For `EnvironmentVariablesRenderer.render(...)`:
+
+```java
+System.err.println("[probe][EnvironmentVariablesRenderer.render] env row"
+        + " key='" + entry.getKey() + "'"
+        + " value='" + entry.getValue() + "'"
+        + " keyColWidth=" + (keyLength + 3)
+        + " valueColWidth=" + (width(help) - (keyLength + 3))); // //[probe]
+```
+
+For `Help.insertSynopsisCommandName(...)`:
+
+```java
+System.err.println("[probe][Help.insertSynopsisCommandName] synopsis row"
+        + " commandName='" + commandName + "'"
+        + " headingLen=" + synopsisHeadingLength
+        + " width=" + width()
+        + " details='" + optionsAndPositionalsAndCommandsDetails + "'"); // //[probe]
+```
+
+### Probe rules
+
+* Use `System.err.println`, not `System.out.println`. 
+* Every temporary probe line must keep the exact source cleanup marker `//[probe]`. Do not replace it with `//[probe:method]` or any other variant. Put the method name inside the printed runtime tag instead: `[probe][MethodName]`.
+* Do not change test assertions, expected strings, or test control flow.
+* Do not run the full suite while probes are present.
+* Remove all probes before broad validation.
+
+Before final verification, this command must print nothing:
+
+```bash
+grep -R "\[probe\]" -n src/main/java src/test/java
+```
+Run this only against source directories, not against this augmentation file.
+
+### Call-chain snippet vertices
+
+Each item below is a call-chain vertex represented by a compact code snippet, with additional context.
+
+Use these code snippets vertices below as targets for invasive runtime debugging (and chains above this, in Clustered call chains (medoids)).
+Do **not** debug only `TextTable.putValue(...)`. Inspect the chain methods below and add temporary debug probes at the points where they pass, construct, transform, or forward data toward `putValue`. Use `grep`/read to locate the full method bodies when the snippet is not enough.
+
+Analyze each snippet and insert the probes you need in those chain methods to observe the dataflow across the path, not only at the final target method. Mark every temporary debug line with `//[probe]` and remove all probes before final verification.
+
 
 - `CommandLine.parseArgs → Interpreter.parse`:
 ```java
@@ -571,9 +658,10 @@ flow:
 ```java
 // inside addRowValues(Text...), around the call — remove before finishing:
 Cell cell = putValue(row, col, values[col]);
-System.out.println("[probe] putValue(row=" + row + ", col=" + col
+System.err.println("[probe][TextTable.addRowValues] putValue(row=" + row
+        + ", col=" + col
         + ", value='" + values[col] + "') -> Cell(col=" + cell.column
-        + ", row=" + cell.row + ")");  //[probe]
+        + ", row=" + cell.row + ")"); // //[probe]
 ```
 
 Run the **focus set** with that probe to see a controlled, oracle-backed sample
@@ -606,3 +694,12 @@ open `CommandLine.java` and read it, or probe it — don't guess.
   clean too (mark every debug line with `//[probe]`).
 - The full green `./gradlew test --continue` suite is the final gate — run it
   only **after** removing your probes.
+
+After removing all probes:
+
+1. Run the focused TextTable tests.
+2. Run representative broad rendering tests, at least `HelpTest`, `HelpAnsiTest`, and `ArgGroupTest`.
+3. Run the full suite:
+
+```bash
+./gradlew test --continue
