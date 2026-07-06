@@ -4,13 +4,20 @@ version = "0.1.0"
 description = "Agentic-Bench: harness for comparing OpenCode agent runs"
 requires-python = ">=3.12"
 dependencies = [
+    # core: config parsing + validation
     "pyyaml>=6",
-    "pydantic>=2",
-    "httpx>=0.27",
-    "httpx-sse>=0.4",
-    "pandas>=2",
+    "pydantic>=2,<3",
+    # report / analyze (abench report, abench analyze); numpy is used directly by
+    # screening.py, so declare it explicitly instead of leaning on pandas' transitive.
+    "pandas>=2.2",
+    "numpy>=1.26",
+    # web UI (abench-ui): FastAPI app + uvicorn server, websockets for the live WS stream.
+    # Plain `uvicorn` (NOT uvicorn[standard]) — the server runs without --reload, so the
+    # heavy extras (watchfiles/uvloop/httptools, which need Rust/C toolchains) are never
+    # used and only bloat/break installs on hosts without wheels.
     "fastapi>=0.115",
-    "uvicorn[standard]>=0.30",
+    "uvicorn>=0.34",           # >=0.34 ships the sans-io websockets impl, so it works
+    "websockets>=12",          # with modern websockets 15+/16 (legacy API removed in 15)
     "cachetools>=5.3",
 ]
 
