@@ -534,6 +534,11 @@ git commit -m "feat(bench): SWE-bench-java dual grade — official evaluator + a
 
 **NEXT PLAN (Docker integration) — not part of this suite:** clone the pinned multi-swe-bench repo + read the real evaluator (resolve spec §10: predictions format, CLI/Docker driver); install Docker + pull the jackson-core official image; implement `materialize` (agent-run container from the image) and BOTH live grade bodies with exact code — (1) `_run_swebench_evaluator` (clean grading container, offline, official verdict) and (2) `_run_abench_verify` (abench's own blast-radius regression via graph/Joern + repro re-run); set `_EVALUATOR_PIN`; validate end-to-end on 1–2 jackson-core instances against the official grader (spec §9 Phase-1 success). Then: egress-lock (§5, Plan 5), remaining 5 repos.
 
+**Final-review notes for the Docker plan (opus, 2026-07-06):**
+1. **`load()` runs OUTSIDE `run_benchmark`'s per-run safety net** (`abench/bench/run.py:46` calls `adapter.load(...)` before the per-instance `try`). A single malformed record — a bad `_as_list` value or a missing `rec["base_commit"]`/`rec["patch"]` — aborts the whole 91-instance sweep before any instance runs (pre-existing property, shared with `javabench.py`; the `_as_list` non-list guard slightly widens the raise surface — deliberately, loud > silent on bad data). Before the first real 91-instance run, either add per-record tolerance in `load` or validate the dataset up front.
+2. **`_is_test_path` false-positive (safe-side):** a real production source file under `src/main/**` literally named `*Test.java`/`*Tests.java`/`*IT.java` classifies as TEST and is dropped from the graded source-diff → would grade unresolved. Vanishingly rare in Java `src/main`; watch for it during the jackson end-to-end spot-check.
+3. `_run_swebench_evaluator`'s live body must honor the `resolved: bool` contract (`grade` does `bool(official.get("resolved"))` — a non-bool truthy like `"yes"` would pass through).
+
 ---
 
 ## Self-review
