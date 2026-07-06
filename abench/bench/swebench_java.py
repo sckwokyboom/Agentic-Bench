@@ -42,11 +42,17 @@ def _image_ref(repo: str, version: str) -> str:
 
 def _as_list(value: Any) -> list[str]:
     """FAIL_TO_PASS/PASS_TO_PASS are JSON-encoded STRINGS in the dataset. Decode to
-    a real list; tolerate an already-decoded list defensively."""
+    a real list; tolerate an already-decoded list defensively. Raise on a decoded
+    non-list rather than silently iterating chars/keys (grade-data correctness)."""
     if value is None:
         return []
     if isinstance(value, str):
-        return list(json.loads(value))
+        decoded = json.loads(value)
+        if not isinstance(decoded, list):
+            raise ValueError(f"expected a JSON list, got {type(decoded).__name__}: {value!r}")
+        return list(decoded)
+    if not isinstance(value, list):
+        raise ValueError(f"expected a list, got {type(value).__name__}")
     return list(value)
 
 

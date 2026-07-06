@@ -92,3 +92,17 @@ def test_load_requires_dataset():
     adapter = registry.get_adapter("swebench-java")
     with pytest.raises(ValueError, match="dataset"):
         list(adapter.load(None, None))
+
+
+def test_as_list_rejects_non_list_json():
+    import pytest
+    from abench.bench.swebench_java import _as_list
+    # valid forms still work
+    assert _as_list(None) == []
+    assert _as_list(json.dumps(["a", "b"])) == ["a", "b"]
+    assert _as_list(["x"]) == ["x"]
+    # a JSON string that decodes to a non-list must raise, not silently make chars
+    with pytest.raises(ValueError):
+        _as_list(json.dumps("just_a_word"))
+    with pytest.raises(ValueError):
+        _as_list(json.dumps({"a": 1}))
