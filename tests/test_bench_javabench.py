@@ -67,3 +67,44 @@ def test_materialize_copies_skeleton_only(tmp_path: Path):
     assert not (workdir / "SECRET.java").exists()
     assert not any(p.name == "SECRET.java" for p in workdir.rglob("*"))
     assert not (workdir / ".git").exists()
+
+
+import abench.bench.javabench as jb
+
+
+def _prep_graded_instance(tmp_path):
+    root = _fake_checkout(tmp_path)
+    adapter = registry.get_adapter("javabench")
+    inst = list(adapter.load(root, {"project": "PA19"}))[0]
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    # the agent's implemented class file must exist at src/main/java/<target>
+    tgt = workdir / "src" / "main" / "java" / "game" / "map" / "cells" / "Cell.java"
+    tgt.parent.mkdir(parents=True)
+    tgt.write_text("public class Cell {}\n")
+    return adapter, inst, workdir
+
+
+def test_grade_resolved_when_all_tests_pass(tmp_path, monkeypatch):
+    adapter, inst, workdir = _prep_graded_instance(tmp_path)
+    monkeypatch.setattr(jb, "_run_javabench_grader", lambda root, preds, out: [
+        {"task_id": "PA19/Cell.java", "compile_errors": 0,
+         "test_result": [7, 7], "has_todo": False, "can_replace": True}])
+    g = adapter.grade(inst, "diff", workdir)
+    assert g.resolved is True
+    assert g.standard_protocol is True
+    assert g.abench["n_pass"] == 7 and g.abench["n_total"] == 7
+    assert g.evaluator.startswith("javabench-class-wise")
+
+
+def test_grade_not_resolved_on_partial_or_compile_error(tmp_path, monkeypatch):
+    adapter, inst, workdir = _prep_graded_instance(tmp_path)
+    monkeypatch.setattr(jb, "_run_javabench_grader", lambda root, preds, out: [
+        {"task_id": "PA19/Cell.java", "compile_errors": 0,
+         "test_result": [3, 7], "has_todo": False, "can_replace": True}])
+    assert adapter.grade(inst, "diff", workdir).resolved is False
+
+    monkeypatch.setattr(jb, "_run_javabench_grader", lambda root, preds, out: [
+        {"task_id": "PA19/Cell.java", "compile_errors": 5,
+         "test_result": [0, 0], "has_todo": False, "can_replace": True}])
+    assert adapter.grade(inst, "diff", workdir).resolved is False
