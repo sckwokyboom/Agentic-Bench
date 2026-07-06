@@ -65,6 +65,46 @@ def _build_prompt(rec: dict) -> str:
     )
 
 
+def _is_test_path(path: str) -> bool:
+    p = path.replace("\\", "/")
+    return (
+        "/src/test/" in p
+        or p.startswith("src/test/")
+        or p.endswith("Test.java")
+        or p.endswith("Tests.java")
+        or p.endswith("IT.java")
+    )
+
+
+def split_source_test_diff(unified_diff: str) -> tuple[str, str]:
+    """Split a unified git diff into (source_diff, test_diff) by per-file section.
+    Test files (src/test/ roots, *Test.java/*Tests.java/*IT.java) go to test_diff;
+    everything else to source_diff. Only source_diff is ever graded (spec §7)."""
+    if not unified_diff.strip():
+        return "", ""
+    source_parts: list[str] = []
+    test_parts: list[str] = []
+    current: list[str] = []
+    is_test = False
+
+    def _flush() -> None:
+        if current:
+            (test_parts if is_test else source_parts).append("".join(current))
+
+    for line in unified_diff.splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            _flush()
+            current = [line]
+            # "diff --git a/<path> b/<path>" — classify by the b/ path.
+            parts = line.split()
+            b_path = parts[3][2:] if len(parts) >= 4 and parts[3].startswith("b/") else ""
+            is_test = _is_test_path(b_path)
+        else:
+            current.append(line)
+    _flush()
+    return "".join(source_parts), "".join(test_parts)
+
+
 class SweBenchAdapter:
     id = "swebench-java"
 

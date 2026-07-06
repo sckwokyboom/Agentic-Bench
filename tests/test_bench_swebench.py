@@ -106,3 +106,40 @@ def test_as_list_rejects_non_list_json():
         _as_list(json.dumps("just_a_word"))
     with pytest.raises(ValueError):
         _as_list(json.dumps({"a": 1}))
+
+
+import abench.bench.swebench_java as sj
+
+
+_DIFF = """diff --git a/src/main/java/com/x/A.java b/src/main/java/com/x/A.java
+index 111..222 100644
+--- a/src/main/java/com/x/A.java
++++ b/src/main/java/com/x/A.java
+@@ -1,1 +1,1 @@
+-old
++new
+diff --git a/src/test/java/com/x/ATest.java b/src/test/java/com/x/ATest.java
+index 333..444 100644
+--- a/src/test/java/com/x/ATest.java
++++ b/src/test/java/com/x/ATest.java
+@@ -1,1 +1,2 @@
+ existing
++assertThat(...)
+"""
+
+
+def test_split_source_test_diff():
+    source, test = sj.split_source_test_diff(_DIFF)
+    # source-diff keeps the main-source file, drops the test file
+    assert "src/main/java/com/x/A.java" in source
+    assert "ATest.java" not in source
+    # test-diff keeps the test file, drops the main-source file
+    assert "src/test/java/com/x/ATest.java" in test
+    assert "src/main/java/com/x/A.java" not in test
+
+
+def test_split_empty_and_source_only():
+    assert sj.split_source_test_diff("") == ("", "")
+    only_src = "diff --git a/src/main/java/A.java b/src/main/java/A.java\n@@ -1 +1 @@\n-a\n+b\n"
+    source, test = sj.split_source_test_diff(only_src)
+    assert "A.java" in source and test == ""
