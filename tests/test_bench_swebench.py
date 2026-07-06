@@ -198,17 +198,18 @@ _AGENT_DIFF = (
 
 
 def _mock_both_graders(monkeypatch, *, official_resolved, seen=None,
-                       abench_ret=None):
+                       abench_ret=None, instance_report=None):
     """Mock BOTH grade seams. `seen` (if given) captures what the official
     evaluator received, to prove only the source-diff is sent."""
     def _fake_official(oracle, source_diff):
         if seen is not None:
             seen["source_diff"] = source_diff
-        return {"resolved": official_resolved, "report": {}}
+        return {"resolved": official_resolved, "report": {},
+                "instance_report": instance_report or {}}
     monkeypatch.setattr(sj, "_run_swebench_evaluator", _fake_official)
     monkeypatch.setattr(
         sj, "_run_abench_verify",
-        lambda oracle, source_diff, test_diff, workdir: (
+        lambda oracle, instance_report, test_diff: (
             abench_ret if abench_ret is not None
             else {"scoped_regressions": [], "repro_reproduced": True,
                   "abench_resolved": official_resolved}))
@@ -360,3 +361,32 @@ def test_run_swebench_evaluator_requires_msb_root(tmp_path):
     inst = list(adapter.load(ds, {"repo": "fasterxml/jackson-core"}))[0]   # no msb_root
     with pytest.raises(ValueError, match="msb_root"):
         sj._run_swebench_evaluator(inst.oracle, "diff")
+
+
+def test_abench_verify_extracts_regressions_and_verdict(tmp_path):
+    oracle = {"f2p_tests": {"com.x.ATest": {"run": "PASS", "test": "FAIL", "fix": "PASS"}}}
+    report = {
+        "valid": False,
+        "p2p_tests": {"com.x.OtherTest": {"run": "PASS", "test": "PASS", "fix": "FAIL"}},  # regression
+        "f2p_tests": {"com.x.ATest": {"run": "PASS", "test": "FAIL", "fix": "PASS"}},       # fixed, not a regression
+    }
+    out = sj._run_abench_verify(oracle, report, test_diff="diff --git a/src/test/... ")
+    assert out["scoped_regressions"] == ["com.x.OtherTest"]
+    assert out["repro_reproduced"] is True         # the f2p test failed at the test stage
+    assert out["abench_resolved"] is False          # harness `valid`
+
+
+def test_abench_verify_no_report_degrades(tmp_path):
+    out = sj._run_abench_verify({"f2p_tests": {}}, {}, test_diff="")
+    assert out["scoped_regressions"] == []
+    assert out["repro_reproduced"] is False
+    assert out["abench_resolved"] is None
+
+
+def test_find_instance_report_globs(tmp_path):
+    from abench.bench import _msb
+    d = tmp_path / "work" / "fasterxml" / "jackson-core"
+    d.mkdir(parents=True)
+    (d / "report.json").write_text('{"valid": true}')
+    assert _msb.find_instance_report(str(tmp_path / "work")) == {"valid": True}
+    assert _msb.find_instance_report(str(tmp_path / "empty")) == {}

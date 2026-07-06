@@ -144,26 +144,38 @@ def _run_swebench_evaluator(oracle: dict, source_diff: str) -> dict:
             "force_build": False,
         }
         report = _msb.run_evaluation(msb_root, config, str(out_dir))
-        return {"resolved": iid in (report.get("resolved_ids") or []), "report": report}
+        instance_report = _msb.find_instance_report(str(tmp / "work"))
+        return {
+            "resolved": iid in (report.get("resolved_ids") or []),
+            "report": report,
+            "instance_report": instance_report,
+        }
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _run_abench_verify(oracle: dict, source_diff: str, test_diff: str, workdir: Path) -> dict:
-    """abench's OWN grading methodology — run ALONGSIDE the official verdict (spec
-    §7), the same kind abench already runs on the putValue experiment. The official
-    criterion has NO regression guard (PASS_TO_PASS empty) — this is what abench
-    adds. Returns {scoped_regressions: list[str], repro_reproduced: bool,
-    abench_resolved: bool|None}. Isolated so tests monkeypatch it.
-
-    DEFERRED (Docker plan): the real body = in a clean container, apply the
-    source-fix, run the BLAST-RADIUS tests (touched methods → covering tests via the
-    graph/Joern, spec §7) before/after to find regressions; re-run the agent's own
-    repro (from test_diff) on base for repro_reproduced; abench_resolved = abench's
-    own FAIL_TO_PASS pass/fail cross-check. Docker + graph gated."""
-    raise NotImplementedError(
-        "abench's own SWE verify/regression is Docker+graph-based; deferred to the Docker plan"
+def _run_abench_verify(oracle: dict, instance_report: dict, test_diff: str) -> dict:
+    """abench's OWN methodology v1 (spec §7) — mine the harness's per-instance report
+    for what the official empty-PASS_TO_PASS criterion omits: regressions + repro.
+    v1 READS the harness report (no separate run); the Joern blast-radius scoping of
+    which tests to weight is a deferred enhancement. HOST(Task 5): confirm the report
+    key shapes (p2p_tests/f2p_tests dicts of {run,test,fix}; `valid` flag)."""
+    regressions: list[str] = []
+    for key in ("p2p_tests", "f2p_tests", "s2p_tests", "n2p_tests"):
+        for name, st in (instance_report.get(key) or {}).items():
+            if isinstance(st, dict) and st.get("test") == "PASS" and st.get("fix") == "FAIL":
+                regressions.append(name)
+    # repro signal: did the instance's known fail-to-pass tests actually fail at the
+    # test stage (test_patch only)? (from the dataset's f2p_tests in oracle)
+    f2p = oracle.get("f2p_tests") or {}
+    repro_reproduced = any(
+        isinstance(st, dict) and st.get("test") == "FAIL" for st in f2p.values()
     )
+    return {
+        "scoped_regressions": sorted(set(regressions)),
+        "repro_reproduced": repro_reproduced,
+        "abench_resolved": instance_report.get("valid"),   # harness's own verdict (bool|None)
+    }
 
 
 class SweBenchAdapter:
@@ -224,7 +236,7 @@ class SweBenchAdapter:
         official = _run_swebench_evaluator(inst.oracle, src_diff)
         # (2) abench's OWN methodology — regressions/repro the official criterion
         # omits (spec §7). Co-equal, but NEVER the exported SWE number.
-        own = _run_abench_verify(inst.oracle, src_diff, test_diff, workdir)
+        own = _run_abench_verify(inst.oracle, official.get("instance_report") or {}, test_diff)
         return GradeResult(
             resolved=bool(official.get("resolved")),      # headline = OFFICIAL only
             evaluator=_EVALUATOR_PIN,

@@ -76,6 +76,17 @@ def _docker_cp_repo(image: str, src: str, dest: str) -> None:
         subprocess.run(["docker", "rm", "-f", cid], capture_output=True, text=True)
 
 
+def find_instance_report(workdir: str) -> dict:
+    """Return the harness's per-instance report.json from a completed run's workdir
+    (layout <workdir>/<org>/<repo>/.../report.json). Globs so the exact layout need
+    not be hardcoded (HOST(Task 5): confirm there is exactly one). Returns {} if none
+    found (e.g. the run errored before writing a report)."""
+    matches = sorted(Path(workdir).rglob("report.json"))
+    if not matches:
+        return {}
+    return json.loads(matches[0].read_text())
+
+
 def run_evaluation(msb_root: str, config: dict, output_dir: str) -> dict:
     """Run the official multi-swe-bench evaluator on a prepared config and return the
     parsed final_report.json. Writes config.json into output_dir, runs
