@@ -240,6 +240,13 @@ def test_load_native_instance(tmp_path: Path):
 - [ ] **End-to-end on 1–2 instances:** run `abench run` on a `benchmark: {adapter: swebench-java, dataset: <native.jsonl>, subset: {repo: fasterxml/jackson-core, msb_root: <path>}}` experiment with a real model (baseline condition). Confirm `grade.json`/`benchmark_summary.json` produced; `official.resolved` matches a manual `run_evaluation.py` spot-check on the same prediction; `abench.scoped_regressions`/`repro_reproduced` populated.
 - [ ] **Record** the confirmed facts (real image tag, dataset field reality, `resolved`-id format, timing) back into the plan + memory `multi-swe-bench-evaluator-interface`.
 
+**MUST-CONFIRM before trusting the verdict (from the opus final review) — these could SILENTLY mis-grade, not crash, so spot-check them explicitly (a green end-to-end is not enough):**
+- [ ] **(a) `resolved_ids` byte-equal to `_msb.instance_id(rec)`** (`org/repo:pr-N`, INCLUDING case). The join `iid in resolved_ids` (swebench_java.py) is exact-match; if the harness lowercases ids (the image tag is lowercased) a real fix would false-grade as unresolved. jackson-core is all-lowercase so the pilot is safe, but confirm before scaling to mixed-case repos (jib=`GoogleContainerTools`). If they differ, normalize the join.
+- [ ] **(b) per-instance `report.json` LOCATION** — `_msb.find_instance_report` globs the harness `workdir`. If the harness writes it under `log_dir`/`output_dir` instead, the glob returns `{}` and the ENTIRE abench plane silently zeroes (`scoped_regressions=[]`, `abench_resolved=None`) — indistinguishable from a clean run. The grade output now carries `abench["report_found"]` — **confirm it is `true` on the first real run**; if `false`, fix `find_instance_report`'s root before trusting `abench.*`.
+- [ ] **(c) report shape** — the per-instance report actually carries `p2p_tests`/`f2p_tests` dicts of `{run,test,fix}` + a `valid` flag (the shape `_run_abench_verify` assumes). Spot-check one report.json.
+- [ ] **(d) `repo_dir`/build semantics** — with `force_build:false` + a pre-pulled image, confirm the run skips the build and doesn't require `repo_dir` to be populated (only its existence). If it DOES need the repo, point `repo_dir` at the extracted repo.
+- [ ] **(e) harness importable** via `sys.executable -m multi_swe_bench.harness.run_evaluation` (i.e. `pip install -e` landed in the venv) and it writes `final_report.json` to `output_dir`.
+
 ---
 
 ## Self-review
