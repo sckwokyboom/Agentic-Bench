@@ -10,12 +10,13 @@ benchmark:
   dataset: ../../../msb-data/jackson-core.jsonl
   subset:
     repo: fasterxml/jackson-core
-    # Pinned multi-swe-bench checkout (github.com/multi-swe-bench/multi-swe-bench @ 24f493f8).
-    msb_root: /Users/sckwoky/Projects/multi-swe-bench
-    # Python of the env where the harness is `pip install -e`'d (its deps: docker,
-    # swe-rex, PyGithub, …). Defaults to abench's interpreter if omitted — but the
-    # harness needs its OWN env, so set this. See the runbook.
-    msb_python: /Users/sckwoky/Projects/multi-swe-bench/.venv/bin/python
+    # Pinned multi-swe-bench checkout @ 24f493f8, on a CASE-SENSITIVE volume
+    # (required on macOS — see the runbook's Qiskit/qiskit blocker).
+    msb_root: /Volumes/MSB/multi-swe-bench
+    # Python of the harness's OWN env (python3.11 + `pip install -e .`). Its deps
+    # (docker/swe-rex/PyGithub) must NOT go into abench's 3.14 venv. Verified: the
+    # harness imports + `run_evaluation --help` runs from this interpreter.
+    msb_python: /Volumes/MSB/multi-swe-bench/.venv/bin/python
     # For a SINGLE-instance smoke first, also add:  specifics: "fasterxml/jackson-core:pr-1309"
     # (not yet consumed by the adapter — start with the whole jackson-core subset,
     #  or hand-trim the dataset jsonl to one line for the very first run).
