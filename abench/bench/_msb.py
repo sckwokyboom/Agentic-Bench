@@ -3,7 +3,10 @@ report reader come in later Plan-4b tasks). Pinned harness:
 github.com/multi-swe-bench/multi-swe-bench @ 24f493f8 (v1.1.0)."""
 from __future__ import annotations
 
+import json
 import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 
@@ -71,3 +74,21 @@ def _docker_cp_repo(image: str, src: str, dest: str) -> None:
         )
     finally:
         subprocess.run(["docker", "rm", "-f", cid], capture_output=True, text=True)
+
+
+def run_evaluation(msb_root: str, config: dict, output_dir: str) -> dict:
+    """Run the official multi-swe-bench evaluator on a prepared config and return the
+    parsed final_report.json. Writes config.json into output_dir, runs
+    `python -m multi_swe_bench.harness.run_evaluation --config <cfg>` with
+    cwd=msb_root (the pinned checkout), reads output_dir/final_report.json.
+    Isolated so tests monkeypatch it (the real call needs Docker + the harness
+    installed in this interpreter). HOST(Task 5): confirm the harness is importable
+    via `sys.executable -m multi_swe_bench.harness.run_evaluation` (pip install -e)."""
+    cfg_path = Path(output_dir) / "config.json"
+    cfg_path.write_text(json.dumps(config))
+    subprocess.run(
+        [sys.executable, "-m", "multi_swe_bench.harness.run_evaluation",
+         "--config", str(cfg_path)],
+        cwd=msb_root, check=True,
+    )
+    return json.loads((Path(output_dir) / "final_report.json").read_text())

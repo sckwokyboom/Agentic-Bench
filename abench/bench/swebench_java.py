@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -107,18 +108,45 @@ _EVALUATOR_PIN = "multi-swe-bench@<pin-set-in-docker-plan>"
 
 
 def _run_swebench_evaluator(oracle: dict, source_diff: str) -> dict:
-    """Delegate to the official multi-swe-bench evaluator in a clean, OFFLINE
-    grading container: apply `source_diff` + the oracle's own `test_patch` to a
-    pristine checkout at `base_commit`, run FAIL_TO_PASS/PASS_TO_PASS, return the
-    raw report incl. a top-level `resolved: bool`. Isolated so tests monkeypatch it.
-
-    DEFERRED (Docker plan): the real body. IMPLEMENTER of the Docker plan MUST read
-    the pinned multi-swe-bench repo to confirm the exact predictions-file format and
-    CLI/entry (spec §10 open question), set `_EVALUATOR_PIN` to the pinned digest,
-    and run it with no network (offline determinism, spec §7)."""
-    raise NotImplementedError(
-        "live SWE-bench-java grading is Docker-based; deferred to the Docker plan"
-    )
+    """Official verdict: run the pinned multi-swe-bench evaluator on the candidate's
+    SOURCE diff (as `fix_patch`) against the instance's native dataset record, and
+    map the result to {resolved, report}. The candidate submits ONLY the source-diff
+    (the dataset's own test_patch is baked into the image) — spec §7 / invariant 2.
+    The subprocess/harness call is isolated in `_msb.run_evaluation` (mocked in tests;
+    the live call needs Docker + the pulled official image)."""
+    rec = oracle["record"]
+    msb_root = oracle.get("msb_root")
+    if not msb_root:
+        raise ValueError(
+            "swebench-java grade requires subset['msb_root'] "
+            "(path to the pinned multi-swe-bench checkout)"
+        )
+    iid = _msb.instance_id(rec)
+    tmp = Path(tempfile.mkdtemp(prefix="abench-msb-grade-"))
+    try:
+        out_dir = tmp / "output"
+        for d in (out_dir, tmp / "work", tmp / "logs", tmp / "repos"):
+            d.mkdir()
+        dataset = tmp / "dataset.jsonl"
+        preds = tmp / "preds.jsonl"
+        dataset.write_text(json.dumps(rec) + "\n")
+        preds.write_text(json.dumps(_msb.prediction_record(rec, source_diff)) + "\n")
+        config = {
+            "mode": "evaluation",
+            "workdir": str(tmp / "work"),
+            "log_dir": str(tmp / "logs"),
+            "output_dir": str(out_dir),
+            "repo_dir": str(tmp / "repos"),      # HOST(Task 5): confirm build/repo_dir semantics
+            "patch_files": [str(preds)],
+            "dataset_files": [str(dataset)],
+            "specifics": [iid],
+            "need_clone": False,
+            "force_build": False,
+        }
+        report = _msb.run_evaluation(msb_root, config, str(out_dir))
+        return {"resolved": iid in (report.get("resolved_ids") or []), "report": report}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _run_abench_verify(oracle: dict, source_diff: str, test_diff: str, workdir: Path) -> dict:

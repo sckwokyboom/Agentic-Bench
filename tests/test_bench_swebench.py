@@ -312,3 +312,51 @@ def test_docker_cp_repo_happy_path_calls(tmp_path, monkeypatch):
     assert calls[0] == ["docker", "create", "mswebench/fasterxml_m_jackson-core:pr-964"]
     assert calls[1] == ["docker", "cp", "container123:/home/jackson-core/.", str(tmp_path)]
     assert calls[2][:3] == ["docker", "rm", "-f"] and calls[2][3] == "container123"
+
+
+def _load_with_msb(tmp_path, msb="/fake/msb"):
+    ds = _fake_dataset(tmp_path)
+    adapter = registry.get_adapter("swebench-java")
+    return list(adapter.load(ds, {"repo": "fasterxml/jackson-core", "msb_root": msb}))[0]
+
+
+def test_run_swebench_evaluator_maps_resolved_and_sends_prediction(tmp_path, monkeypatch):
+    inst = _load_with_msb(tmp_path, msb="/fake/msb")
+    captured = {}
+
+    def _fake_run_eval(msb_root, config, output_dir):
+        captured["msb_root"] = msb_root
+        captured["specifics"] = config["specifics"]
+        captured["pred"] = json.loads(Path(config["patch_files"][0]).read_text())
+        captured["dataset"] = json.loads(Path(config["dataset_files"][0]).read_text())
+        return {"resolved_ids": ["fasterxml/jackson-core:pr-964"], "unresolved_ids": []}
+
+    monkeypatch.setattr(sj._msb, "run_evaluation", _fake_run_eval)
+    src_diff = "diff --git a/src/main/java/A.java b/src/main/java/A.java\n@@ -1 +1 @@\n-a\n+b\n"
+    out = sj._run_swebench_evaluator(inst.oracle, src_diff)
+    assert out["resolved"] is True
+    assert out["report"]["resolved_ids"] == ["fasterxml/jackson-core:pr-964"]
+    assert captured["msb_root"] == "/fake/msb"
+    assert captured["specifics"] == ["fasterxml/jackson-core:pr-964"]
+    # prediction = {org,repo,number,fix_patch}; fix_patch is the agent's SOURCE diff
+    assert captured["pred"] == {"org": "fasterxml", "repo": "jackson-core",
+                                "number": 964, "fix_patch": src_diff}
+    # dataset written = the full native record (verbatim)
+    assert captured["dataset"]["number"] == 964 and "test_patch" in captured["dataset"]
+
+
+def test_run_swebench_evaluator_unresolved(tmp_path, monkeypatch):
+    inst = _load_with_msb(tmp_path)
+    monkeypatch.setattr(sj._msb, "run_evaluation",
+        lambda msb_root, config, output_dir: {"resolved_ids": [],
+                                              "unresolved_ids": ["fasterxml/jackson-core:pr-964"]})
+    assert sj._run_swebench_evaluator(inst.oracle, "diff")["resolved"] is False
+
+
+def test_run_swebench_evaluator_requires_msb_root(tmp_path):
+    import pytest
+    ds = _fake_dataset(tmp_path)
+    adapter = registry.get_adapter("swebench-java")
+    inst = list(adapter.load(ds, {"repo": "fasterxml/jackson-core"}))[0]   # no msb_root
+    with pytest.raises(ValueError, match="msb_root"):
+        sj._run_swebench_evaluator(inst.oracle, "diff")
