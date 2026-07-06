@@ -1,0 +1,45 @@
+# SWE-bench-java pilot — jackson-core (native Multi-SWE-bench, 18 instances).
+# Benchmark mode: the `swebench-java` adapter supplies per-instance workdirs +
+# grading; fixture_path/reference_path are NOT used.
+name: swebench-java-jackson-pilot
+
+benchmark:
+  adapter: swebench-java
+  # Native ByteDance Multi-SWE-bench jackson-core dataset (downloaded in the runbook).
+  # Path is resolved relative to THIS file; adjust if you put it elsewhere.
+  dataset: ../../../msb-data/jackson-core.jsonl
+  subset:
+    repo: fasterxml/jackson-core
+    # Pinned multi-swe-bench checkout (github.com/multi-swe-bench/multi-swe-bench @ 24f493f8).
+    msb_root: /Users/sckwoky/Projects/multi-swe-bench
+    # Python of the env where the harness is `pip install -e`'d (its deps: docker,
+    # swe-rex, PyGithub, …). Defaults to abench's interpreter if omitted — but the
+    # harness needs its OWN env, so set this. See the runbook.
+    msb_python: /Users/sckwoky/Projects/multi-swe-bench/.venv/bin/python
+    # For a SINGLE-instance smoke first, also add:  specifics: "fasterxml/jackson-core:pr-1309"
+    # (not yet consumed by the adapter — start with the whole jackson-core subset,
+    #  or hand-trim the dataset jsonl to one line for the very first run).
+
+# Required by the config schema but unused in benchmark mode (the adapter builds
+# the per-instance issue prompt itself).
+task_prompt: "(unused in benchmark mode)"
+system_prompt: ./system.md
+
+# ── Pick your model/provider. Example: a local vLLM or a hosted API. ──
+model: REPLACE_ME/your-model
+opencode:
+  agent: abench
+  providers:
+    - id: REPLACE_ME
+      name: Your provider
+      base_url: https://api.example.com/v1     # OpenAI-compatible endpoint
+      models: [your-model]
+      api_key_env: YOUR_API_KEY_ENV
+
+repetitions: 1
+output_dir: ./runs
+timeout_s: null      # SWE issues can take a while; cancel a wedged run manually.
+
+# Phase-1 = baseline only (no augmentation). Tipper is Phase 2 (separate branch).
+conditions:
+  - {name: baseline, augmentation: null, tools: []}
