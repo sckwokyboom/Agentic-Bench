@@ -12,6 +12,7 @@ def _fake_dataset(tmp_path: Path) -> Path:
             "org": org, "repo": repo, "number": number,
             "state": "closed", "title": f"Bug in {repo}",
             "body": f"{repo} misbehaves on empty input.",
+            "hints": "GOLDLEAK_the fix adds a null-check in ParserBase.nextToken (from fix_patch)",
             "base": {"label": f"{org}:main", "ref": "main", "sha": f"sha-{number}"},
             "resolved_issues": [{"number": number - 1, "title": "linked", "body": "issue body"}],
             "fix_patch": "diff --git a/src/main/java/A.java b/src/main/java/A.java\n@@ -1 +1 @@\n-a\n+b\n",
@@ -68,6 +69,8 @@ def test_load_native_instance(tmp_path: Path):
     p = inst.task.prompt_text
     assert "Bug in jackson-core" in p and "empty input" in p
     assert "diff --git" not in p and "ATest" not in p
+    assert "GOLDLEAK" not in p          # native `hints` field is gold/test-derived — never shown
+    assert "ParserBase" not in p
 
 
 def test_load_requires_dataset():

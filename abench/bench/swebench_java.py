@@ -1,16 +1,16 @@
-"""SWE-bench-java adapter (pure-Python core).
+"""SWE-bench-java adapter (native Multi-SWE-bench schema).
 
-Instance = one SWE-bench-java record. The agent gets `problem_statement` + the
-repo@base_commit and must produce a source patch; grade splits the agent's diff
-(source vs test), delegates the source-diff to the official multi-swe-bench
-evaluator (seam `_run_swebench_evaluator`, mocked in tests), and maps the verdict
-to GradeResult. Firewall (spec §2): gold `patch`, hidden `test_patch`, and
-FAIL_TO_PASS/PASS_TO_PASS live ONLY in `oracle` (grade-only); the AgentView has no
-oracle field. `hints_text` is never shown (issue-only fidelity).
+Instance = one native Multi-SWE-bench record (org/repo/number). The agent gets the
+issue text (`_msb.issue_text`: title + body + resolved_issues) + the repo@base.sha
+and must produce a SOURCE patch; grade splits the agent's diff (source vs test),
+delegates the source-diff to the official multi-swe-bench evaluator (seam
+`_run_swebench_evaluator`) AND to abench's own methodology (seam `_run_abench_verify`),
+mapping both to GradeResult. Firewall (spec §2): gold `fix_patch`, hidden `test_patch`
+/`f2p_tests`, and the full native `record` live ONLY in `oracle` (grade-only); the
+AgentView has no oracle field. `hints` (native, gold-fix-derived) is never read.
 
-DEFERRED to the next plan (Docker): live materialize (repo lives inside the
-official image), the real `_run_swebench_evaluator` body + predictions format
-(read from the pinned multi-swe-bench repo), scoped-regression, egress-lock."""
+The live grade + materialize need Docker + the official image + a pinned multi-swe-bench
+checkout (Plan 4b); the pure parts are unit-tested with fixtures/mocks."""
 from __future__ import annotations
 
 import json
