@@ -224,6 +224,8 @@ def test_grade_official_verdict_and_source_only_delegation(tmp_path, monkeypatch
     assert g.resolved is True
     assert g.standard_protocol is True
     assert g.evaluator.startswith("multi-swe-bench")
+    assert g.evaluator == "multi-swe-bench@24f493f8/v1.1.0"
+    assert "pin-set" not in g.evaluator
     assert g.official_report["resolved"] is True
     # only the SOURCE diff reached the official evaluator — the agent's test edit
     # is stripped (firewall / no grade-gaming)
@@ -278,6 +280,19 @@ def test_materialize_extracts_repo_and_strips_git(tmp_path, monkeypatch):
     # repo contents present, VCS history stripped
     assert (workdir / "pom.xml").read_text().startswith("<project")
     assert not (workdir / ".git").exists()
+
+
+def test_materialize_strips_file_dotgit(tmp_path, monkeypatch):
+    adapter = registry.get_adapter("swebench-java")
+    inst = list(adapter.load(_fake_dataset(tmp_path), {"repo": "fasterxml/jackson-core"}))[0]
+    workdir = tmp_path / "wd"; workdir.mkdir()
+    def _fake_cp(image, src, dest):
+        Path(dest, "pom.xml").write_text("<p/>")
+        (Path(dest) / ".git").write_text("gitdir: /elsewhere\n")   # a FILE, not a dir
+    monkeypatch.setattr(sj._msb, "_docker_cp_repo", _fake_cp)
+    adapter.materialize(inst.agent_view(), workdir)
+    assert not (workdir / ".git").exists()
+    assert (workdir / "pom.xml").exists()
 
 
 def test_docker_cp_repo_missing_image_raises_clear_error(tmp_path, monkeypatch):
@@ -374,6 +389,7 @@ def test_abench_verify_extracts_regressions_and_verdict(tmp_path):
     assert out["scoped_regressions"] == ["com.x.OtherTest"]
     assert out["repro_reproduced"] is True         # the f2p test failed at the test stage
     assert out["abench_resolved"] is False          # harness `valid`
+    assert out["report_found"] is True
 
 
 def test_abench_verify_no_report_degrades(tmp_path):
@@ -381,6 +397,7 @@ def test_abench_verify_no_report_degrades(tmp_path):
     assert out["scoped_regressions"] == []
     assert out["repro_reproduced"] is False
     assert out["abench_resolved"] is None
+    assert out["report_found"] is False
 
 
 def test_find_instance_report_globs(tmp_path):

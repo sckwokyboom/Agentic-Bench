@@ -104,7 +104,7 @@ def split_source_test_diff(unified_diff: str) -> tuple[str, str]:
     return "".join(source_parts), "".join(test_parts)
 
 
-_EVALUATOR_PIN = "multi-swe-bench@<pin-set-in-docker-plan>"
+_EVALUATOR_PIN = "multi-swe-bench@24f493f8/v1.1.0"
 
 
 def _run_swebench_evaluator(oracle: dict, source_diff: str) -> dict:
@@ -175,6 +175,7 @@ def _run_abench_verify(oracle: dict, instance_report: dict, test_diff: str) -> d
         "scoped_regressions": sorted(set(regressions)),
         "repro_reproduced": repro_reproduced,
         "abench_resolved": instance_report.get("valid"),   # harness's own verdict (bool|None)
+        "report_found": bool(instance_report),
     }
 
 
@@ -224,8 +225,10 @@ class SweBenchAdapter:
         repo_name = view.repo.split("/")[-1]
         _msb._docker_cp_repo(view.env.image, f"/home/{repo_name}", str(workdir))
         gitdir = Path(workdir) / ".git"
-        if gitdir.exists():
+        if gitdir.is_dir() and not gitdir.is_symlink():
             shutil.rmtree(gitdir)
+        elif gitdir.exists() or gitdir.is_symlink():
+            gitdir.unlink()
 
     def grade(self, inst: Instance, source_diff: str, workdir: Path) -> GradeResult:
         # `source_diff` here is the agent's FULL workdir diff (protocol name). Split
