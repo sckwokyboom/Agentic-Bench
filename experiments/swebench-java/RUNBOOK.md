@@ -5,8 +5,30 @@ the host prerequisites (Docker + a model + the official image) needed for the fi
 real run. Ground truth: the official harness is
 `github.com/multi-swe-bench/multi-swe-bench` **pinned @ `24f493f8` (v1.1.0)**.
 
+## ⚠️ macOS blocker found during prep — case-sensitive FS required for the harness
+The harness ships two dirs differing only in case (`multi_swe_bench/harness/repos/python/Qiskit/`
+and `.../qiskit/`). On a default **case-INSENSITIVE** macOS APFS they collide, git merges them,
+and `python -m multi_swe_bench.harness.run_evaluation` **fails to import** (`ModuleNotFoundError:
+...repos.python.qiskit`) — even `--help` crashes, regardless of target language (the package eagerly
+imports all repos). The `~/Projects/multi-swe-bench` checkout made during prep is on the default
+(case-insensitive) volume and is therefore import-broken. **Fix: put the harness on a case-sensitive
+volume.** macOS APFS lets you add one without repartitioning:
+```bash
+diskutil apfs listVolumes                         # find your APFS container (e.g. disk3)
+diskutil apfs addVolume disk3 "Case-sensitive APFS" MSB    # mounts at /Volumes/MSB
+cd /Volumes/MSB && git clone https://github.com/multi-swe-bench/multi-swe-bench.git
+cd multi-swe-bench && git checkout 24f493f8a103e72312ded4f6b9c89f081d69cb09
+python3.11 -m venv .venv && .venv/bin/python -m pip install -e .
+.venv/bin/python -c "import multi_swe_bench.harness.run_evaluation; print('ok')"   # must print ok
+```
+Then set `experiment-pilot.yaml` `subset.msb_root: /Volumes/MSB/multi-swe-bench` and
+`subset.msb_python: /Volumes/MSB/multi-swe-bench/.venv/bin/python`. (Alternative: run the harness
+entirely inside a Linux container — heavier; the case-sensitive volume is simplest.)
+
 ## Already prepared (by the assistant)
-- ✅ Harness cloned + pinned: `~/Projects/multi-swe-bench` @ `24f493f8`.
+- ✅ Harness cloned + pinned: `~/Projects/multi-swe-bench` @ `24f493f8` — **but import-broken on the
+  default case-insensitive FS (see the blocker above); re-clone onto a case-sensitive volume).** The
+  editable install + `python3.11` venv approach itself works (verified `pip install -e` succeeds).
 - ✅ Native jackson-core dataset downloaded + **schema-validated against `_msb`**:
   `~/Projects/msb-data/jackson-core.jsonl` (18 instances). All adapter accessors
   (`org`/`repo`/`number`/`base.sha`/`f2p_tests`/`title`/`resolved_issues`/`fix_patch`/
@@ -22,17 +44,12 @@ real run. Ground truth: the official harness is
 Confirm: `docker version` shows a running Server. (Note: this host's `python3.12`
 venv was broken during prep — use a working Python for step 2.)
 
-### 2. Install the harness into its OWN python env
-The harness deps (docker, swe-rex, PyGithub, gitpython, …) should NOT go into abench's
-3.14 venv. Use a working Python ≥3.10:
-```bash
-cd ~/Projects/multi-swe-bench
-python3.11 -m venv .venv          # or any working ≥3.10 python
-.venv/bin/python -m pip install -e .
-# sanity: the module is importable
-.venv/bin/python -c "import multi_swe_bench.harness.run_evaluation; print('ok')"
-```
-`experiment-pilot.yaml`'s `subset.msb_python` already points at `~/Projects/multi-swe-bench/.venv/bin/python`.
+### 2. Set up the harness on a case-sensitive volume + its own python env
+See the ⚠️ blocker above — do the case-sensitive-volume clone + `python3.11 -m venv .venv` +
+`pip install -e .` there, and confirm the `import ... run_evaluation; print('ok')` sanity check
+prints `ok`. Use **python3.11** (this host's `python3.12` venv/pip was broken during prep); the
+harness deps (docker/swe-rex/PyGithub/gitpython) must NOT go into abench's 3.14 venv. Update
+`experiment-pilot.yaml`'s `subset.msb_root`/`subset.msb_python` to the case-sensitive-volume paths.
 
 ### 3. Pre-pull the pilot Docker image (offline determinism)
 The harness does NOT auto-pull; it checks locally then builds from scratch if absent.
