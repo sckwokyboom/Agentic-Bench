@@ -143,7 +143,7 @@ def _run_swebench_evaluator(oracle: dict, source_diff: str) -> dict:
             "need_clone": False,
             "force_build": False,
         }
-        report = _msb.run_evaluation(msb_root, config, str(out_dir))
+        report = _msb.run_evaluation(msb_root, config, str(out_dir), python=oracle.get("msb_python"))
         instance_report = _msb.find_instance_report(str(tmp / "work"))
         return {
             "resolved": iid in (report.get("resolved_ids") or []),
@@ -190,6 +190,7 @@ class SweBenchAdapter:
         subset = subset or {}
         repo_filter = subset.get("repo")
         msb_root = subset.get("msb_root")   # path to the pinned multi-swe-bench checkout (grade needs it)
+        msb_python = subset.get("msb_python")   # interpreter the harness is installed in (default: sys.executable)
         for line in Path(dataset).read_text().splitlines():
             if not line.strip():
                 continue
@@ -216,6 +217,7 @@ class SweBenchAdapter:
                     "test_patch": rec["test_patch"],
                     "f2p_tests": rec.get("f2p_tests") or {},
                     "msb_root": msb_root,
+                    "msb_python": msb_python,
                 },
             )
 

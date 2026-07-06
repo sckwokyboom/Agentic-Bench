@@ -340,7 +340,7 @@ def test_run_swebench_evaluator_maps_resolved_and_sends_prediction(tmp_path, mon
     inst = _load_with_msb(tmp_path, msb="/fake/msb")
     captured = {}
 
-    def _fake_run_eval(msb_root, config, output_dir):
+    def _fake_run_eval(msb_root, config, output_dir, python=None):
         captured["msb_root"] = msb_root
         captured["specifics"] = config["specifics"]
         captured["pred"] = json.loads(Path(config["patch_files"][0]).read_text())
@@ -364,7 +364,7 @@ def test_run_swebench_evaluator_maps_resolved_and_sends_prediction(tmp_path, mon
 def test_run_swebench_evaluator_unresolved(tmp_path, monkeypatch):
     inst = _load_with_msb(tmp_path)
     monkeypatch.setattr(sj._msb, "run_evaluation",
-        lambda msb_root, config, output_dir: {"resolved_ids": [],
+        lambda msb_root, config, output_dir, python=None: {"resolved_ids": [],
                                               "unresolved_ids": ["fasterxml/jackson-core:pr-964"]})
     assert sj._run_swebench_evaluator(inst.oracle, "diff")["resolved"] is False
 
@@ -407,3 +407,59 @@ def test_find_instance_report_globs(tmp_path):
     (d / "report.json").write_text('{"valid": true}')
     assert _msb.find_instance_report(str(tmp_path / "work")) == {"valid": True}
     assert _msb.find_instance_report(str(tmp_path / "empty")) == {}
+
+
+def test_run_swebench_evaluator_threads_msb_python(tmp_path, monkeypatch):
+    ds = _fake_dataset(tmp_path)
+    adapter = registry.get_adapter("swebench-java")
+    inst = list(adapter.load(ds, {"repo": "fasterxml/jackson-core",
+                                   "msb_root": "/fake/msb", "msb_python": "/fake/msb/.venv/bin/python"}))[0]
+    seen = {}
+    def _fake(msb_root, config, output_dir, python=None):
+        seen["python"] = python
+        return {"resolved_ids": []}
+    monkeypatch.setattr(sj._msb, "run_evaluation", _fake)
+    sj._run_swebench_evaluator(inst.oracle, "diff")
+    assert seen["python"] == "/fake/msb/.venv/bin/python"
+
+
+def test_run_swebench_evaluator_defaults_python_to_none(tmp_path, monkeypatch):
+    # when msb_python is not set, the seam passes python=None (→ _msb uses sys.executable)
+    ds = _fake_dataset(tmp_path)
+    adapter = registry.get_adapter("swebench-java")
+    inst = list(adapter.load(ds, {"repo": "fasterxml/jackson-core", "msb_root": "/fake/msb"}))[0]
+    seen = {}
+    def _fake(msb_root, config, output_dir, python=None):
+        seen["python"] = python
+        return {"resolved_ids": []}
+    monkeypatch.setattr(sj._msb, "run_evaluation", _fake)
+    sj._run_swebench_evaluator(inst.oracle, "diff")
+    assert seen["python"] is None
+
+
+def test_run_evaluation_uses_configured_python(tmp_path, monkeypatch):
+    from abench.bench import _msb
+    calls = {}
+    def _fake_run(argv, cwd=None, check=None, **kw):
+        calls["argv"] = argv
+        (Path(tmp_path) / "final_report.json").write_text('{"resolved_ids": []}')
+        class _R: returncode = 0
+        return _R()
+    monkeypatch.setattr(_msb.subprocess, "run", _fake_run)
+    _msb.run_evaluation("/fake/msb", {"mode": "evaluation"}, str(tmp_path), python="/harness/py")
+    assert calls["argv"][0] == "/harness/py"
+    assert calls["argv"][1:4] == ["-m", "multi_swe_bench.harness.run_evaluation", "--config"]
+
+
+def test_run_evaluation_default_python_is_sys_executable(tmp_path, monkeypatch):
+    import sys
+    from abench.bench import _msb
+    calls = {}
+    def _fake_run(argv, cwd=None, check=None, **kw):
+        calls["argv"] = argv
+        (Path(tmp_path) / "final_report.json").write_text('{}')
+        class _R: returncode = 0
+        return _R()
+    monkeypatch.setattr(_msb.subprocess, "run", _fake_run)
+    _msb.run_evaluation("/fake/msb", {}, str(tmp_path))
+    assert calls["argv"][0] == sys.executable
