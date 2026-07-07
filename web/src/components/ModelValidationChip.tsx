@@ -6,7 +6,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import AddLinkIcon from "@mui/icons-material/AddLink";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
-import { useValidateModel, useModelCatalog } from "../api/queries";
+import { useValidateModel, useModelCatalog, useRuntimeMode } from "../api/queries";
 import type { ValidateModelResp, ModelCatalogEntry } from "../api/types";
 import AddApiKeyDialog from "./AddApiKeyDialog";
 import CustomEndpointDialog, { type CustomEndpointInput } from "./CustomEndpointDialog";
@@ -35,6 +35,9 @@ export default function ModelValidationChip({ value, onChange, label = "Model", 
   const [endpointOpen, setEndpointOpen] = useState(false);
   const mut = useValidateModel();
   const catalog = useModelCatalog();
+  // Exposed/LAN mode: the key is per-session (not shared/persisted) — reflect that
+  // in the key affordance so visitors know to enter their own.
+  const isolated = !!useRuntimeMode().data?.isolated;
   const options: ModelCatalogEntry[] = catalog.data ?? [];
   // Provider parsed straight from the model id (e.g. "deepseek/…" → "deepseek")
   // so the API-key action is ALWAYS available — not gated behind the advisory
@@ -113,10 +116,12 @@ export default function ModelValidationChip({ value, onChange, label = "Model", 
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           <Button size="small" variant="outlined" startIcon={<VpnKeyIcon />}
                   onClick={() => setDlgOpen(true)}>
-            Set API key ({modelProvider})
+            {isolated ? "Set your session key" : "Set API key"} ({modelProvider})
           </Button>
           <Typography variant="caption" color="text.secondary">
-            stored in opencode auth.json — auto-used for runs (no export needed)
+            {isolated
+              ? "kept in your session only — not shared with other users of this UI"
+              : "stored in opencode auth.json — auto-used for runs (no export needed)"}
           </Typography>
         </Stack>
       )}

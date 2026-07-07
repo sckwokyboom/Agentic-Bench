@@ -16,6 +16,7 @@ const withBatch = (url: string, batch?: string) =>
 
 export const qk = {
   experiments: ["experiments"] as const,
+  runtimeMode: ["runtimeMode"] as const,
   experiment: (name: string) => ["experiment", name] as const,
   batches: (name: string) => ["batches", name] as const,
   runs: (name: string, batch?: string) => ["runs", name, b(batch)] as const,
@@ -334,6 +335,15 @@ export const useModelCatalog = () =>
     queryKey: ["modelCatalog"],
     queryFn: () => apiGet<t.ModelCatalogEntry[]>("/api/models"),
     staleTime: 5 * 60_000,
+  });
+
+// Whether the server runs in exposed/LAN "isolated" mode (per-session API keys).
+// Cached for the session — the mode cannot change while the server is up.
+export const useRuntimeMode = () =>
+  useQuery({
+    queryKey: qk.runtimeMode,
+    queryFn: () => apiGet<t.RuntimeMode>("/api/runtime-mode"),
+    staleTime: Infinity,
   });
 
 export function useWriteProviderCredentials() {

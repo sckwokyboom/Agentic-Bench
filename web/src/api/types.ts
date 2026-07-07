@@ -305,6 +305,7 @@ export interface CostSummary {
 }
 
 export interface ProviderEntry { id: string; configured: boolean; }
+export interface RuntimeMode { isolated: boolean; }
 
 export interface ModelCatalogEntry { provider: string; id: string }
 

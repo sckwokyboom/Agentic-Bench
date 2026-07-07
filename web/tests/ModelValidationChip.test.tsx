@@ -20,6 +20,18 @@ beforeEach(() => {
       { provider: "openrouter", id: "openrouter/x" },
       { provider: "deepseek", id: "deepseek/deepseek-chat" },
     ])));
+  // Default to single-user mode; isolated-mode test overrides this.
+  mswServer.use(http.get("/api/runtime-mode", () =>
+    HttpResponse.json({ isolated: false })));
+});
+
+test("exposed/isolated mode: the key hint says it's per-session, not shared", async () => {
+  mswServer.use(http.get("/api/runtime-mode", () =>
+    HttpResponse.json({ isolated: true })));
+  render(wrap(<ModelValidationChip value="deepseek/deepseek-chat" onChange={() => {}} />));
+  await waitFor(() =>
+    expect(screen.getByText(/session only/i)).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: /Set your session key/i })).toBeInTheDocument();
 });
 
 test("shows available + a success icon for backend status 'ok'", async () => {
