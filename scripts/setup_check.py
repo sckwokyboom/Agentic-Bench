@@ -32,6 +32,37 @@ def out_of(cmd: list[str]) -> str:
         return ""
 
 
+def _proxy_build_args() -> list[str]:
+    """Inherit the host's proxy env into `docker build` so apt/gradle/maven/npm can
+    fetch through a corporate proxy on an isolated host. Passed as BUILD-ARGS (build-time
+    only — unlike ENV they are NOT baked into the runtime image, so a `run` is never
+    forced through the proxy and your model endpoint stays reachable). Also derives
+    JAVA_TOOL_OPTIONS with JVM proxy sysprops, because Gradle's wrapper download and
+    dependency fetch ignore the http_proxy env and need -Dhttps.proxyHost. No proxy in
+    the environment → returns [] (a normal direct build, unchanged)."""
+    from urllib.parse import urlparse
+    names = ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+             "http_proxy", "https_proxy", "no_proxy"]
+    present = {n: os.environ[n] for n in names if os.environ.get(n)}
+    if not present:
+        return []
+    args: list[str] = ["--network=host"]
+    for n, v in present.items():
+        args += ["--build-arg", f"{n}={v}"]
+    hp = (present.get("HTTPS_PROXY") or present.get("https_proxy")
+          or present.get("HTTP_PROXY") or present.get("http_proxy"))
+    u = urlparse(hp if "://" in hp else f"http://{hp}")
+    if u.hostname and u.port:
+        opts = (f"-Dhttps.proxyHost={u.hostname} -Dhttps.proxyPort={u.port} "
+                f"-Dhttp.proxyHost={u.hostname} -Dhttp.proxyPort={u.port}")
+        np = present.get("NO_PROXY") or present.get("no_proxy")
+        hosts = "|".join(h.strip() for h in (np or "").split(",") if h.strip())
+        if hosts:
+            opts += f" -Dhttp.nonProxyHosts={hosts} -Dhttps.nonProxyHosts={hosts}"
+        args += ["--build-arg", f"JAVA_TOOL_OPTIONS={opts}"]
+    return args
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--container", action="store_true")
@@ -68,7 +99,11 @@ def main() -> int:
             have = subprocess.run([docker, "image", "inspect", "abench-sandbox:latest"],
                                   capture_output=True).returncode == 0
             if not have and a.build_image:
-                subprocess.run([docker, "build", "-t", "abench-sandbox:latest",
+                proxy = _proxy_build_args()
+                if proxy:
+                    print("  [setup] inheriting host proxy into docker build "
+                          "(build-time only): " + " ".join(proxy))
+                subprocess.run([docker, "build", *proxy, "-t", "abench-sandbox:latest",
                                 "-f", "docker/Dockerfile.sandbox", "."], check=True)
                 have = True
             check("abench-sandbox:latest image", have, "re-run with --build-image")

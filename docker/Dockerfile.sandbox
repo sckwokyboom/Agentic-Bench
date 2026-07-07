@@ -29,8 +29,20 @@
 # final image copies only the resulting ~/.gradle, with the build cache stripped
 # so no compiled task output (which could embed code) can ride along.
 FROM eclipse-temurin:21-jdk AS gradle-warm
+# Build-time proxy for isolated hosts. ARG (not ENV) → used only during build, never
+# baked into the runtime image; scripts/setup_check.py fills it from the host's proxy
+# env. Predefined HTTP(S)_PROXY build-args reach apt/curl/npm automatically; Gradle's
+# JVM (wrapper download + deps) needs these sysprops, hence JAVA_TOOL_OPTIONS.
+ARG JAVA_TOOL_OPTIONS
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends git unzip ca-certificates \
+# When building behind a CONNECT-only proxy (plain http/:80 blocked, https/:443
+# tunnelled), switch apt's Ubuntu mirrors to https so fetches go through the proxy.
+# Guarded on a proxy being set → a direct build is completely unchanged.
+RUN if [ -n "${HTTPS_PROXY}${https_proxy}" ]; then \
+      sed -i -E 's#http://(archive|security)\.ubuntu\.com#https://\1.ubuntu.com#g' \
+        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends git unzip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 # Same extra/custom root CAs as the final stage, so Gradle's HTTPS downloads
 # (wrapper distribution + Maven Central) succeed behind a TLS-intercepting proxy
@@ -63,8 +75,15 @@ RUN chmod +x ./gradlew \
 # ── Stage 2: the sandbox image (toolchain + opencode + the warm cache). ──
 FROM eclipse-temurin:21-jdk
 
+# Build-time proxy (ARG, not ENV → never baked into the runtime image). See the
+# gradle-warm stage above; setup_check.py passes it from the host's proxy env.
+ARG JAVA_TOOL_OPTIONS
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN if [ -n "${HTTPS_PROXY}${https_proxy}" ]; then \
+      sed -i -E 's#http://(archive|security)\.ubuntu\.com#https://\1.ubuntu.com#g' \
+        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends \
         curl git unzip ca-certificates maven python3 \
     && rm -rf /var/lib/apt/lists/*
 
