@@ -390,11 +390,17 @@ class RealOpenCodeClient:
     ---------------------------------------------------------------------------
     """
 
-    def __init__(self, cfg: OpenCodeCfg, timeout_s: int | None = None) -> None:
+    def __init__(self, cfg: OpenCodeCfg, timeout_s: int | None = None,
+                 *, session_keys: "dict[str, str] | None" = None,
+                 isolated: bool = False) -> None:
         self._cfg = cfg
         # timeout_s stored for callers that construct the client without a
         # per-run override (e.g. tests that call run_task with the same value).
         self.timeout_s = timeout_s
+        # Exposed (LAN) multi-user UI: this run uses ONLY the current visitor's
+        # per-session keys, never the operator env / shared auth.json. See run_env.
+        self._session_keys = session_keys
+        self._isolated = isolated
 
     def run_task(
         self,
@@ -466,7 +472,8 @@ class RealOpenCodeClient:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=workdir,
-            env=credentials.run_env(self._cfg.providers),
+            env=credentials.run_env(self._cfg.providers, self._session_keys,
+                                    isolated=self._isolated),
         )
 
         def _kill_proc() -> None:

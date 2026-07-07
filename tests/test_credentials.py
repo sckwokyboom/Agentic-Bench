@@ -59,3 +59,30 @@ def test_run_env_supplies_placeholder_when_no_key(tmp_path, monkeypatch):
     monkeypatch.delenv("MYEP_API_KEY", raising=False)
     env = credentials.run_env([_Prov("myep", "MYEP_API_KEY")])
     assert env.get("MYEP_API_KEY")   # non-empty placeholder, not unset
+
+
+def test_run_env_isolated_uses_only_the_session_key(tmp_path, monkeypatch):
+    """isolated=True: the visitor's session key is used, and the operator's env var
+    is OVERWRITTEN (never leaks into a visitor's run); auth.json is ignored."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-operator")   # operator env present…
+    _write_auth(tmp_path, {"deepseek": {"type": "api", "key": "sk-fromauth"}})  # …and auth.json
+    env = credentials.run_env(
+        [_Prov("deepseek", "DEEPSEEK_API_KEY")],
+        session_keys={"deepseek": "sk-visitor"},
+        isolated=True,
+    )
+    assert env["DEEPSEEK_API_KEY"] == "sk-visitor"   # not sk-operator, not sk-fromauth
+
+
+def test_run_env_isolated_placeholder_when_no_session_key(tmp_path, monkeypatch):
+    """isolated=True with no session key → placeholder, NOT the operator env/auth.json."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-operator")
+    _write_auth(tmp_path, {"deepseek": {"type": "api", "key": "sk-fromauth"}})
+    env = credentials.run_env(
+        [_Prov("deepseek", "DEEPSEEK_API_KEY")],
+        session_keys={},
+        isolated=True,
+    )
+    assert env["DEEPSEEK_API_KEY"] == credentials.NO_KEY_PLACEHOLDER

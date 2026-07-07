@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import (
     APIRouter,
+    Depends,
     FastAPI,
     HTTPException,
     Query,
@@ -38,6 +39,7 @@ from .schema import experiment_json_schema
 from . import validate as validate_mod
 from .validate import validate_model
 from .ws_buffer import SessionEventBuffer
+from .session_creds import SessionCredentialStore
 
 
 # ── Pydantic request models ──────────────────────────────────────────────────
@@ -101,11 +103,27 @@ def _verify_system_label(command: str | None) -> str | None:
 
 # ── App factory ──────────────────────────────────────────────────────────────
 
+SESSION_COOKIE = "abench_session"
+
+
+def _session_token(request: Request, response: Response) -> str:
+    """Per-browser session token (opaque, httpOnly cookie). Issued on first
+    contact; in isolated (exposed) mode it selects which visitor's in-memory API
+    keys a request uses, so LAN visitors never share or overwrite each other's."""
+    tok = request.cookies.get(SESSION_COOKIE)
+    if not tok:
+        tok = SessionCredentialStore.new_token()
+        response.set_cookie(SESSION_COOKIE, tok, httponly=True,
+                            samesite="lax", path="/")
+    return tok
+
+
 def create_app(
     *,
     experiments_dir: Path,
     client_factory_override: Callable | None = None,
     static_dir: Path | None = None,
+    isolated: bool = False,
 ) -> FastAPI:
     """Build the FastAPI app rooted at `experiments_dir`.
 
@@ -119,6 +137,10 @@ def create_app(
         "verify_jobs": {},    # vid -> job dict
         "client_factory_override": client_factory_override,
         "event_loop": None,   # captured on startup
+        # Exposed (LAN) multi-user mode: per-session in-memory API keys, never
+        # shared or persisted. Off by default → single-user localhost unchanged.
+        "isolated": isolated,
+        "session_store": SessionCredentialStore(),
     }
 
     @asynccontextmanager
@@ -542,17 +564,29 @@ def create_app(
         return prov_mod.list_providers()
 
     @api.post("/providers/{provider}/credentials")
-    def _creds(provider: str, body: _CredentialsBody):
-        prov_mod.write_credentials(provider, body.api_key)
+    def _creds(provider: str, body: _CredentialsBody,
+               token: str = Depends(_session_token)):
+        if state["isolated"]:
+            # Exposed mode: the key stays in memory, scoped to THIS visitor's
+            # session — never written to the shared on-disk auth.json.
+            state["session_store"].set(token, provider, body.api_key)
+        else:
+            prov_mod.write_credentials(provider, body.api_key)
         # Invalidate the validate caches so the new key takes effect immediately
         # (otherwise the model chip keeps showing "no key" for up to the TTL).
         validate_mod.clear_caches()
         return {"ok": True}
 
+    @api.get("/runtime-mode")
+    def _runtime_mode():
+        """Lets the UI know keys are per-session (exposed/LAN) so it prompts each
+        visitor for their own key instead of assuming a shared server key."""
+        return {"isolated": bool(state["isolated"])}
+
     # ── Session management (POST /runs + GET/DELETE /sessions) ───────────────
 
     @api.post("/runs")
-    def _start_run(body: _RunStartBody):
+    def _start_run(body: _RunStartBody, token: str = Depends(_session_token)):
         try:
             exp_payload = exp_mod.read_experiment(
                 state["experiments_dir"], body.experiment_name
@@ -584,8 +618,12 @@ def create_app(
                 for q in list(state["ws_queues"].get(sid, [])):
                     loop.call_soon_threadsafe(q.put_nowait, envelope_with_id)
 
+        session_keys = (state["session_store"].keys_for(token)
+                        if state["isolated"] else None)
         client_factory = state["client_factory_override"] or (
-            lambda e: RealOpenCodeClient(e.opencode, e.timeout_s)
+            lambda e: RealOpenCodeClient(
+                e.opencode, e.timeout_s,
+                session_keys=session_keys, isolated=state["isolated"])
         )
         session = RunSession(
             id=sid,

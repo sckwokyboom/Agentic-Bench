@@ -86,7 +86,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     host = "0.0.0.0" if args.expose else args.host
-    app = create_app(experiments_dir=Path(args.experiments_dir).resolve())
+    # Exposed on the network → per-session key isolation (no shared server key).
+    isolated = host not in ("127.0.0.1", "localhost", "::1")
+    app = create_app(experiments_dir=Path(args.experiments_dir).resolve(),
+                     isolated=isolated)
     print(_serving_banner(host, args.port), file=sys.stderr)
     uvicorn.run(app, host=host, port=args.port, log_level="info")
     return 0

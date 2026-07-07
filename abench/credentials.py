@@ -43,15 +43,27 @@ def has_credential(provider: str) -> bool:
 NO_KEY_PLACEHOLDER = "no-key-required"
 
 
-def run_env(providers) -> dict[str, str]:
-    """``os.environ`` overlaid with auth.json keys for each provider whose
-    ``api_key_env`` is not already set in the environment (OS env wins; auth.json
-    is the fallback). A provider with NO key anywhere gets ``NO_KEY_PLACEHOLDER``
-    so a no-auth endpoint still runs. The value is placed in the env dict, never
-    in argv."""
+def run_env(providers, session_keys=None, *, isolated=False) -> dict[str, str]:
+    """``os.environ`` overlaid with the API key for each provider whose
+    ``api_key_env`` is set.
+
+    Default (single-user): OS env wins, then ``auth.json``, then
+    ``NO_KEY_PLACEHOLDER`` — unchanged behaviour.
+
+    ``isolated=True`` (the exposed LAN UI): use ONLY ``session_keys`` — the current
+    visitor's per-session key. Any operator env var is OVERWRITTEN so it never leaks
+    into a visitor's run, and the shared ``auth.json`` is NOT consulted. A provider
+    with no session key gets ``NO_KEY_PLACEHOLDER``.
+
+    The value is placed in the env dict, never in argv, never logged."""
     env = os.environ.copy()
+    session_keys = session_keys or {}
     for prov in providers:
         name = getattr(prov, "api_key_env", None)
-        if name and not env.get(name):
+        if not name:
+            continue
+        if isolated:
+            env[name] = session_keys.get(prov.id) or NO_KEY_PLACEHOLDER
+        elif not env.get(name):
             env[name] = read_credential(prov.id) or NO_KEY_PLACEHOLDER
     return env
