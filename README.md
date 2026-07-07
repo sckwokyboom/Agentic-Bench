@@ -45,16 +45,7 @@ abench --help
 cd web && npm install && npm run build && cd ..
 ```
 
-### 4. One-time machine check + sandbox image
-
-```bash
-export JAVA_HOME=…          # a JDK 21 (macOS: $(/usr/libexec/java_home -v 21))
-python scripts/setup_check.py --container --build-image
-```
-
-Verifies opencode 1.15.x, JDK, git and docker/podman, and builds the `abench-sandbox:latest` image (a JDK-21 + Gradle + opencode sandbox with a warmed dependency cache). Anything missing is printed with how to get it.
-
-### 5. Register Graph-Tipper
+### 4. Register Graph-Tipper
 
 `experiment.yaml` mounts `{lib:graph-tipper}` into the sandbox, so point abench at the clone from step 1 (this writes a machine-local, gitignored `.abench.local.json` — no env var to export):
 
@@ -63,15 +54,24 @@ abench lib add graph-tipper /absolute/path/to/Graph-Tipper
 abench lib list
 ```
 
-### 6. Prepare the fixtures
+### 5. Prepare the fixtures — download picocli + strip `putValue` (scripted)
 
 ```bash
+export JAVA_HOME=…          # a JDK 21 (macOS: $(/usr/libexec/java_home -v 21))
 cd experiments/picocli-putValue
-python prepare.py          # clones picocli at the fixture.lock sha, strips putValue's body
+python prepare.py           # clones picocli @ fixture.lock sha, strips putValue's body, regenerates slices
 cd ../..
 ```
 
-`prepare.py` populates `original/` (the intact **reference**) and `stripped/` (the **fixture** the agent works on), swapping `putValue`'s body for a `throw new UnsupportedOperationException(...)` stub; the graph slices and `impact` overlay are already committed. (Prefer to do it by hand? The manual clone-and-strip recipe is in [`experiments/picocli-putValue/README.md`](experiments/picocli-putValue/README.md).)
+This is the **scripted** replacement for any hand-editing. `prepare.py` populates `original/` (the intact **reference**) and `stripped/` (the **fixture**, with `putValue`'s body swapped for a `throw new UnsupportedOperationException(...)` stub via `strip_target.py`), then regenerates the graph slices/overlay. For just the download + strip: `python prepare.py --only fixtures` (the slices + `impact` overlay are already committed). **Run this before step 6** — the sandbox image warms its Gradle cache from `stripped/`, so that directory must exist first. (Manual recipe, if ever needed: [`experiments/picocli-putValue/README.md`](experiments/picocli-putValue/README.md).)
+
+### 6. Machine check + build the sandbox image
+
+```bash
+python scripts/setup_check.py --container --build-image
+```
+
+Verifies opencode 1.15.x, JDK, git and docker/podman, then builds the `abench-sandbox:latest` image (JDK 21 + Gradle + opencode). Its warm-cache stage `COPY`s `experiments/picocli-putValue/stripped/` (from step 5) and pre-compiles picocli's tests, so **`stripped/` must already exist** — that's why `prepare.py` runs first. Anything missing is printed with how to get it.
 
 ### 7. Pick a model
 
@@ -129,11 +129,16 @@ cd web && npm run dev          # → http://127.0.0.1:5173
 
 Common first-run errors on a clean machine (the container + UI path):
 
-- **`Missing local library path(s) in the registry (.abench.local.json): - graph-tipper`** — the Graph-Tipper clone isn't registered. `.abench.local.json` is gitignored, so a fresh clone starts with an empty registry. Fix (Quick start steps 1 + 5):
+- **`Missing local library path(s) in the registry (.abench.local.json): - graph-tipper`** — the Graph-Tipper clone isn't registered. `.abench.local.json` is gitignored, so a fresh clone starts with an empty registry. Fix (Quick start steps 1 + 4):
   ```bash
   git clone https://github.com/sckwokyboom/Graph-Augmentator.git Graph-Tipper
   abench lib add graph-tipper /absolute/path/to/Graph-Tipper
   abench lib list
+  ```
+- **`setup_check --build-image` / `docker build` fails with `COPY failed: … stripped: no such file or directory`** — the fixtures aren't prepared yet. The image warms its Gradle cache from `experiments/picocli-putValue/stripped/`, which is gitignored (absent in a fresh clone). Run the scripted download + strip first, then rebuild (this is why Quick start puts step 5 before step 6):
+  ```bash
+  python experiments/picocli-putValue/prepare.py --only fixtures
+  python scripts/setup_check.py --container --build-image
   ```
 - **The form won't Save/Run and shows `.benchmark -- must be object` (or `.orchestration -- must be object`)** — you're on a stale web bundle. This was a schema-collapse bug for optional nested models (`benchmark`/`orchestration` are unset in a normal fixture experiment, and the form wrongly rejected their `null`). Rebuild the bundle and restart the server:
   ```bash
