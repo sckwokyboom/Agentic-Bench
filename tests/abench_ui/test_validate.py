@@ -71,6 +71,25 @@ def test_validate_model_unknown_provider():
     assert result.status == "no_credentials"  # provider not in providers list
 
 
+def test_validate_model_isolated_no_session_key():
+    """Isolated: even though the SERVER has deepseek configured, a session with no
+    key for it reports no_credentials — the chip reflects the visitor's own key."""
+    with patch("abench_ui.validate.subprocess.run", side_effect=_fake_cli):
+        result = validate_model("deepseek/deepseek-chat", session_providers=set())
+    assert result.status == "no_credentials"
+    assert result.provider == "deepseek"
+
+
+def test_validate_model_isolated_with_session_key():
+    """Isolated: provider present in this session → configured, so the catalog
+    check proceeds to 'ok' instead of 'no_credentials'."""
+    with patch("abench_ui.validate.subprocess.run", side_effect=_fake_cli):
+        result = validate_model("deepseek/deepseek-chat",
+                                session_providers={"deepseek"})
+    assert result.status == "ok"
+    assert result.provider == "deepseek"
+
+
 # --- robustness of the low-level CLI wrappers ---------------------------------
 
 def test_providers_returns_none_on_timeout():

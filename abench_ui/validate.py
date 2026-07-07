@@ -101,7 +101,11 @@ def list_model_catalog() -> list[dict]:
     return out
 
 
-def validate_model(model: str) -> ValidationResult:
+def validate_model(model: str, *, session_providers=None) -> ValidationResult:
+    """When ``session_providers`` is given (exposed/isolated mode), a provider
+    counts as configured iff THIS visitor's session has a key for it — not the
+    server's global opencode config — so the 'no key' chip reflects the visitor's
+    own session key."""
     if "/" not in model:
         return ValidationResult(status="malformed")
     provider, _ = model.split("/", 1)
@@ -109,12 +113,17 @@ def validate_model(model: str) -> ValidationResult:
     if not provider:
         return ValidationResult(status="malformed")
 
-    provs = _providers()
-    if provs is None:
-        # Couldn't reach opencode to list providers — advisory, don't scare.
-        return ValidationResult(status="unverified", provider=provider)
-    if provider not in provs:
-        return ValidationResult(status="no_credentials", provider=provider)
+    if session_providers is not None:
+        # Isolated mode: "configured" = this session provided a key for it.
+        if provider not in session_providers:
+            return ValidationResult(status="no_credentials", provider=provider)
+    else:
+        provs = _providers()
+        if provs is None:
+            # Couldn't reach opencode to list providers — advisory, don't scare.
+            return ValidationResult(status="unverified", provider=provider)
+        if provider not in provs:
+            return ValidationResult(status="no_credentials", provider=provider)
 
     catalog = _models(provider)
     if catalog is None:

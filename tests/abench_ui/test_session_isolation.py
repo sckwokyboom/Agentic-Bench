@@ -52,3 +52,18 @@ def test_non_isolated_credentials_write_to_disk(tmp_path, monkeypatch):
     from abench.credentials import read_credential
     assert read_credential("deepseek") == "sk-disk"        # written to disk, as before
     assert app.state.abench["session_store"].get("anytok", "deepseek") is None
+
+
+def test_isolated_validate_model_reflects_the_session_key(tmp_path, monkeypatch):
+    """/api/validate/model 'no key' tracks THIS session, not the server config:
+    no_credentials until this visitor adds a key, then it clears."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    app = create_app(experiments_dir=tmp_path, isolated=True)
+    client = TestClient(app)
+
+    r = client.post("/api/validate/model", json={"model": "deepseek/deepseek-chat"})
+    assert r.json()["status"] == "no_credentials"          # session has no key yet
+
+    client.post("/api/providers/deepseek/credentials", json={"api_key": "sk-visitor"})
+    r2 = client.post("/api/validate/model", json={"model": "deepseek/deepseek-chat"})
+    assert r2.json()["status"] != "no_credentials"         # session key now recognised

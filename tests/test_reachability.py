@@ -46,6 +46,27 @@ def test_validate_reachability_probe_failed_on_garbage(monkeypatch):
     assert r.reachable is False and r.reason == "probe_failed"
 
 
+def test_validate_reachability_isolated_probes_with_session_key(monkeypatch):
+    """Isolated: the probe env carries THIS visitor's session key, and the
+    operator's env var is overwritten so it can't make a bad key look reachable."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-operator")     # operator env present
+    captured = {}
+
+    class _CP:
+        returncode = 0
+        stdout = json.dumps({"reachable": True, "reason": "ok", "detail": ""})
+        stderr = ""
+
+    def fake_run(*a, **k):
+        captured["env"] = k.get("env")
+        return _CP()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    validate_reachability(PROV, "deepseek-chat", sandbox=SandboxCfg(mode="none"),
+                          session_keys={"deepseek": "sk-visitor"}, isolated=True)
+    assert captured["env"]["DEEPSEEK_API_KEY"] == "sk-visitor"   # not sk-operator
+
+
 def test_key_never_in_probe_command_argv():
     """The key VALUE must never appear in argv — only the env NAME is forwarded."""
     sb = SandboxCfg(mode="container", image="abench-sandbox:latest", runtime="docker")

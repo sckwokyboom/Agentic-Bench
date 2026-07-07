@@ -531,12 +531,17 @@ def create_app(
     # ── Validate / Providers ────────────────────────────────────────────────
 
     @api.post("/validate/model")
-    def _validate(body: _ValidateModelBody):
-        r = validate_model(body.model)
+    def _validate(body: _ValidateModelBody, token: str = Depends(_session_token)):
+        # Exposed mode: "configured" means THIS visitor's session has a key —
+        # not the server's global opencode config.
+        session_providers = (set(state["session_store"].keys_for(token))
+                             if state["isolated"] else None)
+        r = validate_model(body.model, session_providers=session_providers)
         return {"status": r.status, "provider": r.provider, "suggestions": r.suggestions}
 
     @api.post("/validate/reachability")
-    def _validate_reachability(body: _ReachabilityBody):
+    def _validate_reachability(body: _ReachabilityBody,
+                               token: str = Depends(_session_token)):
         from abench.config import load_experiment
         from abench import reachability
         exp_dir = _exp_dir_for(body.experiment_name)
@@ -548,7 +553,12 @@ def create_app(
             raise HTTPException(400, "experiment has no providers configured")
         prov = exp.opencode.providers[0]
         model = exp.model.split("/", 1)[1] if "/" in exp.model else exp.model
-        res = reachability.validate_reachability(prov, model, sandbox=exp.opencode.sandbox)
+        # Exposed mode: probe with THIS visitor's session key, not the server's.
+        session_keys = (state["session_store"].keys_for(token)
+                        if state["isolated"] else None)
+        res = reachability.validate_reachability(
+            prov, model, sandbox=exp.opencode.sandbox,
+            session_keys=session_keys, isolated=state["isolated"])
         return {"reachable": res.reachable, "reason": res.reason, "detail": res.detail}
 
     @api.get("/models")

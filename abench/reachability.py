@@ -31,11 +31,16 @@ def _probe_command(sandbox, provider, model: str, probe_path: str) -> list[str]:
             provider.base_url, model, key_env]
 
 
-def validate_reachability(provider, model: str, *, sandbox) -> ReachabilityResult:
+def validate_reachability(provider, model: str, *, sandbox,
+                          session_keys=None, isolated: bool = False) -> ReachabilityResult:
     """Probe ``model`` at ``provider.base_url`` with the provider's key, inside
-    the sandbox. Returns a key-free ReachabilityResult."""
+    the sandbox. Returns a key-free ReachabilityResult.
+
+    In isolated (exposed) mode the probe uses ONLY the current visitor's session
+    key, so the result reflects THEIR key — a random/invalid key correctly fails
+    instead of appearing reachable via the operator's key."""
     cmd = _probe_command(sandbox, provider, model, _PROBE)
-    env = credentials.run_env([provider])
+    env = credentials.run_env([provider], session_keys, isolated=isolated)
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
     except subprocess.TimeoutExpired:
