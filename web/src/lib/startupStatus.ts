@@ -11,6 +11,7 @@ export interface StartupStatus {
     | "baseline_verify"
     | "preparing_workdir"
     | "rate_limit_backoff"
+    | "model_error"
     | "waiting_model"
     | "starting";
   message: string;
@@ -24,6 +25,7 @@ const PHASE_FALLBACK: Record<string, string> = {
   baseline_verify: "Running baseline verification…",
   preparing_workdir: "Preparing an isolated workdir…",
   rate_limit_backoff: "Rate limited — backing off before retrying…",
+  model_error: "Model/endpoint error — see the run log.",
 };
 
 /**

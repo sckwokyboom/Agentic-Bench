@@ -67,7 +67,8 @@ export interface RunPhase {
     | "building_sandbox_image"
     | "baseline_verify"
     | "preparing_workdir"
-    | "rate_limit_backoff";
+    | "rate_limit_backoff"
+    | "model_error";
   message?: string;
   run_idx?: number;
   condition?: string;

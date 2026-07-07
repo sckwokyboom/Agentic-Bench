@@ -141,6 +141,38 @@ class _PerRunPublishingClient:
         )
 
         tr = result.trace
+
+        # Surface a model/endpoint failure in the UI (not just the log): a run that
+        # errored or produced no output at all — an unreachable endpoint, a bad
+        # key, a provider error. Published as a model_error phase BEFORE the
+        # deferred run.finished, so the banner shows the reason instead of a stuck
+        # "waiting for first model response".
+        no_output = not tr.steps if hasattr(tr, "steps") else False
+        model_failed = (
+            (tr.interrupted_reason in ("error", "stalled", "timeout") and no_output)
+            or (tr.n_service_errors or 0) > 0
+        )
+        if model_failed:
+            detail = ""
+            msgs = getattr(tr, "service_error_messages", None)
+            if msgs:
+                detail = f" — {msgs[0]}"
+            elif tr.interrupted_reason == "stalled":
+                detail = " — no model output (endpoint unreachable or request hung)"
+            elif tr.interrupted_reason == "timeout":
+                detail = " — timed out before any model response"
+            elif tr.interrupted_reason == "error":
+                detail = " — opencode exited before any model response"
+            self._publish({
+                "type": "run.phase",
+                "session_id": self._session_id,
+                "phase": "model_error",
+                "run_idx": run_idx,
+                "condition": cond.name,
+                "rep": rep,
+                "message": f"Model/endpoint error{detail}",
+            })
+
         # `made_source_changes` mirrors the metrics semantics (non-empty patch);
         # the runner has already populated tr.final_diff_summary from the real
         # diff by the time run_task returns, so read the files list off the

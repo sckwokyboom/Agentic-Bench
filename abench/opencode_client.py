@@ -100,6 +100,19 @@ def _is_rate_limit(status: object | None) -> bool:
     return status == 429 or str(status) == "429"
 
 
+# stderr lines that signal a model/endpoint problem (auth, connection, DNS, TLS,
+# or an HTTP error status). These are promoted from debug.log to run.log + a live
+# UI `model_error` phase, so an unreachable endpoint or a bad key surfaces instead
+# of silently sitting at "waiting for first response".
+_MODEL_ERROR_RE = re.compile(
+    r"\b(?:unauthor|forbidden|refused|timed?\s*out|timeout|unreachable|getaddrinfo|"
+    r"econnrefused|enotfound|no route|connection reset|certificate|ssl error|tls|"
+    r"401|403|404|407|408|429|5\d\d)\b"
+    r"|\berror\b.*\b(?:api|model|provider|endpoint|request|fetch|connect|network|auth)\b",
+    re.IGNORECASE,
+)
+
+
 def _count_service_errors(raw_events: list[dict]) -> tuple[int, int, list[str]]:
     """Count service/proxy errors across opencode events.
 
@@ -534,15 +547,21 @@ class RealOpenCodeClient:
             """Forward opencode's stderr (``--print-logs INFO`` is verbose,
             but it's the surest signal that the subprocess is alive). Reading
             line-by-line both keeps the OS pipe from filling and lets the user
-            see progress in real time."""
+            see progress in real time. Lines that look like a model/endpoint
+            failure are ALSO promoted from debug.log to the readable run.log, so
+            an unreachable endpoint or a bad key is visible live instead of the
+            run silently sitting at 'waiting for first response'."""
             if proc.stderr is None:
                 return
             try:
                 for raw in proc.stderr:
                     last_activity[0] = time.time()
                     text = raw.decode("utf-8", errors="replace").rstrip()
-                    if text:
-                        firehose(f"  [opencode] {text}")
+                    if not text:
+                        continue
+                    firehose(f"  [opencode] {text}")
+                    if _MODEL_ERROR_RE.search(text):
+                        readable(f"  [opencode] ⚠ {text}")
             except Exception:
                 pass
 
@@ -624,6 +643,23 @@ class RealOpenCodeClient:
         readable(f"[abench] opencode returncode={returncode} "
                  f"interrupted={interrupted_reason} "
                  f"service_errors={n_service_errors} rate_limits={n_rate_limits}")
+
+        # Surface a model/endpoint failure explicitly in the run.log so a run that
+        # produced NO model output doesn't look like it's still "waiting". The UI
+        # model_error phase is published by run_session from the returned trace.
+        if not raw_events and interrupted_reason in ("stalled", "timeout", "error"):
+            if interrupted_reason == "timeout":
+                why = "the run timed out before any model response"
+            elif interrupted_reason == "error":
+                why = (f"opencode exited with code {returncode} before any model "
+                       "response")
+            else:
+                why = ("the model produced no output (endpoint unreachable or the "
+                       "request hung)")
+            msg = f"No model response — {why}."
+            if service_error_messages:
+                msg += f" First error: {service_error_messages[0]}"
+            readable(f"[abench] {msg}")
 
         # ── Session export ────────────────────────────────────────────────
         session_id: str | None = None

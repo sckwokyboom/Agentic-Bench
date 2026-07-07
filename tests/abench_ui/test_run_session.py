@@ -144,6 +144,37 @@ def test_run_session_cancel_unblocks_run_and_sets_cancelled(tmp_path):
     assert session.state == SessionState.CANCELLED
 
 
+class _ServiceErrorClient:
+    """run_task returns a trace with a provider/service error and no model output
+    — the 'endpoint unreachable / bad key' shape."""
+
+    def run_task(self, *, workdir, system_prompt, model, user_message,
+                 timeout_s, agent_tools=None, on_event, log_sink=None,
+                 debug_sink=None, cancel_event=None, temperature=None):
+        tr = Trace(interrupted_reason="error", finished=False)
+        tr.n_service_errors = 1
+        tr.service_error_messages = ["401 Unauthorized from provider"]
+        return RunResult(trace=tr)
+
+
+def test_run_session_publishes_model_error_phase_on_provider_failure(tmp_path):
+    """A run that couldn't reach the model surfaces a model_error phase in the UI
+    (not just the log), so the banner shows the reason instead of stuck 'waiting'."""
+    exp = _make_exp(tmp_path)
+    published: list[dict] = []
+    session = RunSession(
+        id="sess-model-err", experiment=exp,
+        client_factory=lambda e: _ServiceErrorClient(),
+        publish=published.append,
+    )
+    session.start()
+    session._thread.join(timeout=5)
+    phases = [e for e in published
+              if e.get("type") == "run.phase" and e.get("phase") == "model_error"]
+    assert phases, "no model_error phase was published"
+    assert "401" in phases[0]["message"]
+
+
 def test_run_session_error_publishes_session_error(tmp_path):
     """If the experiment raises, state is FAILED and session.error is published."""
     exp = _make_exp(tmp_path)

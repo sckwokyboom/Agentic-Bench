@@ -5,8 +5,21 @@ fast and deterministically. The full subprocess path is covered by the
 integration smoke test (skipped when opencode is absent).
 """
 from abench.opencode_client import (
-    _count_service_errors, _run_deadline, _is_stalled,
+    _count_service_errors, _run_deadline, _is_stalled, _MODEL_ERROR_RE,
 )
+
+
+def test_model_error_regex_flags_endpoint_and_auth_failures():
+    """The stderr lines we promote to run.log + a live UI model_error phase, so an
+    unreachable endpoint or a bad key surfaces instead of a silent 'waiting'."""
+    for bad in ["401 Unauthorized", "connection refused",
+                "getaddrinfo ENOTFOUND api.example.com", "request timed out",
+                "HTTP 503 from provider", "certificate verify failed",
+                "Error connecting to model endpoint"]:
+        assert _MODEL_ERROR_RE.search(bad), bad
+    for ok in ["INFO service=session starting", "INFO tool call read",
+               "model responded with 42 tokens"]:
+        assert not _MODEL_ERROR_RE.search(ok), ok
 
 
 def test_run_deadline_none_or_nonpositive_means_no_limit():

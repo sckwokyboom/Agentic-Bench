@@ -72,6 +72,19 @@ describe("deriveStartupStatus", () => {
     expect(s?.backoffS).toBe(20);
   });
 
+  it("surfaces a model_error phase (endpoint/auth failure)", () => {
+    const phase: Envelope = {
+      type: "run.phase",
+      session_id: "S",
+      event_id: 5,
+      phase: "model_error",
+      message: "Model/endpoint error: 401 Unauthorized",
+    };
+    const s = deriveStartupStatus([sessionStarted, runStarted, phase]);
+    expect(s?.kind).toBe("model_error");
+    expect(s?.message).toContain("401");
+  });
+
   it("reports 'waiting_model' after run.started with no raw_event yet", () => {
     const s = deriveStartupStatus([sessionStarted, runStarted]);
     expect(s?.kind).toBe("waiting_model");

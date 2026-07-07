@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Paper, Stack, CircularProgress, Typography, Box } from "@mui/material";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import type { StartupStatus as Status } from "../lib/startupStatus";
 
 function fmtElapsed(ms: number): string {
@@ -37,12 +38,16 @@ export default function StartupStatus({ status }: Props) {
       ? ` · retry ${status.retry}${status.maxRetries != null ? `/${status.maxRetries}` : ""}`
       : "";
 
+  const isError = status.kind === "model_error";
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, borderColor: "primary.light" }}>
+    <Paper variant="outlined"
+           sx={{ p: 1.5, borderColor: isError ? "error.main" : "primary.light" }}>
       <Stack direction="row" alignItems="center" spacing={1.5}>
-        <CircularProgress size={20} />
+        {isError ? <ErrorOutlineIcon color="error" /> : <CircularProgress size={20} />}
         <Box>
-          <Typography variant="body2">{status.message}</Typography>
+          <Typography variant="body2" color={isError ? "error" : undefined}>
+            {status.message}
+          </Typography>
           <Typography variant="caption" color="text.secondary">
             {fmtElapsed(elapsedMs)} elapsed{retryHint}
           </Typography>
