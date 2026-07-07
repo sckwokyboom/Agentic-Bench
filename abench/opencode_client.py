@@ -342,8 +342,16 @@ def build_run_command(
         argv += ["--name", container_name]
     if sb.network:
         argv += ["--network", sb.network]
+    # Forward the provider key, any explicit env_passthrough, AND the host's proxy
+    # vars (when set) — so opencode INSIDE the container reaches the model endpoint
+    # through the same corporate proxy the host uses, instead of a direct egress a
+    # firewall silently drops (connection timeout → a run stuck "waiting" forever).
+    # A proxy on the host's localhost also needs `sandbox.network: host`.
+    _PROXY_ENV = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+                  "http_proxy", "https_proxy", "no_proxy")
     seen: set[str] = set()
-    for name in [*_env_refs_in_config(config_data), *sb.env_passthrough]:
+    for name in [*_env_refs_in_config(config_data), *sb.env_passthrough,
+                 *[n for n in _PROXY_ENV if os.environ.get(n)]]:
         if name not in seen:
             seen.add(name)
             argv += ["-e", name]
