@@ -38,15 +38,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 # When building behind a CONNECT-only proxy (plain http/:80 blocked, https/:443
 # tunnelled), switch apt's Ubuntu mirrors to https so fetches go through the proxy.
 # Guarded on a proxy being set → a direct build is completely unchanged.
-RUN if [ -n "${HTTPS_PROXY}${https_proxy}" ]; then \
-      sed -i -E 's#http://(archive|security)\.ubuntu\.com#https://\1.ubuntu.com#g' \
-        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
-    fi \
-    && apt-get update && apt-get install -y --no-install-recommends git unzip ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-# Same extra/custom root CAs as the final stage, so Gradle's HTTPS downloads
-# (wrapper distribution + Maven Central) succeed behind a TLS-intercepting proxy
-# (e.g. a corporate WSL2 host). No-op when docker/extra-ca/ has no *.crt.
+# Corporate/custom root CAs FIRST — so the HTTPS apt mirrors below AND Gradle's JVM
+# downloads (wrapper distribution + Maven Central) trust a TLS-intercepting proxy
+# (e.g. a corporate WSL2 host). MUST precede apt: an HTTPS apt behind a MITM proxy
+# fails "certificate verify failed" until this CA is in the store. No-op when
+# docker/extra-ca/ has no *.crt.
 COPY docker/extra-ca/ /usr/local/share/ca-certificates/extra/
 RUN update-ca-certificates && \
     for f in /usr/local/share/ca-certificates/extra/*.crt; do \
@@ -54,6 +50,14 @@ RUN update-ca-certificates && \
         keytool -importcert -noprompt -cacerts -storepass changeit \
             -alias "extra-$(basename "$f")" -file "$f" || true; \
     done
+# THEN apt — with the corporate CA already trusted, switching apt to HTTPS mirrors
+# (for a CONNECT-only proxy where plain http/:80 is blocked) verifies cleanly.
+RUN if [ -n "${HTTPS_PROXY}${https_proxy}" ]; then \
+      sed -i -E 's#http://(archive|security)\.ubuntu\.com#https://\1.ubuntu.com#g' \
+        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends git unzip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY experiments/picocli-putValue/stripped/ /warm/
 WORKDIR /warm
 # Warm the cache by COMPILING (not running) main + every module's tests:
@@ -79,19 +83,12 @@ FROM eclipse-temurin:21-jdk
 # gradle-warm stage above; setup_check.py passes it from the host's proxy env.
 ARG JAVA_TOOL_OPTIONS
 ENV DEBIAN_FRONTEND=noninteractive
-RUN if [ -n "${HTTPS_PROXY}${https_proxy}" ]; then \
-      sed -i -E 's#http://(archive|security)\.ubuntu\.com#https://\1.ubuntu.com#g' \
-        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
-    fi \
-    && apt-get update && apt-get install -y --no-install-recommends \
-        curl git unzip ca-certificates maven python3 \
-    && rm -rf /var/lib/apt/lists/*
 
-# Optional extra/custom root CAs (e.g. a private registry or internal mirror):
-# drop PEM files into docker/extra-ca/ before building (the *.crt files are
-# gitignored; use neutral names — the dir ships only a README). Each cert is
-# registered for the system store (curl/git) and the JVM keystore
-# (gradle/maven); Node (opencode) reads the rebuilt system bundle.
+# Corporate/custom root CAs FIRST (private registry / internal mirror / TLS-
+# intercepting proxy): drop PEM files into docker/extra-ca/ before building
+# (gitignored; neutral names). Registered for the system store (curl/git/apt), the
+# JVM keystore (gradle/maven), and Node (opencode). MUST precede apt so the HTTPS
+# apt mirrors below verify a proxy-intercepted TLS chain. No-op when empty.
 COPY docker/extra-ca/ /usr/local/share/ca-certificates/extra/
 RUN update-ca-certificates && \
     n=0; for f in /usr/local/share/ca-certificates/extra/*.crt; do \
@@ -100,6 +97,14 @@ RUN update-ca-certificates && \
             -alias "extra-ca-$n" -file "$f"; \
     done; echo "[extra-ca] registered $n extra cert(s)"
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+# THEN apt — corporate CA already trusted, so the HTTPS mirror switch verifies.
+RUN if [ -n "${HTTPS_PROXY}${https_proxy}" ]; then \
+      sed -i -E 's#http://(archive|security)\.ubuntu\.com#https://\1.ubuntu.com#g' \
+        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        curl git unzip ca-certificates maven python3 \
+    && rm -rf /var/lib/apt/lists/*
 
 # System Gradle for projects that ship NO wrapper. picocli uses its own
 # ./gradlew, whose distribution is already in the baked cache copied below.
