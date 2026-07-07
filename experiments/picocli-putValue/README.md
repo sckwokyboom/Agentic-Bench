@@ -76,8 +76,9 @@ handmade smoke-прогона замени плейсхолдер на ручн�
 получить финальный `forced-instrument-in-test.md`.
 
 **Требования (разово):** Graph-Tipper склонирован локально (движок `kgpool`);
-**JDK 21**; picocli как git-клон (папка `original/` из шага 1 — `make` сам
-застабит таргет через `git`). Укажи abench на Graph-Tipper:
+**JDK 21**; picocli в папке `original/` из шага 1 (git-репо для неё **не
+обязателен** — `make` стабит таргет с бэкапом оригинала и сам откатывает).
+Укажи abench на Graph-Tipper:
 
 ```bash
 abench lib add graph-tipper ~/Projects/Graph-Tipper
