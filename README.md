@@ -114,7 +114,7 @@ The Quick start above already launches the UI (build the bundle in step 3, start
 - **Run** — the live ReAct stream grouped turn-by-turn, a progress header, a per-rep sidebar with verify chips, and Cancel. Reconnects and replays if the socket drops.
 - **Trace** — verdict banner, aggregate stats, a turn-by-turn timeline (one card per model message, with "show raw"), the verify card, the final diff, an optional method comparison (`original` vs the agent's regeneration), a metrics drawer, and prev/next-rep navigation.
 
-`abench-ui` refuses to start if the bundle is missing — build it (Quick start step 3), or pass `--skip-bundle-check` for an API-only boot. Other flags: `--host`, `--port` (default `8765`), `--experiments-dir` (default `experiments`).
+`abench-ui` refuses to start if the bundle is missing — build it (Quick start step 3), or pass `--skip-bundle-check` for an API-only boot. Other flags: `--host`, `--port` (default `8765`), `--experiments-dir` (default `experiments`), and `--expose` (bind `0.0.0.0` so other machines on the LAN can open the UI — it prints the reachable URLs and a security warning). The SPA talks to the API/WS on the **same origin**, so a teammate just opens `http://<this-host-ip>:8765`; nothing else to configure. **Note:** exposing serves the UI to everyone who can reach the host — anyone can launch runs and use whatever API keys are configured. Per-session key isolation is planned; until then, only expose on a trusted LAN.
 
 **Frontend dev mode** (hot reload; Vite proxies `/api` + `/ws` to the backend):
 

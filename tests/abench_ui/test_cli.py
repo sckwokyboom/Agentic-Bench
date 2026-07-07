@@ -29,6 +29,36 @@ def test_cli_parses_and_calls_uvicorn(tmp_path):
     assert calls["host"] == "127.0.0.1"
 
 
+def test_expose_binds_all_interfaces(tmp_path):
+    """--expose serves on 0.0.0.0 (LAN) regardless of --host, so teammates can open it."""
+    calls = {}
+    index = tmp_path / "index.html"
+    index.write_text("<html></html>")
+
+    with patch("abench_ui.cli._static_index_path", return_value=index), patch(
+        "abench_ui.cli.uvicorn.run", side_effect=lambda app, **k: calls.update(k)
+    ):
+        rc = main(["--expose", "--experiments-dir", str(tmp_path)])
+
+    assert rc == 0
+    assert calls["host"] == "0.0.0.0"
+
+
+def test_default_host_is_localhost_only(tmp_path):
+    """Without --expose the default stays localhost — no accidental LAN exposure."""
+    calls = {}
+    index = tmp_path / "index.html"
+    index.write_text("<html></html>")
+
+    with patch("abench_ui.cli._static_index_path", return_value=index), patch(
+        "abench_ui.cli.uvicorn.run", side_effect=lambda app, **k: calls.update(k)
+    ):
+        rc = main(["--experiments-dir", str(tmp_path)])
+
+    assert rc == 0
+    assert calls["host"] == "127.0.0.1"
+
+
 def test_main_returns_2_when_bundle_missing(monkeypatch, capsys, tmp_path):
     """If abench_ui/static/index.html is absent, abench-ui refuses to start
     and never reaches uvicorn.run."""
