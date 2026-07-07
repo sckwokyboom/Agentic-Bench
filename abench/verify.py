@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import threading
 import time
 import xml.etree.ElementTree as _ET
 from dataclasses import dataclass, field
@@ -302,8 +303,13 @@ def _tool_missing(output: str, returncode: int, tool: str) -> bool:
     )
 
 
-def run_verify(workdir: Path, command: str, timeout_s: int) -> VerifyResult:
-    """Run `command` from `workdir`, classify the outcome, keep the full output."""
+def run_verify(workdir: Path, command: str, timeout_s: int,
+               on_line: "Callable[[str], None] | None" = None) -> VerifyResult:
+    """Run `command` from `workdir`, classify the outcome, keep the full output.
+
+    ``on_line`` (optional) is called with each output line as it arrives, so a
+    caller can tail live progress (e.g. baseline verify) without waiting for the
+    whole run. The full output is still collected and parsed as before."""
     workdir = Path(workdir)
     started = time.time()
     parts = command.split()
@@ -317,27 +323,75 @@ def run_verify(workdir: Path, command: str, timeout_s: int) -> VerifyResult:
     if _system is not None:
         _clear_results(workdir, _system)
 
-    try:
-        completed = subprocess.run(
-            command, shell=True, cwd=workdir,
-            capture_output=True, text=True, timeout=timeout_s,
-        )
-    except subprocess.TimeoutExpired:
-        return VerifyResult(
-            status="timeout", reason="timeout",
-            message=f"verify timed out after {timeout_s}s",
-            command=command, duration_s=time.time() - started,
-        )
-    except FileNotFoundError as exc:
-        return VerifyResult(
-            status="error", reason="tool_not_found",
-            message=f"{tool} not found on PATH",
-            command=command, duration_s=time.time() - started, raw_output=str(exc),
-        )
+    if on_line is None:
+        # Fast path (no live tail needed): a single capture. This is the exact
+        # prior behaviour the per-run/reverify callers and their tests rely on.
+        try:
+            completed = subprocess.run(
+                command, shell=True, cwd=workdir,
+                capture_output=True, text=True, timeout=timeout_s,
+            )
+        except subprocess.TimeoutExpired:
+            return VerifyResult(
+                status="timeout", reason="timeout",
+                message=f"verify timed out after {timeout_s}s",
+                command=command, duration_s=time.time() - started,
+            )
+        except FileNotFoundError as exc:
+            return VerifyResult(
+                status="error", reason="tool_not_found",
+                message=f"{tool} not found on PATH",
+                command=command, duration_s=time.time() - started, raw_output=str(exc),
+            )
+        output = (completed.stdout or "") + "\n" + (completed.stderr or "")
+        rc = completed.returncode
+    else:
+        # Streaming path: tail lines live via on_line while collecting the full
+        # output. A reader thread reads; the main thread enforces the timeout with
+        # a hard kill (a hung download emits no lines, so the read loop alone can't
+        # be trusted to honour the deadline).
+        try:
+            proc = subprocess.Popen(
+                command, shell=True, cwd=workdir,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+        except FileNotFoundError as exc:
+            return VerifyResult(
+                status="error", reason="tool_not_found",
+                message=f"{tool} not found on PATH",
+                command=command, duration_s=time.time() - started, raw_output=str(exc),
+            )
+        chunks: list[str] = []
 
-    output = (completed.stdout or "") + "\n" + (completed.stderr or "")
+        def _reader() -> None:
+            if proc.stdout is None:
+                return
+            for line in proc.stdout:
+                chunks.append(line)
+                try:
+                    on_line(line.rstrip("\n"))
+                except Exception:
+                    pass
+
+        reader = threading.Thread(target=_reader, daemon=True)
+        reader.start()
+        try:
+            proc.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            reader.join(timeout=5)
+            return VerifyResult(
+                status="timeout", reason="timeout",
+                message=f"verify timed out after {timeout_s}s",
+                command=command, duration_s=time.time() - started,
+                raw_output="".join(chunks),
+            )
+        reader.join(timeout=5)
+        output = "".join(chunks)
+        rc = proc.returncode
     duration = time.time() - started
-    rc = completed.returncode
 
     if _tool_missing(output, rc, tool):
         return VerifyResult(

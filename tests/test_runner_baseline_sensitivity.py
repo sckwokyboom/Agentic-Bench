@@ -77,7 +77,7 @@ def test_verify_insensitive_false_when_fixture_fails(tmp_path):
 
     # Reference verify (baseline pre-flight) on a copy of reference_path passes,
     # but the stripped fixture fails. Discriminate by which workdir is verified.
-    def fake_verify(workdir, command, timeout_s):
+    def fake_verify(workdir, command, timeout_s, on_line=None):
         # The fixture copy contains a.py == "x = 1"; reference is identical here,
         # so distinguish by path: baseline pre-flight verifies reference_path's
         # copy, fixture pre-flight verifies fixture_path's copy. We instead key
@@ -98,3 +98,17 @@ def test_verify_insensitive_false_when_fixture_fails(tmp_path):
     rundir = root / "baseline" / "rep_0"
     trace = json.loads((rundir / "trace.json").read_text())
     assert trace["verify_insensitive"] is False
+
+
+def test_baseline_verify_emits_subphases(tmp_path):
+    """emit receives a baseline_verify sub-phase per side (N/M) with the cache hint,
+    instead of one static line for the whole multi-minute window."""
+    exp = _make_exp(tmp_path)
+    cache = exp.fixture_path.parent / ".verify-baseline.json"
+    emitted = []
+    with mock.patch.object(runner_module, "run_verify", return_value=_passed()):
+        _maybe_run_baseline_verify(exp, cache, emit=emitted.append)
+    msgs = [e["message"] for e in emitted if e.get("phase") == "baseline_verify"]
+    assert any("1/2" in m for m in msgs)      # reference side
+    assert any("2/2" in m for m in msgs)      # stripped fixture side
+    assert any("cached in .verify-baseline.json" in m for m in msgs)

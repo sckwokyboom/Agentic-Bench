@@ -187,6 +187,33 @@ def test_run_verify_parse_error(tmp_path):
     assert "compiler crash" in result.raw_output
 
 
+class _FakePopen:
+    """Popen stand-in for the STREAMING path: yields `output` line-by-line,
+    then exits `rc`. Used to test the on_line tail without a real subprocess."""
+    def __init__(self, output: str, rc: int):
+        self.stdout = iter(output.splitlines(keepends=True))
+        self._rc = rc
+        self.returncode = None
+
+    def wait(self, timeout=None):
+        self.returncode = self._rc
+        return self._rc
+
+    def kill(self):
+        pass
+
+
+def test_run_verify_streams_lines_to_on_line(tmp_path):
+    """With on_line set, run_verify uses the streaming path and delivers each
+    output line live (this is the baseline-verify tail)."""
+    seen: list[str] = []
+    with patch("abench.verify.subprocess.Popen", return_value=_FakePopen(MAVEN_OK, 0)):
+        result = run_verify(tmp_path, "mvn test", timeout_s=10, on_line=seen.append)
+    assert result.status == "passed"          # streaming output still parses
+    assert seen                               # lines were delivered live
+    assert any("Tests run" in line for line in seen)
+
+
 MAVEN_MULTI_CLASS = """\
 [INFO] -------------------------------------------------------
 [INFO]  T E S T S

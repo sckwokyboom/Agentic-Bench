@@ -369,15 +369,8 @@ def run_experiment(
 
     # Baseline pre-flight verify
     if exp.verify.enabled:
-        emit({
-            "phase": "baseline_verify",
-            "message": (
-                "Running baseline verification — checking the reference "
-                "solution and the stripped fixture against the tests…"
-            ),
-        })
         baseline_cache = exp.fixture_path.parent / ".verify-baseline.json"
-        _maybe_run_baseline_verify(exp, baseline_cache)
+        _maybe_run_baseline_verify(exp, baseline_cache, emit=emit)
 
     total = len(plan)
     t_exp = time.time()
@@ -952,7 +945,8 @@ def _per_file_diffstat(patch: str) -> list[tuple[str, int, int]]:
     return files
 
 
-def _maybe_run_baseline_verify(exp: Experiment, cache_path: Path) -> None:
+def _maybe_run_baseline_verify(exp: Experiment, cache_path: Path,
+                               emit: "Callable[[dict], None] | None" = None) -> None:
     """Best-effort baseline verify; caches result in cache_path.
 
     Verifies BOTH:
@@ -965,8 +959,12 @@ def _maybe_run_baseline_verify(exp: Experiment, cache_path: Path) -> None:
         ``verify_insensitive``.
 
     Each side re-runs only when its dir sha mismatches the cache. Best-effort:
-    any error skips that side (and the function) without raising.
+    any error skips that side (and the function) without raising. ``emit`` (if
+    given) receives fine-grained ``baseline_verify`` progress: one sub-phase per
+    side (N/M) plus a throttled tail of the test-tool output, so the UI and log
+    show live activity during this otherwise-silent multi-minute window.
     """
+    emit = emit or (lambda _payload: None)
     ref_sha = _dir_sha(exp.reference_path)
     fix_sha = _dir_sha(exp.fixture_path)
     cached: dict = {}
@@ -975,32 +973,66 @@ def _maybe_run_baseline_verify(exp: Experiment, cache_path: Path) -> None:
             cached = json.loads(cache_path.read_text())
         except Exception:
             cached = {}
-        # Both sides current → nothing to do.
+        # Both sides current → nothing to do (fast path; no progress noise).
         if (cached.get("reference_sha") == ref_sha
                 and cached.get("fixture_sha") == fix_sha):
             return
 
     record = dict(cached)
 
-    def _verify_dir(src: Path):
-        """Verify a fresh copy of src; return the VerifyResult or None."""
+    # Which sides actually need re-running → drives the "N/M" progress labels.
+    todo = []
+    if cached.get("reference_sha") != ref_sha:
+        todo.append("reference")
+    if cached.get("fixture_sha") != fix_sha:
+        todo.append("fixture")
+    total = len(todo)
+
+    def _verify_dir(src: Path, label: str, idx: int):
+        """Verify a fresh copy of src, streaming live progress via ``emit``.
+        Returns the VerifyResult or None."""
+        emit({
+            "phase": "baseline_verify",
+            "message": (
+                f"Baseline verify {idx}/{total}: {label} — running the full test "
+                "suite (~2–3 min). One-time; cached in .verify-baseline.json."
+            ),
+        })
         try:
             workdir, _sha = fx.create_workdir(src)
         except Exception:
             return None
+        last = {"t": 0.0}
+
+        def _tail(line: str) -> None:
+            line = line.strip()
+            if not line:
+                return
+            _log(f"[baseline-verify:{label}] {line}")
+            now = time.time()
+            if now - last["t"] < 1.5:          # throttle the UI/WS updates
+                return
+            last["t"] = now
+            emit({
+                "phase": "baseline_verify",
+                "message": f"Baseline verify {idx}/{total}: {label} · {line[:100]}",
+            })
+
         try:
             command = augment_for_full_run(exp.verify.command or _detect_verify(workdir))
             if command is None:
                 return None
-            return run_verify(workdir, command, exp.verify.timeout_s)
+            return run_verify(workdir, command, exp.verify.timeout_s, on_line=_tail)
         except Exception:
             return None
         finally:
             fx.cleanup(workdir)
 
+    idx = 0
     # ── Reference side (gold solution) ────────────────────────────────────
-    if cached.get("reference_sha") != ref_sha:
-        v = _verify_dir(exp.reference_path)
+    if "reference" in todo:
+        idx += 1
+        v = _verify_dir(exp.reference_path, "reference (gold)", idx)
         if v is not None:
             record.update({
                 "command": exp.verify.command or v.command,
@@ -1016,8 +1048,9 @@ def _maybe_run_baseline_verify(exp: Experiment, cache_path: Path) -> None:
                 pass
 
     # ── Fixture side (stripped starting point) ────────────────────────────
-    if cached.get("fixture_sha") != fix_sha:
-        v = _verify_dir(exp.fixture_path)
+    if "fixture" in todo:
+        idx += 1
+        v = _verify_dir(exp.fixture_path, "stripped fixture", idx)
         if v is not None:
             record.update({
                 "fixture_sha": fix_sha,
@@ -1032,6 +1065,7 @@ def _maybe_run_baseline_verify(exp: Experiment, cache_path: Path) -> None:
             cache_path.write_text(json.dumps(record))
         except Exception:
             pass
+    emit({"phase": "baseline_verify", "message": "Baseline verification complete."})
 
 
 def _dir_sha(path: Path) -> str:
