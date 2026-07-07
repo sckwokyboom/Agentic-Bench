@@ -35,8 +35,11 @@ def resolve_gt() -> Path:
 
 def run(*, project, target, experiment, out=None, tests=None, spec_tests=None):
     gt = resolve_gt()
-    experiment = Path(experiment)
-    out = Path(out) if out else experiment / "runs" / "augment-pool"
+    # Absolutise everything: kgpool.make runs with cwd=<GT>, so a relative --out/--project
+    # would resolve under Graph-Tipper instead of here (and the bundle copy would miss).
+    experiment = Path(experiment).resolve()
+    project = Path(project).resolve()
+    out = Path(out).resolve() if out else experiment / "runs" / "augment-pool"
     out.mkdir(parents=True, exist_ok=True)
     cmd = ["python3", "-m", "harness.kgpool.make",
            "--project", str(project), "--target", target, "--out", str(out)]
