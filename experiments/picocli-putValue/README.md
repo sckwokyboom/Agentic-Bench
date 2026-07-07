@@ -67,6 +67,69 @@ throw new UnsupportedOperationException(
 handmade smoke-прогона замени плейсхолдер на ручную подсказку по образцу
 [`examples/picocli-wordcount/slices/countwords-graph-slice.md`](../../examples/picocli-wordcount/slices/countwords-graph-slice.md).
 
+## 3b. Автогенерация forced-instrument аугментации (kgpool)
+
+Раньше `slices/forced-instrument-in-test.md` собирался вручную. Теперь его
+сырьё генерируется автоматически движком **kgpool** (Graph-Tipper): по одному
+таргету он строит пул рантайм/статик-данных и рендерит самодостаточный
+промпт-бандл `augment.prompt.md`, который прогоняешь через модель, чтобы
+получить финальный `forced-instrument-in-test.md`.
+
+**Требования (разово):** Graph-Tipper склонирован локально (движок `kgpool`);
+**JDK 21**; picocli как git-клон (папка `original/` из шага 1 — `make` сам
+застабит таргет через `git`). Укажи abench на Graph-Tipper:
+
+```bash
+abench lib add graph-tipper ~/Projects/Graph-Tipper
+# либо без реестра:  export GRAPH_TIPPER_HOME=~/Projects/Graph-Tipper
+```
+
+**Собрать бандл для `putValue` и положить его в `slices/` эксперимента**
+(из корня Agentic-Bench):
+
+```bash
+python scripts/augment.py \
+  --project "$PWD/experiments/picocli-putValue/original" \
+  --target 'picocli.CommandLine$Help$TextTable.putValue' \
+  --experiment experiments/picocli-putValue
+# → experiments/picocli-putValue/slices/augment.prompt.md
+```
+
+`make` сам застабит тело `putValue`, соберёт CPG-экспорт (первый прогон качает и
+гоняет **joern** — нужен JDK 21) и прогонит тест-сюиту picocli под stub, затем
+откатит дерево. Заложи несколько минут.
+
+**Что в `augment.prompt.md`:** инструкция синтеза + скелет секций
+`forced-instrument-in-test.md` + дайджест пула (universe covering-тестов, focus
+set, рантайм-значения аргументов, контракты методов-корридора, chain-сниппеты,
+failures, сводка knowledge-graph). Тело `putValue` везде показано как **stub** —
+утечки реализации нет by construction (пул strict: только stubbed-прогон).
+
+**Финальный шаг (пока вручную):** прогони `slices/augment.prompt.md` через модель
+→ сохрани результат как `slices/forced-instrument-in-test.md` → в
+[`experiment-forced-instrument.yaml`](experiment-forced-instrument.yaml) поле
+`augmentation:` уже указывает на этот файл.
+
+**Быстрее / движок напрямую** — переиспользовать готовый CPG-экспорт (пропустить
+joern) и не гонять второй прогон под JaCoCo. Именно в такой форме генерация
+прогонялась **e2e** (412 covering-тестов, все секции, leak-safe, дерево чистое):
+
+```bash
+cd ~/Projects/Graph-Tipper
+PYTHONPATH=. python3 -m harness.kgpool.make \
+  --project ~/gt-eval/picocli \
+  --target 'picocli.CommandLine$Help$TextTable.putValue' \
+  --out ~/gt-eval/kg-pool/putValue \
+  --reuse-export ~/gt-eval/slice/.cache/<hash>/export/export.json \
+  --skip-jacoco
+# → ~/gt-eval/kg-pool/putValue/augment.prompt.md
+```
+
+Если готового экспорта нет — убери `--reuse-export`, и `make` соберёт его через
+joern сам. Известное ограничение: `bytecode`-дамп для вложенных типов (`Cell`,
+`Text`) не резолвит бинарные имена и мягко помечает их `// [unavailable]` — на
+leak-safety и основной контент это не влияет.
+
 ## 4. Прогон
 
 Из корня репозитория, при активной venv:
