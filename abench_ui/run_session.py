@@ -225,11 +225,15 @@ class RunSession:
         client_factory: Callable[[Experiment], object],
         publish: Callable[[dict], None],
         batch_id: str | None = None,
+        isolated: bool = False,
     ):
         self.id = id
         self.experiment = experiment
         self._client_factory = client_factory
         self._publish = publish
+        # Exposed (LAN) mode: keys are per-session, so the preflight must not warn
+        # about a "missing" key that actually arrives via the session store.
+        self._isolated = isolated
         # One batch id per session; reused across every run it writes so the
         # server/UI can group + replay this batch (Task 1 on-disk layout).
         self.batch_id = batch_id or default_batch_id()
@@ -332,7 +336,8 @@ class RunSession:
             run_experiment(self.experiment, wrapped_factory, _plan=self.plan,
                            batch_id=self.batch_id, cancel_event=self._cancel_flag,
                            progress=self._publish_phase,
-                           context_window=self._context_window)
+                           context_window=self._context_window,
+                           isolated=self._isolated)
             if self._cancel_flag.is_set():
                 self.state = SessionState.CANCELLED
             else:

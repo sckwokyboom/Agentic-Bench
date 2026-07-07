@@ -171,9 +171,12 @@ def _required_lib_refs(exp: Experiment) -> dict[str, list[str]]:
     return refs
 
 
-def _preflight_env(exp: Experiment) -> None:
+def _preflight_env(exp: Experiment, *, isolated: bool = False) -> None:
     """Raise a single, oriented error if any required host env var OR local
-    library path is missing — BEFORE the slow startup or any run."""
+    library path is missing — BEFORE the slow startup or any run.
+
+    ``isolated`` (exposed/LAN UI): provider API keys arrive per-session from the
+    session store — not env/auth.json — so don't warn that they're "missing"."""
     from . import libraries
 
     refs = _required_env_refs(exp)
@@ -192,6 +195,8 @@ def _preflight_env(exp: Experiment) -> None:
     for prov in exp.opencode.providers:
         if prov.api_key_env and prov.api_key_env in missing_env:
             del missing_env[prov.api_key_env]
+            if isolated:
+                continue      # key is provided per-session via the exposed UI
             if not credentials.has_credential(prov.id):
                 _log(f"[abench] WARN provider '{prov.id}' has no API key in env or "
                      f"auth.json — proceeding without auth (a no-auth endpoint, or "
@@ -314,6 +319,7 @@ def run_experiment(
     cancel_event: "threading.Event | None" = None,
     progress: "Callable[[dict], None] | None" = None,
     context_window: "int | None" = None,
+    isolated: bool = False,
 ) -> Path:
     # `progress` carries fine-grained setup status for the UI during the
     # otherwise-silent startup window (baseline verify, workdir prep, 429
@@ -324,7 +330,7 @@ def run_experiment(
     # needs on the host BEFORE the (slow) image build / baseline verify, so a
     # missing OS env var surfaces as one clear up-front error rather than a
     # cryptic ValueError minutes into the first run.
-    _preflight_env(exp)
+    _preflight_env(exp, isolated=isolated)
 
     if batch_id is None:
         batch_id = default_batch_id()

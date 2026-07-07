@@ -640,6 +640,7 @@ def create_app(
             experiment=exp,
             client_factory=client_factory,
             publish=publish,
+            isolated=state["isolated"],
         )
         state["sessions"][sid] = session
         session.start()
