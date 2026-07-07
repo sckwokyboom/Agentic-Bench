@@ -52,5 +52,6 @@ def test_run_builds_command_and_copies(monkeypatch, tmp_path):
     assert "harness.kgpool.make" in calls["cmd"]
     assert "--project" in calls["cmd"] and "/p" in calls["cmd"]
     assert "--target" in calls["cmd"] and "C.m" in calls["cmd"]
+    assert "--skip-jacoco" in calls["cmd"]  # bundle does not use JaCoCo -> skip by default
     assert calls["cwd"] == str(gt)
     assert (exp / "slices/augment.prompt.md").read_text() == "BUNDLE"

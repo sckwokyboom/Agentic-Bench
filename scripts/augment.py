@@ -33,7 +33,7 @@ def resolve_gt() -> Path:
     return gt
 
 
-def run(*, project, target, experiment, out=None, tests=None, spec_tests=None):
+def run(*, project, target, experiment, out=None, tests=None, spec_tests=None, jacoco=False):
     gt = resolve_gt()
     # Absolutise everything: kgpool.make runs with cwd=<GT>, so a relative --out/--project
     # would resolve under Graph-Tipper instead of here (and the bundle copy would miss).
@@ -43,6 +43,8 @@ def run(*, project, target, experiment, out=None, tests=None, spec_tests=None):
     out.mkdir(parents=True, exist_ok=True)
     cmd = ["python3", "-m", "harness.kgpool.make",
            "--project", str(project), "--target", target, "--out", str(out)]
+    if not jacoco:                       # JaCoCo is not used by the bundle; skip by default
+        cmd.append("--skip-jacoco")
     for it in (tests or []):
         cmd += ["--tests", it]
     if spec_tests:
@@ -66,9 +68,12 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--tests", action="append")
     ap.add_argument("--spec-tests", default=None)
+    ap.add_argument("--jacoco", action="store_true",
+                    help="also run the JaCoCo stage (needs jacocoagent + jacoco-cli jars); "
+                         "off by default — the bundle does not use JaCoCo output")
     args = ap.parse_args()
     run(project=args.project, target=args.target, experiment=args.experiment,
-        out=args.out, tests=args.tests, spec_tests=args.spec_tests)
+        out=args.out, tests=args.tests, spec_tests=args.spec_tests, jacoco=args.jacoco)
 
 
 if __name__ == "__main__":
