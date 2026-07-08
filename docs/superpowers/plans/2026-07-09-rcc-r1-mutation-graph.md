@@ -185,9 +185,55 @@ class MutationGraph:
         es = [e for e in self.edges if e.src not in drop_ids and e.tgt not in drop_ids]
         return MutationGraph(target_id=self.target_id, vertices=vs, edges=es,
                              classes_total=self.classes_total)
+
+    def focus(self, *, failing_tests=None, k_methods: int = 6,
+              class_cap: "int | None" = None) -> "MutationGraph":
+        """A prompt-sized MutationGraph (the MVP 'HGT ranker -> top-k' relevance
+        filter — the raw GT graph is ~90 methods / 1400 tests). Keeps: the target +
+        its direct CALLS callers (methods with an edge into the target), capped to
+        k_methods by caller-edge count; test/assert vertices restricted to
+        `failing_tests` (fqn set) when given, else all; edges among kept vertices;
+        then the class cap. Deterministic + leak-safe."""
+        tgt = self.target_id
+        caller_ids = [e.src for e in self.edges
+                      if e.tgt == tgt and e.type in ("CALLS", "DATA_DEP")
+                      and (self.vertex(e.src) or MgVertex("", "", "")).type == "method"]
+        by_count: dict = {}
+        for cid in caller_ids:
+            by_count[cid] = by_count.get(cid, 0) + 1
+        top_callers = [c for c, _ in sorted(by_count.items(),
+                                            key=lambda kv: (-kv[1], kv[0]))[:k_methods]]
+        keep_methods = {tgt, *top_callers}
+        fset = set(failing_tests) if failing_tests else None
+        keep_tests = {v.id for v in self.vertices if v.type in ("test", "assert")
+                      and (fset is None or v.fqn in fset)}
+        keep = keep_methods | keep_tests
+        vs = [v for v in self.vertices if v.id in keep]
+        es = [e for e in self.edges if e.src in keep and e.tgt in keep]
+        g = MutationGraph(target_id=tgt, vertices=vs, edges=es)
+        return g.with_class_cap(class_cap)
 ```
 
-- [ ] **Step 4: Run** `python3 -m pytest tests/test_rcc_mutation_graph.py -q` — 4 passed.
+- [ ] **Step 4: Run** `python3 -m pytest tests/test_rcc_mutation_graph.py -q` — 5 passed (add the focus test below).
+
+Add this test to `tests/test_rcc_mutation_graph.py`:
+
+```python
+def test_focus_keeps_target_callers_and_failing_tests():
+    vs = [MgVertex(id="method:t", type="method", fqn="p.C.t", is_changed=True),
+          MgVertex(id="method:caller", type="method", fqn="p.C.caller"),
+          MgVertex(id="method:far", type="method", fqn="p.C.far"),
+          MgVertex(id="test:p.T.f", type="test", fqn="p.T.f"),
+          MgVertex(id="test:p.T.ok", type="test", fqn="p.T.ok")]
+    es = [MgEdge(src="method:caller", tgt="method:t", type="CALLS"),
+          MgEdge(src="method:far", tgt="method:caller", type="CALLS"),
+          MgEdge(src="test:p.T.f", tgt="method:t", type="TEST_ASSERTS"),
+          MgEdge(src="test:p.T.ok", tgt="method:t", type="TEST_ASSERTS")]
+    g = MutationGraph(target_id="method:t", vertices=vs, edges=es)
+    f = g.focus(failing_tests={"p.T.f"}, k_methods=6)
+    assert set(f.methods()) == {"p.C.t", "p.C.caller"}     # target + direct caller; 'far' dropped
+    assert f.test_fqns == ["p.T.f"]                          # only the failing test
+```
 
 - [ ] **Step 5: Commit**
 
