@@ -7,21 +7,32 @@ pytest.importorskip("langgraph")   # optional extra — skip cleanly without it
 
 from abench.orchestrator import PhaseOutcome, SuiteEval
 from abench.rcc_graph import RccConfig, run_rcc
-from abench.rcc_subgraph import RccSubgraph
+from abench.rcc_mutation_graph import MgEdge, MgVertex, MutationGraph
 from abench.regression_gate import SuiteResult
 from abench.trace_model import StepKind, Trace
 
-_SUB = RccSubgraph(
-    target_fqn="p.C.put", methods=["p.C.put", "p.C.get"],
-    test_fqns=["p.CT.t1", "p.CT.t2"], test_classes=["p.CT"],
-    sources={"p.C.put": "Object put() { return null; }"},
+_SUB = MutationGraph(
+    target_id="method:p.C.put",
+    vertices=[MgVertex(id="method:p.C.put", type="method", fqn="p.C.put",
+                       is_changed=True, source="Cell put(){ return null; }"),
+              MgVertex(id="method:p.C.get", type="method", fqn="p.C.get",
+                       source="Object get(){...}"),
+              MgVertex(id="test:p.CT.t1", type="test", fqn="p.CT.t1"),
+              MgVertex(id="test:p.CT.t2", type="test", fqn="p.CT.t2")],
+    edges=[MgEdge(src="method:p.C.put", tgt="method:p.C.get", type="CALLS"),
+           MgEdge(src="test:p.CT.t1", tgt="method:p.C.put", type="TEST_ASSERTS"),
+           MgEdge(src="test:p.CT.t2", tgt="method:p.C.put", type="TEST_ASSERTS")],
 )
 
 _GAMMA = json.dumps({
-    "nodes": [{"id": "p.C.put", "type": "method"},
-              {"id": "p.C.get", "type": "method"}],
-    "edges": [{"src": "p.C.put", "tgt": "p.C.get", "type": "causal",
-               "weight": 0.9, "reason": "put returns null -> get NPE"}],
+    "vertices": [{"id": "cd1", "mutation_vertex": "method:p.C.put",
+                  "type": "root_cause", "is_root_cause": True, "confidence": 0.95,
+                  "violated": True, "runtime_value": "ret=null"},
+                 {"id": "cd2", "mutation_vertex": "method:p.C.get",
+                  "type": "downstream_effect", "is_root_cause": False,
+                  "confidence": 0.9, "violated": True}],
+    "edges": [{"from": "cd1", "to": "cd2", "type": "CAUSES",
+               "path": ["method:p.C.put", "method:p.C.get"], "reasoning": "null propagates"}],
 })
 
 

@@ -15,12 +15,12 @@ from typing import Annotated, TypedDict
 
 from .failure_report import cluster_failures, select_clusters
 from .orchestrator import PhaseOutcome, SuiteEval, _track_best
+from .rcc_mutation_graph import MutationGraph
 from .rcc_prompts import (
     GAMMA_FORMAT_REMINDER, alpha_prompt, beta_prompt, beta_repair_prompt,
-    cache_fix_prompt, causal_rank, fix_prompt, gamma_prompt, parse_gamma,
+    cache_fix_prompt, causal_rank, fix_prompt, gamma_prompt, parse_causal_delta,
     root_rank,
 )
-from .rcc_subgraph import RccSubgraph
 from .regression_gate import SuiteResult
 from .trace_model import Step, StepKind, Trace
 from .trace_stitch import stitch
@@ -48,7 +48,7 @@ class RccState(TypedDict, total=False):
     ctrl: Annotated[list, operator.add]
 
 
-def run_rcc(cfg: RccConfig, sub: RccSubgraph, initial: SuiteEval, *,
+def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
             phase_runner, suite_runner, subset_runner, memory, strip_probes,
             on_event=None, cancel_event=None) -> Trace:
     """The rcc loop. `initial` is the RED suite state that triggered rcc (the
@@ -130,6 +130,9 @@ def run_rcc(cfg: RccConfig, sub: RccSubgraph, initial: SuiteEval, *,
     # ── nodes ────────────────────────────────────────────────────────────────
     def memory_node(state):
         steps: list = []
+        steps.append(event(
+            f"mutation graph: {len(sub.methods())} methods, {len(sub.edges)} "
+            f"edges, {len(sub.test_fqns)} tests", "memory"))
         entry = memory.get(sub.target_fqn)
         steps.append(event(
             f"memory: HIT for {sub.target_fqn} — trying the cached causal insight"
@@ -138,7 +141,7 @@ def run_rcc(cfg: RccConfig, sub: RccSubgraph, initial: SuiteEval, *,
         return {"cached": entry, "attempt": 0, "cur": initial,
                 "best_failed": initial.result.failed if initial.result.ran else None,
                 "specs": "", "probe_lines": [], "graph": None,
-                "ranks": [(m, 0.0) for m in sub.methods], "ctrl": steps}
+                "ranks": [(m, 0.0) for m in sub.methods()], "ctrl": steps}
 
     def cache_fix_node(state):
         steps: list = []
@@ -171,7 +174,7 @@ def run_rcc(cfg: RccConfig, sub: RccSubgraph, initial: SuiteEval, *,
         a = do_phase("alpha", alpha_prompt(sub), ["read"], steps)
         specs = (a.text or "").strip()
         steps.append(event(
-            f"alpha: contracts for {len(sub.methods)} methods ({len(specs)} chars)"
+            f"alpha: contracts for {len(sub.methods())} methods ({len(specs)} chars)"
             if specs else "alpha: EMPTY contracts — continuing without", "alpha"))
         return {"specs": specs, "phase_traces": [("alpha", a.trace)],
                 "ctrl": steps}
@@ -212,25 +215,25 @@ def run_rcc(cfg: RccConfig, sub: RccSubgraph, initial: SuiteEval, *,
         prompt = gamma_prompt(sub, state["specs"], state["probe_lines"])
         g1 = do_phase("gamma", prompt, ["read"], steps)
         traces.append(("gamma", g1.trace))
-        graph = parse_gamma(g1.text)
+        graph = parse_causal_delta(g1.text)
         if graph is None and not cancelled():
             steps.append(event("gamma: unparseable causal graph — one "
                                "format-reminded retry", "gamma"))
             g2 = do_phase("gamma-retry", prompt + GAMMA_FORMAT_REMINDER,
                           ["read"], steps)
             traces.append(("gamma-retry", g2.trace))
-            graph = parse_gamma(g2.text)
+            graph = parse_causal_delta(g2.text)
         if graph is None:
-            ranks = [(m, 0.0) for m in sub.methods]
+            ranks = [(m, 0.0) for m in sub.methods()]
             steps.append(event("gamma: still unparseable — degraded to "
                                "subgraph-order ranking (target first)", "gamma"))
         else:
-            ranks = causal_rank(graph, sub.methods)
+            ranks = causal_rank(graph, sub.methods())
             rr = root_rank(ranks, sub.target_fqn)
             steps.append(event(
-                f"gamma: causal graph with {len(graph.get('nodes', []))} nodes / "
-                f"{len(graph.get('edges', []))} edges; CausalRank of target = "
-                f"{rr}/{len(ranks)}", "gamma"))
+                f"gamma: causal delta graph with {len(graph.get('vertices', []))} "
+                f"vertices / {len(graph.get('edges', []))} edges; CausalRank of "
+                f"target = {rr}/{len(ranks)}", "gamma"))
         return {"graph": graph, "ranks": ranks, "phase_traces": traces,
                 "ctrl": steps}
 
