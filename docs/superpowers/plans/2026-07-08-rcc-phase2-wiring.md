@@ -8,7 +8,25 @@
 
 **Tech Stack:** Python 3.11+, LangGraph (existing extra), pydantic (config), React/TS (one dropdown), pytest + vitest.
 
-Spec: `docs/superpowers/specs/2026-07-08-rapidcausalcoder-mvp-design.md`.
+> **⚠ R1 RECONCILIATION (2026-07-09) — read before executing.** This plan predates the
+> R1 mechanism revision (real MutationGraph + CausalDeltaSubGraph). R1 landed on main
+> (commits 500e536..9b4c4e7): `abench/rcc_subgraph.py` is DELETED; the graph is built via
+> `abench/rcc_mgraph_build.build_mutation_graph` (artifact loader primary + llm fallback)
+> and narrowed via `MutationGraph.focus(...)`. Consequently:
+> - **Task 2 (subgraph class-cap) is OBSOLETE — SKIP IT.** The class cap now lives on
+>   `MutationGraph.with_class_cap` / is applied by `focus(class_cap=…)` (already in R1).
+> - `rcc_subgraph_k` is RETIRED (do not add it to `OrchestrationCfg`); keep
+>   `rcc_max_attempts` + `rcc_subset_class_cap`. `_load_coverage(impact_dir)` helper
+>   (tolerant `{}`-on-absence read of `.impact/coverage.json`) is needed by Task 5.
+> - Task 5's runner dispatch uses the seam (see the patched snippet below), NOT the
+>   deleted `build_subgraph`. Ship a precomputed `.impact/mutation-graph.json` in the
+>   overlay for the artifact path (parse a GT graph.json via `parse_gt_graph`; or let it
+>   fall back to the `llm` builder when absent).
+> - Tests that referenced `tests/test_rcc_subgraph.py` are void (that file is deleted).
+> Everything else (Trace telemetry, orchestrate prefix, config `rcc` literal, runner
+> dispatch shell, metrics, UI option, A/B YAML, hit demo) stands — node signatures held.
+
+Spec: `docs/superpowers/specs/2026-07-08-rapidcausalcoder-mvp-design.md` (Revision R1 + R1 amendment).
 Phase-1 review obligations (from the final review of commits 480e817..deedf12):
 (a) `best_failed_reached`/`accepted_rounds` must not mix subset and full-suite counts;
 (b) gradle `--continue` guaranteed on subset commands (holds by construction — the runner passes `suite_cmd` through `augment_for_full_run` before `make_subset_suite_runner`; documented at the Task 5 call site);
@@ -778,12 +796,24 @@ def strip_probe_lines_repo(repo: Path, marker: str = "//[probe]") -> int:
                         from .rcc_graph import RccConfig
                         from .rcc_memory import RccMemory
                         from .rcc_orchestrate import run_rcc_condition
-                        from .rcc_subgraph import build_subgraph
+                        from .rcc_mgraph_build import build_mutation_graph
                         ocfg = exp.orchestration
-                        sub = build_subgraph(
-                            workdir / ".impact", workdir, exp.target_methods or [],
-                            k=ocfg.rcc_subgraph_k,
-                            class_cap=ocfg.rcc_subset_class_cap or None)
+                        # R1: build the MutationGraph via the seam (artifact loader
+                        # primary — a precomputed GT graph.json shipped in the overlay;
+                        # llm fallback), then focus() to a prompt-sized subgraph.
+                        # rcc_subgraph_k is retired (the graph builder decides scope;
+                        # focus() keeps target + direct callers). Coverage is loaded
+                        # tolerantly for the llm builder's test hint.
+                        art = workdir / ".impact" / "mutation-graph.json"
+                        builder = os.environ.get("ABENCH_RCC_GRAPH_BUILDER",
+                                                 "artifact" if art.is_file() else "llm")
+                        bkw = ({"artifact_path": art} if builder == "artifact"
+                               else {"phase_runner": phase_runner} if builder == "llm"
+                               else {"gt_home": os.environ.get("GRAPH_TIPPER_HOME", "")})
+                        mg = build_mutation_graph(
+                            workdir, (exp.target_methods or [""])[0],
+                            _load_coverage(workdir / ".impact"), builder=builder, **bkw)
+                        sub = mg.focus(class_cap=ocfg.rcc_subset_class_cap or None) if mg else None
                         if sub is None:
                             _log("[abench] rcc: no usable .impact coverage for the "
                                  "targets — degrading to plain phased")
