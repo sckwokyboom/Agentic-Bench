@@ -100,11 +100,17 @@ build_subgraph → alpha_specs → beta_probe → run_probe_subset → strip_pro
   (fix prompt gets the cached causal graph + current failing state; runs the
   cached `test_set` subset, then full suite). Stale (tests fail) → delete the
   entry, controller event, continue to the full pass. Miss → full pass.
-- **build_subgraph** — from `.impact/coverage.json` (method→tests) + the
-  kgpool call-graph export: the changed method, all methods within call-graph
-  distance ≤ 2, all tests reachable from that set. Deterministic, no LLM.
+- **build_subgraph** — from `.impact/coverage.json` (method→tests; the
+  joern-precomputed neighborhood around the targets) + `methods.json` (source
+  spans): the changed method + neighbors ranked by covering-test overlap with
+  it, top-K (default 5), plus the union of their covering tests. Deterministic,
+  no LLM. (Amended from "call-graph distance ≤ 2": no explicit method→method
+  edge artifact exists; test-set overlap over the precomputed neighborhood is
+  the MVP filter — the node stays the seam for k-medoid/edge-based filters.)
 - **alpha_specs** — ONE LLM call for the whole subgraph (≤ ~8 methods), not
-  per-method: structured output `{method: {pre, post, inv}}`.
+  per-method. The answer (pre/post/invariants per method) is kept as ONE text
+  block passed downstream — no per-method JSON parsing (fewer parse-failure
+  modes; Gamma consumes text anyway).
 - **beta_probe** — LLM stage with edit tools: insert println lines, each
   suffixed `//[probe]`, at points it chooses (entry/exit/branches, local
   variables visible). Compile check; on failure one repair attempt (the agent
