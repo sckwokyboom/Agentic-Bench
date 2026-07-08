@@ -1,7 +1,14 @@
 # RapidCausalCoder Lite (wow-MVP) — design
 
 **Date:** 2026-07-08
-**Status:** approved (brainstorming) → next: implementation plan (phase 1)
+**Status:** approved (brainstorming) → Phase 1 built → **mechanism revision R1 appended
+2026-07-09 (see "Revision R1")** → next: rewrite Phase 1 core to R1, then Phase 2 wiring.
+
+> **Reading order:** sections 1–6 below describe the ORIGINAL Lite MVP as first built
+> (coverage-overlap "subgraph", flat method list, thin Gamma). **Revision R1 at the
+> end supersedes the graph model, the Alpha/Gamma schemas, and CausalRank** after the
+> user established that the mutation graph must be a real call/dataflow structure, not
+> test co-coverage. Where R1 conflicts with 1–6, R1 wins.
 
 ## Motivation
 
@@ -234,3 +241,166 @@ New modules:
 - Ambiguity: instrumentation mechanism (println `//[probe]`), baseline
   (`phased`), internal-prompt model (condition's model), and memory validity
   rules are each pinned to a single behavior.
+
+---
+
+# Revision R1 — real mutation graph, edge contracts, CausalDeltaSubGraph (2026-07-09)
+
+## Why R1
+
+The original MVP's "mutation subgraph" was NOT a call/dataflow graph — `build_subgraph`
+selected methods by shared-test-coverage overlap and passed a FLAT list of source
+snippets to Alpha/Gamma with zero relational structure (a stopgap `shared_test_edges`
+field added co-coverage counts, not call edges). Consequence: the model had no way to
+generate the interaction contracts (who calls whom, in which cases, what data flows) or
+to trace paths from the diff to the failing asserts — gutting the pipeline's core claim
+that a causal graph beats guessing from source. R1 makes the mutation graph a real
+typed structure and lifts Alpha/Gamma/CausalRank to the schemas the concept intends.
+
+## R1 leak-safety invariant (load-bearing)
+
+The mutation graph is **always built from the AGENT's workdir** (the stub + the agent's
+current implement attempt), NEVER from `gt-out`. Justification:
+- The committed `gt-out/slice-work/*.graph.json` was built on the REFERENCE
+  (`generated_for.project = "original"`); its `target.current_body` is the CORRECT
+  implementation and its `method_bodies`/chain structure encode the solution's shape.
+  That is exactly the tipper the A/B measures — using it at runtime is a leak.
+- Built on the workdir instead, the target vertex's body IS the agent's own attempt,
+  and neighbor bodies are unchanged library methods the agent can already read. The
+  STRUCTURE (CALLS / DATA_DEP / TEST_ASSERTS / L1 skeleton = signatures/types) is the
+  same blast-radius class already used legitimately by `phased_graph`. No correct
+  target body ever enters the context.
+- `gt-out` graph.json is used ONLY as a test FIXTURE, and even then with the target's
+  correct body stripped, so the fixture artifact is itself leak-clean.
+
+This invariant is the reason R1 is honest-by-construction and the A/B stays a clean
+phased-vs-rcc contrast (structure is not the tipper; correct bodies are, and they are
+excluded).
+
+## R1.1 Data model — `MutationGraph` (replaces the flat `RccSubgraph`)
+
+A typed graph (pydantic/dataclass), schema mirroring the concept's mutation-graph spec:
+
+```
+MutationGraph:
+  target_id: str                       # vertex id of the changed method
+  vertices: list[MgVertex]
+  edges: list[MgEdge]
+  # derived, cached for the subset runner + memory key:
+  test_classes: list[str]              # distinct classes of the assert/test vertices
+  classes_total: int                   # pre-cap count (Phase-2 class-cap knob)
+
+MgVertex:
+  id: str                              # "method:pkg.Cls.m" | "test:pkg.T.case" | "assert:..."
+  type: "method" | "test" | "assert"
+  fqn: str
+  location: {file, line_start, line_end} | None
+  is_changed: bool                     # directly modified by the diff
+  l1_skeleton: {signature, params, return_type, local_vars} | None   # L1 only (leak-safe)
+  source: str | None                   # method body FROM THE WORKDIR (agent's code) — leak-safe
+
+MgEdge:
+  src: str                             # vertex id
+  tgt: str                             # vertex id
+  type: "CALLS" | "DATA_DEP" | "CONTROL_DEP" | "TEST_ASSERTS" | "OVERRIDES"
+  call_site: {file, line, code} | None # for CALLS
+  data_var: str | None                 # for DATA_DEP
+```
+
+`test_fqns`/`test_classes` for the subset runner derive from the `test`/`assert`
+vertices (the TEST_ASSERTS roots), so the Phase-2 subset-class-cap knob still applies.
+
+## R1.2 The build seam — `build_mutation_graph`
+
+One pluggable function, injected like `phase_runner`/`suite_runner`:
+
+```
+build_mutation_graph(workdir, target_fqn, coverage) -> MutationGraph | None
+```
+
+`None` (no usable structure) → the runner degrades to plain `phased`, as `phased_graph`
+does today. Implementations (all leak-safe — workdir only):
+
+1. **`gt_kgpool_builder`** (primary, high fidelity, runs where Graph-Tipper is
+   installed — the prepared box, NOT this Mac): shells out to GT `harness.kgpool`
+   pointed at the workdir + target, parses its `graph.json`-shape output into
+   `MutationGraph`. **OPEN:** whether GT/kgpool supports a "structural graph over an
+   arbitrary workdir+target" mode (vs only the reference-tipper mode) is unconfirmed —
+   to be checked on the box. If it needs GT-side work, this builder waits and the
+   fallback is primary for the MVP. Graph-Tipper is an external subprocess tool; abench
+   only CONSUMES its output (never modifies GT here).
+2. **`llm_builder`** (fallback, in-repo, no external dep): one LLM stage reads the diff
+   + the relevant files (agent-readable) + `coverage.json` (which tests assert the
+   target — leak-safe blast-radius hint) and emits the `MutationGraph` schema as JSON.
+   Lower fidelity, but keeps RCC runnable + testable without GT and degradable.
+3. (lightweight javaparser builder — later, if the LLM builder proves too noisy.)
+
+The builder is validated on the box (GT) / with fixtures (LLM parse) — RCC's own tests
+inject a fixture `MutationGraph`, so the whole consumption side is tested on this Mac.
+
+## R1.3 Alpha — vertex AND edge contracts
+
+Alpha now writes contracts over the graph, in ONE call, returned as structured text
+keyed by vertex/edge id:
+- **vertex contract** (per method vertex): pre / post / inv, referencing its
+  `l1_skeleton` (signature, params, return, locals) and workdir source.
+- **edge contract** (per CALLS/DATA_DEP edge): the interaction spec — "target CALLS
+  `X` at `call_site` and MUST use its result thus…"; "`DATA_DEP` carries `data_var`
+  from A into B, constraint …". This is the "which calls happen in which cases" the
+  concept wants, and it is only expressible because R1 has real edges.
+
+## R1.4 Gamma — full `CausalDeltaSubGraph`
+
+Gamma ingests (MutationGraph + Alpha vertex/edge contracts + Beta probe logs) and emits
+the richer schema:
+
+```
+CdVertex: {id, mutation_vertex (backlink into MutationGraph),
+           type: "root_cause"|"downstream_effect"|"spec_violation"|"unaffected",
+           spec_text, spec_level: "L1"|"L2"|"L3", runtime_value,
+           violated: bool, is_root_cause: bool, confidence: float(0..1)}
+CdEdge:   {from, to, type: "CAUSES"|"CONTRIBUTES_TO"|"DATA_FLOWS_INTO"|"CONTRACT_REFINES",
+           path: [mutation-graph vertex ids], reasoning: str}
+```
+
+Same tolerant JSON parse + one format-reminded retry; degrade path unchanged (unparseable
+twice → rank by MutationGraph structure, `gamma_degraded=True`).
+
+## R1.5 CausalRank — root-cause × confidence
+
+`CausalRank(m)` ranks method vertices by their CdVertex `is_root_cause` and `confidence`
+(primary), falling back to summed outgoing CAUSES weights, then MutationGraph order.
+`rcc_root_rank` = the position of the target's root-cause CdVertex (APFDc numerator),
+computed exactly as before for the metric.
+
+## R1.6 Unchanged by R1
+
+Beta (LLM `//[probe]` println on the graph's methods), the fix ladder (top-1→top-2→
+DEFER), Memory Graph (now caches the CausalDeltaSubGraph), the subset/full suite split,
+`stitch`/Trace integration, the phased-identical prefix, and all Phase-2 wiring
+(telemetry, config knobs, runner dispatch, A/B YAML) — signatures are preserved; only
+the graph model + Alpha/Gamma/CausalRank internals change.
+
+## R1.7 Testing
+
+- Fixture `MutationGraph` carved from the committed `gt-out .graph.json` (chains →
+  CALLS/DATA_DEP/TEST_ASSERTS edges; method_bodies → vertices; **target correct body
+  stripped** so the fixture is leak-clean) — the golden input for schema/Alpha/Gamma/
+  CausalRank unit tests on this Mac.
+- `llm_builder` parse tests: canned LLM JSON → `MutationGraph`, tolerant of prose/fences
+  (reuse the `parse_gamma` pattern).
+- Alpha edge-contract rendering, Gamma CausalDeltaSubGraph parse + degrade, CausalRank
+  root-cause ordering + `rcc_root_rank` — all fixture-based, no GT, no gradle.
+- GT `gt_kgpool_builder`: adapter validated e2e on the prepared box (like the runtime
+  probe jar); a `pytest.importorskip`/env-gated integration test, skipped on Mac.
+
+## R1 open items
+
+- **GT kgpool workdir-structural mode** — unconfirmed; check on the box. Determines
+  whether `gt_kgpool_builder` is the MVP primary or waits behind `llm_builder`.
+- **Cost of Joern-per-invocation** on a 19k-line file (CommandLine.java) — measure on
+  the box; if prohibitive per rep, cache by workdir content hash (the diff rarely
+  changes the neighbors' structure between diagnose rounds).
+- **Weak-model builder fidelity** (`llm_builder`) — measurable + degradable (a wrong/
+  empty graph → degrade to plain phased, recorded), same philosophy as the Gamma/Beta
+  degrades.
