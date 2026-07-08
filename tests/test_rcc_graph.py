@@ -150,3 +150,70 @@ def test_full_suite_red_consumes_attempt():
     tr, _ = _run(phase, subset, full)
     assert tr.orchestration_outcome == "green"
     assert _phases_called(phase)[-2:] == ["fix-1", "fix-2"]
+
+
+def test_memory_hit_fast_path_skips_analysis():
+    mem = FakeMemory({"p.C.put": {"causal_graph": json.loads(_GAMMA),
+                                  "test_classes": ["p.CT"], "ts": 1.0}})
+    phase = FakePhase()
+    subset = [(_ev(2, 0), [])]                 # cache-fix subset green
+    full = [_ev(100, 0)]                       # cache-fix full green
+    tr, _ = _run(phase, subset, full, memory=mem)
+    assert tr.orchestration_outcome == "green"
+    assert _phases_called(phase) == ["cache-fix"]        # NO alpha/beta/gamma
+    assert mem.invalidations == []
+    assert "memory: HIT" in "\n".join(_events(tr))
+    # the graph is (re)saved on success
+    assert mem.puts == ["p.C.put"]
+
+
+def test_stale_cache_invalidates_then_full_pass_succeeds():
+    mem = FakeMemory({"p.C.put": {"causal_graph": json.loads(_GAMMA),
+                                  "test_classes": ["p.CT"], "ts": 1.0}})
+    phase = FakePhase()
+    subset = [(_ev(1, 1), []),                 # cache-fix subset red -> stale
+              (_ev(1, 1), ["RCC_PROBE x"]),    # beta probe run
+              (_ev(2, 0), [])]                 # fix-1 subset green
+    full = [_ev(100, 0)]                       # fix-1 full green
+    tr, _ = _run(phase, subset, full, memory=mem)
+    assert tr.orchestration_outcome == "green"
+    assert mem.invalidations == ["p.C.put"]
+    assert _phases_called(phase) == ["cache-fix", "alpha", "beta", "gamma",
+                                     "fix-1"]
+    assert "STALE" in "\n".join(_events(tr))
+
+
+def test_beta_compile_break_degrades_to_no_logs():
+    phase = FakePhase()
+    subset = [(_ev(0, 0, compiled=False, ran=False), []),   # beta broke build
+              (_ev(0, 0, compiled=False, ran=False), []),   # repair also broke
+              (_ev(2, 0), [])]                              # fix-1 subset green
+    full = [_ev(100, 0)]
+    tr, strips = _run(phase, subset, full)
+    assert tr.orchestration_outcome == "green"
+    assert _phases_called(phase) == ["alpha", "beta", "beta-repair", "gamma",
+                                     "fix-1"]
+    ev = "\n".join(_events(tr))
+    assert "NO-LOGS" in ev
+    assert strips == [1]                       # probes still stripped
+    # gamma got the no-logs marker in its prompt
+    gamma_prompt_text = [p for (n, p, _t) in phase.calls if n == "gamma"][0]
+    assert "no runtime logs" in gamma_prompt_text
+
+
+def test_gamma_unparseable_twice_falls_back_to_target_first():
+    phase = FakePhase(gamma_texts=["garbage", "still garbage"])
+    subset = [(_ev(1, 1), ["RCC_PROBE x"]), (_ev(2, 0), [])]
+    full = [_ev(100, 0)]
+    mem = FakeMemory()
+    tr, _ = _run(phase, subset, full, memory=mem)
+    assert tr.orchestration_outcome == "green"
+    assert _phases_called(phase) == ["alpha", "beta", "gamma", "gamma-retry",
+                                     "fix-1"]
+    ev = "\n".join(_events(tr))
+    assert "degraded to subgraph-order ranking" in ev
+    # degraded run has no graph -> nothing saved to memory even on green
+    assert mem.puts == []
+    # fix-1 focused on the target (first in subgraph order)
+    fix_prompt_text = [p for (n, p, _t) in phase.calls if n == "fix-1"][0]
+    assert "p.C.put" in fix_prompt_text and "no causal graph" in fix_prompt_text
