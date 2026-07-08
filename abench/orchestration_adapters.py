@@ -201,3 +201,79 @@ def build_orchestrator_config(orch_cfg, mode: str) -> OrchestratorConfig:
         no_progress_limit=orch_cfg.no_progress_limit,
         cluster_cap=orch_cfg.cluster_cap,
     )
+
+
+# ── RapidCausalCoder (rcc) additions ─────────────────────────────────────────
+
+def subset_command(base_command: str, test_classes: "list[str]") -> str:
+    """Narrow the suite command to the given test CLASSES (class-level, not
+    method-level — method filters are flaky with parameterized tests).
+    Gradle: repeated --tests (with --continue already on the base command,
+    modules where a pattern matches nothing fail that task but the matched
+    modules still run — and only JUnit XML feeds the counts). Maven: -Dtest=…
+    with -DfailIfNoTests=false. Unknown build system → base command unchanged
+    (falls back to the full suite; slower but correct)."""
+    from .verify import _system_for_command
+    if not test_classes:
+        return base_command
+    system = _system_for_command(base_command)
+    if system == "gradle":
+        pats = " ".join(f'--tests "{c}"' for c in test_classes)
+        return f"{base_command} {pats}"
+    if system == "maven":
+        return (f"{base_command} -Dtest={','.join(test_classes)} "
+                "-DfailIfNoTests=false")
+    return base_command
+
+
+def collect_probe_lines(workdir, out_text: str, prefix: str = "RCC_PROBE",
+                        max_lines: int = 300) -> "list[str]":
+    """Probe println lines from a test run: the subprocess output PLUS every
+    JUnit XML <system-out> (gradle hides test stdout from the console but
+    records it in the XML). Deduped, order-preserving, capped."""
+    seen: set = set()
+    lines: list = []
+
+    def scan(text: "str | None") -> None:
+        for ln in (text or "").splitlines():
+            ln = ln.strip()
+            if prefix in ln and ln not in seen:
+                seen.add(ln)
+                lines.append(ln)
+
+    scan(out_text)
+    for xml in Path(workdir).rglob("TEST-*.xml"):
+        try:
+            root = ET.fromstring(xml.read_text())
+        except (OSError, ET.ParseError):
+            continue
+        for so in root.iter("system-out"):
+            scan(so.text)
+    return lines[:max_lines]
+
+
+def make_subset_suite_runner(workdir, base_command: str, timeout_s: int):
+    """Like make_suite_runner, but narrowed per call to the given test classes
+    and ALSO returning that run's probe lines:
+    ``Callable[[list[str]], tuple[SuiteEval, list[str]]]``."""
+    workdir = Path(workdir)
+
+    def runner(test_classes: "list[str]") -> "tuple[SuiteEval, list[str]]":
+        _clear_results(workdir)
+        cmd = subset_command(base_command, test_classes)
+        try:
+            proc = subprocess.run(cmd, shell=True, cwd=workdir,
+                                  capture_output=True, text=True,
+                                  timeout=timeout_s, env=dict(os.environ))
+            out = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        except (subprocess.TimeoutExpired, OSError):
+            return (SuiteEval(result=SuiteResult(compiled=True, ran=False,
+                                                 executed=0, passed=0,
+                                                 failed=0)), [])
+        ev = eval_from_junit(workdir, compiled=True, ran=True)
+        compiled, ran = build_status(out, ev.result.executed)
+        ev.result.compiled = compiled
+        ev.result.ran = ran
+        return ev, collect_probe_lines(workdir, out)
+
+    return runner
