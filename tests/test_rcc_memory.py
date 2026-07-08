@@ -32,3 +32,14 @@ def test_corrupt_or_missing_file_is_empty(tmp_path):
     p2 = tmp_path / "list.json"
     p2.write_text("[1,2]")
     assert RccMemory(p2).get("x") is None
+
+
+def test_malformed_entry_is_a_miss(tmp_path):
+    p = tmp_path / "m.json"
+    p.write_text('{"entries": {"a": "garbage", "b": {"causal_graph": [], '
+                 '"test_classes": [], "ts": 1}, "c": {"causal_graph": {}, '
+                 '"test_classes": "no", "ts": 1}}}')
+    m = RccMemory(p)
+    assert m.get("a") is None                  # not a dict
+    assert m.get("b") is None                  # causal_graph not a dict
+    assert m.get("c") is None                  # test_classes not a list

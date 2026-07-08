@@ -155,6 +155,9 @@ def run_rcc(cfg: RccConfig, sub: RccSubgraph, initial: SuiteEval, *,
         if _green(cur):
             steps.append(event("cache-fix: cached insight fixed it — subset + "
                                "full suite green", "cache-fix"))
+        elif cancelled():
+            steps.append(event("cache-fix: run cancelled — keeping the cached "
+                               "entry (staleness was not tested)", "cache-fix"))
         else:
             memory.invalidate(sub.target_fqn)
             steps.append(event("cache-fix: cached insight is STALE (tests still "

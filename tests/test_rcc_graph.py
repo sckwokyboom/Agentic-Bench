@@ -117,6 +117,7 @@ def test_green_on_top1():
     ev = "\n".join(_events(tr))
     assert "CausalRank of target = 1/2" in ev
     assert "memory: miss" in ev
+    assert tr.controller_test_runs == 3   # beta probe + fix-1 subset + fix-1 full
 
 
 def test_top2_rescue():
@@ -139,6 +140,7 @@ def test_defer_after_max_attempts():
     assert tr.orchestration_outcome == "stuck"
     assert mem.puts == []                      # nothing saved on DEFER
     assert "finalized: stuck" in "\n".join(_events(tr))
+    assert tr.controller_test_runs == 3   # beta probe + 2 red fix subsets; full never ran
 
 
 def test_full_suite_red_consumes_attempt():
@@ -165,6 +167,24 @@ def test_memory_hit_fast_path_skips_analysis():
     assert "memory: HIT" in "\n".join(_events(tr))
     # the graph is (re)saved on success
     assert mem.puts == ["p.C.put"]
+
+
+def test_cancel_during_cache_fix_keeps_the_entry():
+    class _Cancel:
+        def is_set(self):
+            return True
+
+    mem = FakeMemory({"p.C.put": {"causal_graph": json.loads(_GAMMA),
+                                  "test_classes": ["p.CT"], "ts": 1.0}})
+    tr = run_rcc(
+        RccConfig(target_label="p.C.put"), _SUB, initial=_ev(0, 2),
+        phase_runner=FakePhase(),
+        suite_runner=_seq_full([]),
+        subset_runner=_seq_subset([(_ev(1, 1), [])]),
+        memory=mem, strip_probes=lambda: 0, cancel_event=_Cancel(),
+    )
+    assert tr.orchestration_outcome == "cancelled"
+    assert mem.invalidations == []             # cancel is not staleness
 
 
 def test_stale_cache_invalidates_then_full_pass_succeeds():

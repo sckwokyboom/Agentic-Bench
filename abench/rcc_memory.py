@@ -31,7 +31,13 @@ class RccMemory:
             pass                                    # best-effort persistence
 
     def get(self, fqn: str) -> "dict | None":
-        return self._data["entries"].get(fqn)
+        e = self._data["entries"].get(fqn)
+        # Tolerate hand-edited/corrupt entries the same way as a corrupt file:
+        # a malformed entry is a MISS, never a crash downstream.
+        if (isinstance(e, dict) and isinstance(e.get("causal_graph"), dict)
+                and isinstance(e.get("test_classes"), list)):
+            return e
+        return None
 
     def put(self, fqn: str, causal_graph: dict, test_classes: list) -> None:
         self._data["entries"][fqn] = {"causal_graph": causal_graph,
