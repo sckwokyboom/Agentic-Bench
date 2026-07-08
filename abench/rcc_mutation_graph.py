@@ -92,8 +92,8 @@ class MutationGraph:
               class_cap: "int | None" = None) -> "MutationGraph":
         """A prompt-sized MutationGraph (the MVP 'HGT ranker -> top-k' relevance
         filter — the raw GT graph is ~90 methods / 1400 tests). Keeps: the target +
-        its direct CALLS callers (methods with an edge into the target), capped to
-        k_methods by caller-edge count; test/assert vertices restricted to
+        its direct CALLS/DATA_DEP callers (method vertices with an edge into the
+        target), capped to k_methods by caller-edge count; test/assert vertices restricted to
         `failing_tests` (fqn set) when given, else all; edges among kept vertices;
         then the class cap. Deterministic + leak-safe."""
         tgt = self.target_id
@@ -112,5 +112,8 @@ class MutationGraph:
         keep = keep_methods | keep_tests
         vs = [v for v in self.vertices if v.id in keep]
         es = [e for e in self.edges if e.src in keep and e.tgt in keep]
-        g = MutationGraph(target_id=tgt, vertices=vs, edges=es)
+        # keep the RAW pre-focus classes_total (the field's "before any cap"
+        # contract) rather than recomputing it from the failing-test-restricted set.
+        g = MutationGraph(target_id=tgt, vertices=vs, edges=es,
+                          classes_total=self.classes_total)
         return g.with_class_cap(class_cap)
