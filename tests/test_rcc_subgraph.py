@@ -47,6 +47,24 @@ def test_build_subgraph_none_when_no_coverage_or_no_target(tmp_path):
     assert build_subgraph(impact, tmp_path, ["nosuch"]) is None
 
 
+def test_build_subgraph_computes_pairwise_shared_test_edges(tmp_path):
+    impact = _write_impact(tmp_path, _COV)
+    sub = build_subgraph(impact, tmp_path, ["putValue"])
+    # putValue={a,b,c}, getValue={a,c}, parse={a} -> pairwise intersections:
+    # putValue&getValue=2, getValue&parse=1, putValue&parse=1 (tie broken by 'a')
+    assert sub.shared_test_edges == [
+        ("p.C.putValue", "p.C.getValue", 2),
+        ("p.C.getValue", "p.C.parse", 1),
+        ("p.C.putValue", "p.C.parse", 1),
+    ]
+
+
+def test_shared_test_edges_empty_for_single_method_subgraph(tmp_path):
+    impact = _write_impact(tmp_path, {"p.C.putValue": ["p.T1.a"]})
+    sub = build_subgraph(impact, tmp_path, ["putValue"])
+    assert sub.shared_test_edges == []
+
+
 def test_sources_read_span_with_margin_and_cap(tmp_path):
     src = tmp_path / "src" / "C.java"
     src.parent.mkdir(parents=True)

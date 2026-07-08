@@ -21,6 +21,12 @@ class RccSubgraph:
     test_fqns: list[str]                    # union of covering tests (sorted)
     test_classes: list[str]                 # distinct test-class FQNs (sorted)
     sources: dict[str, str] = field(default_factory=dict)   # method_fqn -> snippet
+    # Pairwise shared-test-coverage between subgraph methods: (a, b, shared_count),
+    # sorted by count desc then (a, b). The ONLY structural relation this subgraph
+    # carries (no call-graph edge artifact exists — see module docstring); fed into
+    # Alpha/Gamma so they get SOME relational grounding instead of a bag of
+    # unrelated method snippets. Zero-overlap pairs are omitted (not a real signal).
+    shared_test_edges: list[tuple[str, str, int]] = field(default_factory=list)
 
 
 def _load(path: Path):
@@ -55,6 +61,21 @@ def read_span(workdir: Path, meta: dict, margin: int = 15, cap: int = 1200) -> s
     return "\n".join(lines[start:end])[:cap]
 
 
+def _pairwise_shared_test_edges(methods: list[str],
+                                coverage: dict) -> "list[tuple[str, str, int]]":
+    """Shared-test count for every unordered pair in `methods` (small set —
+    O(k^2), cheap). Sorted desc by count then (a, b) for determinism."""
+    edges: list = []
+    for i, a in enumerate(methods):
+        a_tests = set(coverage.get(a) or [])
+        for b in methods[i + 1:]:
+            n = len(a_tests & set(coverage.get(b) or []))
+            if n > 0:
+                edges.append((a, b, n))
+    edges.sort(key=lambda e: (-e[2], e[0], e[1]))
+    return edges
+
+
 def build_subgraph(impact_dir, workdir, target_methods, *, k: int = 5,
                    margin: int = 15, cap: int = 1200) -> "RccSubgraph | None":
     """None when coverage is absent/empty or no target matches — the caller
@@ -79,5 +100,7 @@ def build_subgraph(impact_dir, workdir, target_methods, *, k: int = 5,
     meta = _load(impact_dir / "methods.json") or {}
     sources = {m: read_span(workdir, meta[m], margin=margin, cap=cap)
                for m in methods if m in meta}
+    edges = _pairwise_shared_test_edges(methods, coverage)
     return RccSubgraph(target_fqn=target, methods=methods, test_fqns=tests,
-                       test_classes=classes, sources=sources)
+                       test_classes=classes, sources=sources,
+                       shared_test_edges=edges)

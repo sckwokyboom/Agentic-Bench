@@ -54,6 +54,23 @@ def test_causal_rank_empty_graph_keeps_subgraph_order():
     assert ranks == [("p.C.putValue", 0.0), ("p.C.getValue", 0.0)]
 
 
+def test_prompts_render_shared_test_edges_when_present():
+    sub = RccSubgraph(
+        target_fqn="p.C.putValue", methods=["p.C.putValue", "p.C.getValue"],
+        test_fqns=["p.CT.t1"], test_classes=["p.CT"], sources={},
+        shared_test_edges=[("p.C.putValue", "p.C.getValue", 42)],
+    )
+    a = alpha_prompt(sub)
+    assert "42 shared tests" in a
+    g = gamma_prompt(sub, "S", [])
+    assert "42 shared tests" in g and "NOT causal evidence" in g
+
+
+def test_prompts_degrade_gracefully_without_edges():
+    assert "no shared-test relation data available" in alpha_prompt(_SUB)
+    assert "no shared-test relation data available" in gamma_prompt(_SUB, "S", [])
+
+
 def test_prompts_carry_the_contract_pieces():
     a = alpha_prompt(_SUB)
     assert "p.C.putValue" in a and "return null" in a and "pre" in a

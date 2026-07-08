@@ -19,6 +19,13 @@ GAMMA_FORMAT_REMINDER = (
     "object described above — no prose, no markdown fences.")
 
 
+def _edges_block(sub: RccSubgraph) -> str:
+    if not sub.shared_test_edges:
+        return "(no shared-test relation data available)"
+    return "\n".join(f"- {a} <-> {b}: {n} shared tests"
+                     for a, b, n in sub.shared_test_edges)
+
+
 def _methods_block(sub: RccSubgraph) -> str:
     parts = []
     for m in sub.methods:
@@ -32,6 +39,10 @@ def alpha_prompt(sub: RccSubgraph) -> str:
     return (
         "You are writing behavioural CONTRACTS (textual specifications) for the "
         f"methods around {sub.target_fqn}.\n"
+        "STRUCTURAL CONTEXT — these methods share covering TESTS with the target "
+        "(the only relation this subgraph carries; not a call graph, but shared "
+        "test coverage is real evidence they interact):\n"
+        + _edges_block(sub) + "\n\n"
         "For EACH method below write:\n"
         "- pre: preconditions (inputs/state it may assume)\n"
         "- post: postconditions (what it guarantees: return value, state changes)\n"
@@ -74,6 +85,11 @@ def gamma_prompt(sub: RccSubgraph, specs_text: str, probe_lines: list) -> str:
         "Build a CAUSAL GRAPH (CausalDeltaSubGraph) explaining the failing "
         "tests. Inputs: the method subgraph, their contracts, and runtime probe "
         "logs.\n"
+        "KNOWN STRUCTURAL RELATIONS (shared test coverage between subgraph "
+        "methods — NOT causal evidence by itself, but tells you which pairs are "
+        "worth reasoning about; the causal direction and weight must come from "
+        "the contracts and probe logs, not from this list):\n"
+        + _edges_block(sub) + "\n\n"
         "For each contract violation find its CAUSE in the logs (a violated "
         "invariant, or bad input coming from an upstream method) and add a "
         "directed 'causal' edge — weight 1.0 for a direct violation, 0.5 for an "
