@@ -404,3 +404,51 @@ the graph model + Alpha/Gamma/CausalRank internals change.
 - **Weak-model builder fidelity** (`llm_builder`) — measurable + degradable (a wrong/
   empty graph → degrade to plain phased, recorded), same philosophy as the Gamma/Beta
   degrades.
+
+---
+
+# R1 amendment — verified against Graph-Tipper on-machine (2026-07-09)
+
+Graph-Tipper IS installed (`~/Projects/Graph-Tipper`, now registered:
+`abench lib add graph-tipper`). Reading `harness/kgpool/{make,export,collect,config_synth}.py`
++ prototyping the parse on the committed `gt-out` artifact resolved the R1 open item:
+
+**Verified facts:**
+- `kgpool.make` STUB-builds the CPG (target replaced by
+  `throw new UnsupportedOperationException` before Joern export, then reverted) and
+  `collect` runs the RED test suite (gradle) — it is HEAVY (minutes) and is a
+  **precompute-once-per-target** tool, NOT a per-invocation one.
+- Because the structural graph is stub-built, its CALLER side (chains
+  `test → … → target` + neighbor method bodies) is **body-independent of the target
+  and leak-safe by construction** (the target is a hole during export). It is the SAME
+  whether built on the stub, the reference, or the agent's workdir → it is a **static
+  per-target artifact**, exactly parallel to `.impact/coverage.json`.
+- Prototyped parse of the committed `gt-out .graph.json` → a MutationGraph of 90 method
+  vertices, 1406 test vertices, 3035 edges (1629 CALLS + 1406 TEST_ASSERTS); the leak
+  check confirmed the correct body (`switch`/`overflow`) is absent after stripping
+  `target.current_body`.
+- GT does NOT provide the target's OWN outgoing calls (callee side) — the target is
+  stubbed away. The "changed method CALLS X" edges are absent from GT output.
+
+**Design consequences (supersede R1.2 where noted):**
+1. **Builder = precomputed-artifact LOADER, not per-invocation Joern.** The mutation
+   graph's caller side is precomputed once per target (via GT `kgpool.make`, or reuse
+   the already-committed `gt-out .graph.json`), the target body stripped by
+   `parse_gt_graph`, and **shipped in the experiment overlay** like `coverage.json`.
+   `build_mutation_graph`'s primary path LOADS that artifact (cheap, offline, leak-safe,
+   testable on Mac). The `gt_kgpool_builder` becomes an optional PRECOMPUTE helper
+   (registered GT, run once to produce the artifact for a new target), not a runtime
+   dependency. `llm_builder` stays the fallback for targets with no artifact AND the
+   enricher that adds the target's callee edges (reading the agent's own code —
+   leak-safe).
+2. **A FOCUS step is required** (the user's "HGT ranker → top-k", MVP version): the raw
+   GT graph is far too large for a prompt (90 methods / 1406 tests for putValue). Before
+   Alpha/Gamma, focus the MutationGraph to: the target + its direct caller methods
+   (distance-1 on CALLS) + the currently FAILING tests (from the suite eval that
+   triggered RCC) + the class cap. Deterministic, leak-safe, cheap. This replaces the
+   old coverage-overlap top-K as the relevance filter — the seam is `MutationGraph.focus(...)`.
+
+Net: the pipeline gets CHEAPER and MORE leak-safe than either the coverage-overlap MVP
+or the "Joern-on-workdir per invocation" idea — the expensive structural analysis is
+precomputed once and shipped, and only the small focused graph + the agent's own source
+reach the model. The per-invocation cost is a JSON load + a deterministic focus filter.
