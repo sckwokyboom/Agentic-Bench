@@ -1,6 +1,6 @@
 import { TextField, MenuItem } from "@mui/material";
 
-type Mode = "phased" | "phased_plan" | "phased_graph" | "phased_runtime" | null;
+type Mode = "phased" | "phased_plan" | "phased_graph" | "phased_runtime" | "rcc" | null;
 
 const OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "Autonomous (none)" },
@@ -8,6 +8,7 @@ const OPTIONS: { value: string; label: string }[] = [
   { value: "phased_plan", label: "Phased + plan" },
   { value: "phased_graph", label: "Phased + graph focus" },
   { value: "phased_runtime", label: "Phased + runtime evidence" },
+  { value: "rcc", label: "RapidCausalCoder (rcc)" },
 ];
 
 interface Props {
