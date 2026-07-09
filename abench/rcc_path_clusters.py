@@ -140,6 +140,19 @@ def greedy_kmedoids(items: list, distfn, k: int) -> list:
     return out
 
 
+def compress_shape(labels: list) -> str:
+    """Run-length compress a path's node labels: [a,a,b] -> 'a×2 → b'."""
+    out, i = [], 0
+    while i < len(labels):
+        j = i
+        while j + 1 < len(labels) and labels[j + 1] == labels[i]:
+            j += 1
+        n = j - i + 1
+        out.append(f"{labels[i]}×{n}" if n > 1 else labels[i])
+        i = j + 1
+    return " → ".join(out)
+
+
 def _k_for(n: int) -> int:
     return min(8, max(3, round(math.sqrt(n) / 5))) if n > 0 else 0
 
@@ -167,7 +180,7 @@ def cluster_chains(graph, *, k_unknown: "int | None" = None) -> dict:
         out = []
         for i, cl in enumerate(clusters):
             med = cl["medoid"]
-            shape = " → ".join(lbl for lbl, _ in normalize_chain(graph, med))
+            shape = compress_shape([lbl for lbl, _ in normalize_chain(graph, med)])
             # nearest to the medoid, ties broken by higher within-cluster score
             examples = sorted(cl["members"],
                               key=lambda x: (chain_distance(graph, x, med, _cache=_cache),

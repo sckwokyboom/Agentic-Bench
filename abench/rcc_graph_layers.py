@@ -42,12 +42,16 @@ def build_index(graph: MutationGraph) -> dict:
     methods = [v for v in graph.vertices if v.type == "method"]
     tests = [v for v in graph.vertices if v.type in ("test", "assert")]
     status_counts = {s: sum(1 for v in tests if v.status == s) for s in _STATUSES}
-    # callers ranked by how many chains pass through them
+    # callers ranked by how many DISTINCT chains pass through them (a method appearing
+    # twice in one chain counts that chain ONCE — per-chain `seen` set)
     through: dict = {}
     for c in graph.chains:
+        seen = set()
         for nid in c.node_ids:
             v = graph.vertex(nid)
-            if v is not None and v.type == "method" and v.id != graph.target_id:
+            if v is not None and v.type == "method" and v.id != graph.target_id \
+                    and v.fqn not in seen:
+                seen.add(v.fqn)
                 through[v.fqn] = through.get(v.fqn, 0) + 1
     top_callers = [{"method": m, "chains": n}
                    for m, n in sorted(through.items(), key=lambda kv: (-kv[1], kv[0]))[:8]]
@@ -58,13 +62,17 @@ def build_index(graph: MutationGraph) -> dict:
     for v in tests:
         cls = v.fqn.rsplit(".", 1)[0]
         rtc[cls] = rtc.get(cls, 0) + 1
+    rtc_sorted = sorted(rtc.items(), key=lambda kv: (-kv[1], kv[0]))
+    rtc_top = [{"class": c, "tests": n} for c, n in rtc_sorted[:5]]
     return {"target": graph.target_fqn,
             "method_count": len(methods), "test_count": len(tests),
             "edge_count": len(graph.edges),
             "chain_count": graph.stats.get("chain_count", len(graph.chains)),
             "distinct_tests": graph.stats.get("distinct_tests", len(tests)),
             "status_counts": status_counts, "top_callers": top_callers,
-            "edge_type_counts": edge_type_counts, "reachable_test_classes": rtc}
+            "edge_type_counts": edge_type_counts, "reachable_test_classes": rtc,
+            "reachable_test_classes_top": rtc_top,
+            "other_reachable_test_classes": max(0, len(rtc) - len(rtc_top))}
 
 
 def _is_direct_caller(graph, method_id) -> bool:
@@ -149,6 +157,39 @@ def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
                 methods.add(v.fqn)
     methods = ([graph.target_fqn]
                + sorted(m for m in methods if m != graph.target_fqn))[:k_methods]
+    # role classification: target / direct_caller / direct_callee / path_context.
+    # focused_methods (contract subjects) = target + direct callers/callees ONLY;
+    # path_context_methods (synopsis/join/assert-style upstream methods) are labels,
+    # not contract subjects.
+    direct_callers = {graph.vertex(e.src).fqn for e in graph.edges
+                      if e.tgt == graph.target_id and e.type in ("CALLS", "DATA_DEP")
+                      and graph.vertex(e.src) and graph.vertex(e.src).type == "method"}
+    direct_callees = {graph.vertex(e.tgt).fqn for e in graph.edges
+                      if e.src == graph.target_id and e.type == "CALLS"
+                      and graph.vertex(e.tgt) and graph.vertex(e.tgt).type == "method"}
+
+    def _role(fqn):
+        if fqn == graph.target_fqn:
+            return "target"
+        if fqn in direct_callers:
+            return "direct_caller"
+        if fqn in direct_callees:
+            return "direct_callee"
+        return "path_context"
+
+    focused = [{"fqn": m, "role": _role(m)} for m in methods
+              if _role(m) in ("target", "direct_caller", "direct_callee")]
+    path_context = sorted({m for m in methods if _role(m) == "path_context"})
+    # also gather path-context labels from the medoid path shapes (methods that never
+    # made the `methods` cap but appear on kept chains)
+    for ch in kept_chains:
+        for nid in ch.node_ids:
+            v = graph.vertex(nid)
+            if v and v.type == "method" and v.fqn != graph.target_fqn \
+                    and _role(v.fqn) == "path_context":
+                if v.fqn not in path_context:
+                    path_context.append(v.fqn)
+    path_context = sorted(path_context)
     # ALL failed ids (from annotated status) UNIONed with any caller-supplied
     # failed_ids — so a caller that forgot to annotate still gets the failed
     # frontier rather than silently empty (dead-param footgun).
@@ -175,7 +216,8 @@ def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
             "methods": methods, "test_frontier": frontier, "paths": kept,
             "clusters": clustered["clusters"], "forced_paths": clustered["forced_paths"],
             "selection_method": clustered["selection_method"],
-            "dropped_counts": dropped}
+            "dropped_counts": dropped,
+            "focused_methods": focused, "path_context_methods": path_context}
 
 
 def render_slice(graph: MutationGraph, subgraph: dict, index: dict) -> dict:

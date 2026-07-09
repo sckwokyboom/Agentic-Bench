@@ -155,3 +155,43 @@ def test_render_slice_edges_sample_path_ids_not_full():
     assert "path_ids" not in edge                        # full array gone
     assert edge["path_count"] == 12 and len(edge["sample_path_ids"]) <= 5
     assert edge["omitted_path_ids_count"] == 12 - len(edge["sample_path_ids"])
+
+
+def test_build_index_top_callers_distinct_chains_and_topN_classes():
+    from abench.rcc_graph_layers import build_index
+    from abench.rcc_mutation_graph import MgChain, MgEdge, MgVertex, MutationGraph
+    vs = [MgVertex(id="method:C.put", type="method", fqn="C.put", is_changed=True),
+          MgVertex(id="method:C.addRow", type="method", fqn="C.addRow")]
+    for t in ("A.t1", "A.t2", "B.t3"):
+        vs.append(MgVertex(id=f"test:{t}", type="test", fqn=f"p.{t}"))
+    # a chain where addRow appears TWICE — must count the chain ONCE
+    chains = [MgChain(id="p1", test_fqn="p.A.t1",
+                      node_ids=["test:A.t1", "method:C.addRow", "method:C.addRow",
+                                "method:C.put"]),
+              MgChain(id="p2", test_fqn="p.A.t2",
+                      node_ids=["test:A.t2", "method:C.addRow", "method:C.put"]),
+              MgChain(id="p3", test_fqn="p.B.t3", node_ids=["test:B.t3", "method:C.put"])]
+    g = MutationGraph(target_id="method:C.put", vertices=vs, edges=[], chains=chains)
+    idx = build_index(g)
+    tc = {c["method"]: c["chains"] for c in idx["top_callers"]}
+    assert tc["C.addRow"] == 2                       # 2 distinct chains, NOT 3
+    assert "reachable_test_classes_top" in idx and "other_reachable_test_classes" in idx
+
+
+def test_build_subgraph_classifies_focused_vs_path_context():
+    from abench.rcc_graph_layers import annotate_status, build_subgraph
+    from abench.rcc_mutation_graph import MgChain, MgEdge, MgVertex, MutationGraph
+    vs = [MgVertex(id="method:C.put", type="method", fqn="C.put", is_changed=True),
+          MgVertex(id="method:C.addRow", type="method", fqn="C.addRow"),  # direct caller
+          MgVertex(id="method:H.syn", type="method", fqn="H.syn"),        # path context
+          MgVertex(id="test:T.f", type="test", fqn="p.T.f")]
+    es = [MgEdge(src="method:C.addRow", tgt="method:C.put", type="CALLS")]
+    chains = [MgChain(id="p1", test_fqn="p.T.f",
+                      node_ids=["test:T.f", "method:H.syn", "method:C.addRow",
+                                "method:C.put"])]
+    g = MutationGraph(target_id="method:C.put", vertices=vs, edges=es, chains=chains)
+    annotate_status(g, failed_ids={"p.T.f"})
+    gs = build_subgraph(g, failed_ids={"p.T.f"})
+    roles = {m["fqn"]: m["role"] for m in gs["focused_methods"]}
+    assert roles == {"C.put": "target", "C.addRow": "direct_caller"}   # syn NOT focused
+    assert "H.syn" in gs["path_context_methods"]                        # syn is context

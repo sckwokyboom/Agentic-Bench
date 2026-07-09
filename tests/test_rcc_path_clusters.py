@@ -85,3 +85,10 @@ def test_score_used_as_within_cluster_priority():
     annotate_status(g, failed_ids={"picocli.HT.a1"})
     res = cluster_chains(g, k_unknown=2)
     assert all("top_scored_test" in c for c in res["clusters"])   # score wired in
+
+
+def test_compress_shape_run_length():
+    from abench.rcc_path_clusters import compress_shape
+    assert compress_shape(["t", "addRow", "addRow", "put"]) == "t → addRow×2 → put"
+    assert compress_shape(["a", "b", "c"]) == "a → b → c"
+    assert compress_shape(["x", "x", "x"]) == "x×3"
