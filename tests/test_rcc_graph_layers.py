@@ -195,3 +195,63 @@ def test_build_subgraph_classifies_focused_vs_path_context():
     roles = {m["fqn"]: m["role"] for m in gs["focused_methods"]}
     assert roles == {"C.put": "target", "C.addRow": "direct_caller"}   # syn NOT focused
     assert "H.syn" in gs["path_context_methods"]                        # syn is context
+
+
+def test_render_prompt_slice_v2_is_compact_and_focused():
+    from abench.rcc_graph_layers import (annotate_status, build_index, build_subgraph,
+                                         render_prompt_slice)
+    from abench.rcc_mgraph_build import artifact_builder
+    import json
+    g = artifact_builder("/wd", "putValue", {}, artifact_path=(
+        "experiments/picocli-putValue/gt-out/slice-work/357b6bd1af378e00.graph.json"))
+    if not g:
+        import pytest; pytest.skip("gt sample absent")
+    f = {"picocli.HelpTest.testTextTablePutValue_NullOrEmpty",
+         "picocli.HelpTest.testTextTablePutValue_DisallowsInvalidRowIndex",
+         "picocli.TextTableTest.addRowValues"}
+    annotate_status(g, failed_ids=f)
+    ps = render_prompt_slice(g, build_subgraph(g, failed_ids=f), build_index(g))
+    blob = json.dumps(ps)
+    # ACCEPTANCE GATE
+    assert ps["prompt_slice_stats"]["approx_tokens"] < 5000
+    assert ps["schema"] == "rcc.prompt_slice.v2"
+    # focused = target + direct callers/callees ONLY (no synopsis/assert noise)
+    assert all(m["role"] in ("target", "direct_caller", "direct_callee")
+               for m in ps["focused_methods"])
+    assert any(m["role"] == "target" for m in ps["focused_methods"])
+    assert len(ps["focused_methods"]) <= 4
+    # no debug-only fields in the prompt slice (raw member_ids/full histogram keys;
+    # NOT the compact sample_member_ids/reachable_test_classes_top the gate requires
+    # below — a plain substring check would false-positive on those compact fields)
+    assert '"member_ids":' not in blob and '"reachable_test_classes":' not in blob
+    # clusters appear exactly once, no member_ids, compressed shapes
+    cl = ps["representative_path_clusters"]
+    assert cl and all("member_ids" not in c for c in cl)
+    assert any("×" in c["path_shape"] for c in cl)          # run-length compression
+    assert all("sample_member_ids" in c and c["omitted_member_ids_count"] >= 0 for c in cl)
+    # compact edges: collapsed, no full path_ids array
+    for e in ps["compact_edges"]:
+        assert "path_ids" not in e and "edge_types" in e and len(e["sample_path_ids"]) <= 3
+    # top-N index only
+    assert len(ps["source_graph_summary"].get("reachable_test_classes_top", [])) <= 5
+
+
+def test_persist_writes_prompt_slice_separate_from_debug(tmp_path):
+    from abench.rcc_graph_layers import (annotate_status, build_index, build_subgraph,
+                                         persist, render_prompt_slice, render_slice)
+    from abench.rcc_mutation_graph import MgChain, MgEdge, MgVertex, MutationGraph
+    import json
+    vs = [MgVertex(id="method:C.put", type="method", fqn="C.put", is_changed=True),
+          MgVertex(id="test:T.a", type="test", fqn="p.T.a")]
+    g = MutationGraph(target_id="method:C.put", vertices=vs,
+                      edges=[MgEdge(src="test:T.a", tgt="method:C.put", type="TEST_ASSERTS")],
+                      chains=[MgChain(id="p0", test_fqn="p.T.a",
+                                      node_ids=["test:T.a", "method:C.put"])])
+    annotate_status(g, failed_ids={"p.T.a"})
+    idx, gs = build_index(g), build_subgraph(g, failed_ids={"p.T.a"})
+    persist(tmp_path, g, idx, gs, render_slice(g, gs, idx),
+            prompt_slice=render_prompt_slice(g, gs, idx))
+    for name in ("raw", "index", "subgraph", "slice", "clusters", "prompt_slice"):
+        assert (tmp_path / f"{name}.json").is_file()
+    ps = json.loads((tmp_path / "prompt_slice.json").read_text())
+    assert ps["schema"] == "rcc.prompt_slice.v2"

@@ -275,6 +275,88 @@ def render_slice(graph: MutationGraph, subgraph: dict, index: dict) -> dict:
             "omission_note": note}
 
 
+def render_prompt_slice(graph: MutationGraph, subgraph: dict, index: dict) -> dict:
+    """PromptSlice v2 — the compact, bounded MODEL CONTRACT Alpha/Gamma render (NOT the
+    inspector object). focused_methods (contract subjects) = target + direct callers/
+    callees, with source; path-context methods are labels; one cluster block (no
+    member_ids); collapsed edges; top-N index; run-length-compressed shapes."""
+    tfqn = graph.target_fqn
+    src_by_fqn = {v.fqn: v for v in graph.vertices if v.type == "method"}
+
+    focused = []
+    for m in subgraph.get("focused_methods", []):
+        v = src_by_fqn.get(m["fqn"])
+        sig = (v.l1_skeleton or {}).get("signature") if v else None
+        body = v.source if v else None
+        focused.append({"fqn": m["fqn"], "role": m["role"], "signature": sig,
+                        "source": body,
+                        "source_from_workdir": (m["role"] == "target" and body is None)})
+
+    frontier = subgraph.get("test_frontier", {})
+    clusters = []
+    for c in frontier.get("unknown_reachable_clusters", []):
+        clusters.append({"cluster_id": c["cluster_id"], "size": c["size"],
+                         "medoid_test": c["medoid_test"], "path_shape": c["path_shape"],
+                         "nearest_examples": c.get("nearest_examples", [])[:3],
+                         "sample_member_ids": (c.get("member_ids") or [])[:3],
+                         "omitted_member_ids_count": max(0, c["size"]
+                                                         - len((c.get("member_ids") or [])[:3]))})
+
+    # collapse CALLS/DATA_DEP between the same (from,to), among focused methods only
+    fset = {m["fqn"] for m in focused}
+    coll: dict = {}
+    for e in graph.edges:
+        s = graph.vertex(e.src); t = graph.vertex(e.tgt)
+        sf = s.fqn if s else e.src; tf = t.fqn if t else e.tgt
+        if sf in fset and tf in fset and e.type in ("CALLS", "DATA_DEP"):
+            key = (e.src, e.tgt)
+            d = coll.setdefault(key, {"from": e.src, "to": e.tgt, "edge_types": [],
+                                      "structural_direction": e.structural_direction,
+                                      "influence_direction": e.influence_direction,
+                                      "path_count": 0, "sample_path_ids": []})
+            if e.type not in d["edge_types"]:
+                d["edge_types"].append(e.type)
+            d["path_count"] += len(e.path_ids)
+            for pid in e.path_ids:
+                if len(d["sample_path_ids"]) < 3 and pid not in d["sample_path_ids"]:
+                    d["sample_path_ids"].append(pid)
+    compact_edges = []
+    for d in coll.values():
+        d["omitted_path_ids_count"] = max(0, d["path_count"] - len(d["sample_path_ids"]))
+        compact_edges.append(d)
+
+    s = index
+    summary = {"methods": s["method_count"], "tests": s["test_count"],
+               "chains": s["chain_count"], "edges": s["edge_count"],
+               "status": s["status_counts"],
+               "reachable_test_classes_top": s.get("reachable_test_classes_top", []),
+               "other_reachable_test_classes": s.get("other_reachable_test_classes", 0),
+               "top_callers": s["top_callers"][:5]}
+    dc = subgraph.get("dropped_counts", {})
+    selection = {"method": subgraph.get("selection_method", "path_k_medoids_weighted_lcs"),
+                 "shown_failed_tests": len(frontier.get("failed", [])),
+                 "shown_unknown_clusters": len(clusters),
+                 "shown_focused_methods": len(focused), "dropped": dc}
+    note = (f"RANKED SLICE of a {summary['methods']}-method / {summary['tests']}-test / "
+            f"{summary['chains']}-chain graph. focused_methods are the ONLY contract "
+            f"subjects (target + direct callers/callees); path_context_methods and the "
+            f"path clusters are STRUCTURAL REFERENCE — do NOT write contracts for them. "
+            f"Omitted tests/paths are not necessarily irrelevant. Influence flows "
+            f"method→test (reverse of the call direction).")
+    ps = {"schema": "rcc.prompt_slice.v2", "target": tfqn,
+          "change_origin": graph.change_origin, "source_graph_summary": summary,
+          "selection_summary": selection, "focused_methods": focused,
+          "path_context_methods": subgraph.get("path_context_methods", []),
+          "failed_tests": frontier.get("failed", []),
+          "representative_path_clusters": clusters, "compact_edges": compact_edges,
+          "omission_note": note}
+    blob = json.dumps(ps)
+    ps["prompt_slice_stats"] = {"chars": len(blob), "approx_tokens": len(blob) // 4,
+                                "focused_methods": len(focused),
+                                "edges": len(compact_edges), "clusters": len(clusters)}
+    return ps
+
+
 def _graph_to_dict(graph: MutationGraph) -> dict:
     return {"target": graph.target_fqn, "change_origin": graph.change_origin,
             "stats": graph.stats,
@@ -290,8 +372,9 @@ def _graph_to_dict(graph: MutationGraph) -> dict:
                         "node_ids": c.node_ids} for c in graph.chains]}
 
 
-def persist(out_dir, graph, index, subgraph, slice_) -> None:
-    """Write the four layers for inspection / the future trace-visualizer. Best-effort."""
+def persist(out_dir, graph, index, subgraph, slice_, *, prompt_slice=None) -> None:
+    """Write the graph layers for inspection / the future trace-visualizer, plus the
+    compact prompt_slice.json (v2 model contract) when supplied. Best-effort."""
     try:
         d = Path(out_dir)
         d.mkdir(parents=True, exist_ok=True)
@@ -303,5 +386,7 @@ def persist(out_dir, graph, index, subgraph, slice_) -> None:
             "selection_method": subgraph.get("selection_method"),
             "forced_paths": subgraph.get("forced_paths"),
             "clusters": subgraph.get("clusters")}, indent=1))
+        if prompt_slice is not None:
+            (d / "prompt_slice.json").write_text(json.dumps(prompt_slice, indent=1))
     except OSError:
         pass
