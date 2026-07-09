@@ -225,3 +225,36 @@ Do **not** rely on a Homebrew-installed `joern` — the pipeline does not use it
 - **Gradle wrapper:** `gradlew.bat` is used on Windows; the pipeline calls it via
   `shutil.which`, which resolves `.bat`/`.cmd` shims automatically — no manual
   path change needed.
+
+---
+
+## RapidCausalCoder (rcc) — A/B + e2e smoke
+
+Prereqs on the prepared machine: venv with `pip install -e '.[langgraph]'`,
+JDK 21 as JAVA_HOME, the fixture prepared (`./stripped`), `.impact` shipped by
+the `overlays/impact-artifacts` overlay. The `rcc` condition needs `.impact`
+coverage in the workdir (shipped by the overlay above) — the mutation graph
+comes from a precomputed `.impact/mutation-graph.json` artifact when present
+(`ABENCH_RCC_GRAPH_BUILDER=artifact`), else falls back to the llm builder
+(`ABENCH_RCC_GRAPH_BUILDER=llm`).
+
+A/B (phased vs rcc; fresh memory per rep — rep-independent):
+
+    JAVA_HOME=/opt/homebrew/opt/openjdk@21 \
+      .venv/bin/abench run experiments/picocli-putValue/experiment-mac-rcc-ab.yaml
+
+E2E smoke checklist (1 rep, rcc condition, TraceView):
+- phase bands appear in order: understand → implement → memory → alpha → beta →
+  gamma → fix-1 [→ fix-2];
+- the beta phase turns show `RCC_PROBE …` println insertions with `//[probe]`;
+- the FINAL diff contains NO `//[probe]` lines (in-loop strip + the
+  restore_non_target_before_verify belt);
+- metrics carry `rcc_root_rank` (expect 1 on putValue when gamma parsed),
+  `rcc_subset_test_runs` > 0, degrade flags false (or true WITH matching
+  controller events);
+- the subgraph event reports the class cap: "… 15/42 test classes".
+
+Memory hit-rate demo (separate from the A/B by design):
+
+    python3 scripts/rcc_hit_demo.py \
+      experiments/picocli-putValue/experiment-mac-rcc-ab.yaml
