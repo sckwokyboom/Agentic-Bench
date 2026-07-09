@@ -139,34 +139,20 @@ def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
     kept = [{"path_id": ch.id, "test_fqn": ch.test_fqn, "status": ch.status,
             "node_ids": list(ch.node_ids), "selection_reason": _reason(ch)}
            for ch in kept_chains]
-    # methods: target + direct callers/callees + any method on a kept path
-    methods = {graph.target_fqn}
-    for e in graph.edges:
-        if e.tgt == graph.target_id and e.type in ("CALLS", "DATA_DEP"):
-            v = graph.vertex(e.src)
-            if v and v.type == "method":
-                methods.add(v.fqn)
-        if e.src == graph.target_id and e.type == "CALLS":
-            v = graph.vertex(e.tgt)
-            if v and v.type == "method":
-                methods.add(v.fqn)
-    for ch in kept_chains:
-        for nid in ch.node_ids:
-            v = graph.vertex(nid)
-            if v and v.type == "method":
-                methods.add(v.fqn)
-    methods = ([graph.target_fqn]
-               + sorted(m for m in methods if m != graph.target_fqn))[:k_methods]
     # role classification: target / direct_caller / direct_callee / path_context.
-    # focused_methods (contract subjects) = target + direct callers/callees ONLY;
-    # path_context_methods (synopsis/join/assert-style upstream methods) are labels,
-    # not contract subjects.
+    # focused_methods (contract subjects) = target + ALL direct callers/callees —
+    # computed from the role sets DIRECTLY (never from a k_methods-capped list), so a
+    # genuine direct caller can't be crowded out of the contract set by path-context
+    # methods. path_context_methods (synopsis/join/assert-style upstream methods on the
+    # kept chains) are labels, not contract subjects; only THEY are capped.
     direct_callers = {graph.vertex(e.src).fqn for e in graph.edges
                       if e.tgt == graph.target_id and e.type in ("CALLS", "DATA_DEP")
                       and graph.vertex(e.src) and graph.vertex(e.src).type == "method"}
     direct_callees = {graph.vertex(e.tgt).fqn for e in graph.edges
                       if e.src == graph.target_id and e.type == "CALLS"
                       and graph.vertex(e.tgt) and graph.vertex(e.tgt).type == "method"}
+    direct_callers.discard(graph.target_fqn)
+    direct_callees.discard(graph.target_fqn)
 
     def _role(fqn):
         if fqn == graph.target_fqn:
@@ -177,19 +163,22 @@ def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
             return "direct_callee"
         return "path_context"
 
-    focused = [{"fqn": m, "role": _role(m)} for m in methods
-              if _role(m) in ("target", "direct_caller", "direct_callee")]
-    path_context = sorted({m for m in methods if _role(m) == "path_context"})
-    # also gather path-context labels from the medoid path shapes (methods that never
-    # made the `methods` cap but appear on kept chains)
+    # focused = target + every direct caller + every direct callee (uncapped)
+    focused = ([{"fqn": graph.target_fqn, "role": "target"}]
+               + [{"fqn": m, "role": "direct_caller"} for m in sorted(direct_callers)]
+               + [{"fqn": m, "role": "direct_callee"} for m in sorted(direct_callees)
+                  if m not in direct_callers])
+    # path_context = other methods on kept chains (labels only), capped
+    focused_fqns = {f["fqn"] for f in focused}
+    path_context: list = []
     for ch in kept_chains:
         for nid in ch.node_ids:
             v = graph.vertex(nid)
-            if v and v.type == "method" and v.fqn != graph.target_fqn \
-                    and _role(v.fqn) == "path_context":
-                if v.fqn not in path_context:
-                    path_context.append(v.fqn)
-    path_context = sorted(path_context)
+            if v and v.type == "method" and v.fqn not in focused_fqns \
+                    and v.fqn not in path_context:
+                path_context.append(v.fqn)
+    path_context = sorted(path_context)[:max(k_methods * 2, 20)]
+    methods = [f["fqn"] for f in focused] + path_context   # back-compat / inspector
     # ALL failed ids (from annotated status) UNIONed with any caller-supplied
     # failed_ids — so a caller that forgot to annotate still gets the failed
     # frontier rather than silently empty (dead-param footgun).

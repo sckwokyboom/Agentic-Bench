@@ -255,3 +255,26 @@ def test_persist_writes_prompt_slice_separate_from_debug(tmp_path):
         assert (tmp_path / f"{name}.json").is_file()
     ps = json.loads((tmp_path / "prompt_slice.json").read_text())
     assert ps["schema"] == "rcc.prompt_slice.v2"
+
+
+def test_focused_keeps_late_named_direct_caller_despite_context_noise():
+    # A direct caller that sorts AFTER many path-context methods must NOT be
+    # crowded out of focused_methods by the k_methods cap (R3.1 review bug).
+    from abench.rcc_graph_layers import annotate_status, build_subgraph
+    from abench.rcc_mutation_graph import MgChain, MgEdge, MgVertex, MutationGraph
+    vs = [MgVertex(id="method:C.put", type="method", fqn="C.put", is_changed=True),
+          MgVertex(id="method:C.zzzCaller", type="method", fqn="C.zzzCaller"),
+          MgVertex(id="test:T.f", type="test", fqn="p.T.f")]
+    es = [MgEdge(src="method:C.zzzCaller", tgt="method:C.put", type="CALLS")]
+    nodes = ["test:T.f"]
+    for i in range(10):  # 10 early-named path-context methods on the chain
+        vs.append(MgVertex(id=f"method:A.ctx{i}", type="method", fqn=f"A.ctx{i}"))
+        nodes.append(f"method:A.ctx{i}")
+    nodes += ["method:C.zzzCaller", "method:C.put"]
+    chains = [MgChain(id="p1", test_fqn="p.T.f", node_ids=nodes)]
+    g = MutationGraph(target_id="method:C.put", vertices=vs, edges=es, chains=chains)
+    annotate_status(g, failed_ids={"p.T.f"})
+    gs = build_subgraph(g, failed_ids={"p.T.f"}, k_methods=8)
+    roles = {m["fqn"]: m["role"] for m in gs["focused_methods"]}
+    assert roles == {"C.put": "target", "C.zzzCaller": "direct_caller"}   # caller kept
+    assert "A.ctx0" in gs["path_context_methods"]
