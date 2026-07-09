@@ -602,15 +602,30 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         builder = os.environ.get(
                             "ABENCH_RCC_GRAPH_BUILDER",
                             "artifact" if art.is_file() else "llm")
+                        if builder not in ("artifact", "llm", "gt"):
+                            _log(f"[abench] rcc: unknown builder '{builder}' — using llm")
+                            builder = "llm"
+                        if builder == "llm" and not art.is_file():
+                            _log("[abench] rcc: no .impact/mutation-graph.json artifact "
+                                 "— using the LLM graph builder (precompute a GT artifact "
+                                 "for the GT-graph arm)")
                         bkw = ({"artifact_path": art} if builder == "artifact"
                                else {"phase_runner": phase_runner} if builder == "llm"
                                else {"gt_home": os.environ.get("GRAPH_TIPPER_HOME", "")})
-                        mg = build_mutation_graph(
-                            workdir, (exp.target_methods or [""])[0],
-                            _load_coverage(workdir / ".impact"),
-                            builder=builder, **bkw)
-                        sub = (mg.focus(class_cap=ocfg.rcc_subset_class_cap or None)
-                               if mg else None)
+                        # Build+focus is best-effort: ANY failure (builder exception,
+                        # unparseable graph) degrades to plain phased — never aborts the
+                        # rep (mirrors phased_graph's degrade contract).
+                        try:
+                            mg = build_mutation_graph(
+                                workdir, (exp.target_methods or [""])[0],
+                                _load_coverage(workdir / ".impact"),
+                                builder=builder, **bkw)
+                            sub = (mg.focus(class_cap=ocfg.rcc_subset_class_cap or None)
+                                   if mg else None)
+                        except Exception as exc:
+                            _log(f"[abench] rcc: graph build failed ({exc!r}) — "
+                                 "degrading to plain phased")
+                            sub = None
                         if sub is None:
                             _log("[abench] rcc: no usable mutation graph — "
                                  "degrading to plain phased")
