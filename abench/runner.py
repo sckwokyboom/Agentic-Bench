@@ -44,6 +44,14 @@ def default_batch_id() -> str:
     return _datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 
+def _load_coverage(impact_dir) -> dict:
+    """Tolerant read of .impact/coverage.json for the rcc llm-builder hint; {} on absence."""
+    try:
+        return json.loads((Path(impact_dir) / "coverage.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def apply_run_subset(
     exp: Experiment,
     conditions: "list[str] | None",
@@ -577,48 +585,104 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                             except Exception:
                                 pass
 
-                    # phased+graph ablation: a graph-derived "is this failing test
-                    # in the target's blast radius?" predicate that focuses the
-                    # diagnose loop. Best-effort — None (→ plain phased) if the
-                    # .impact coverage data is absent/unmatched.
-                    in_blast_radius = None
-                    if cond.orchestration == "phased_graph":
-                        from .graph_cover import make_blast_radius_predicate
-                        in_blast_radius = make_blast_radius_predicate(
-                            workdir / ".impact", exp.target_methods or [])
-
-                    # phased+runtime ablation: attach the runtime-evidence probe to
-                    # the suite JVM (capture written OUTSIDE the workdir so git
-                    # restore can't wipe it between rounds) + feed a diagnostic card
-                    # into DIAGNOSE. Best-effort — missing jar/targets degrades to
-                    # plain phased (logged), never aborts the run.
-                    read_evidence = None
-                    if cond.orchestration == "phased_runtime":
-                        from .orchestration_adapters import build_evidence_reader
-                        jar = _runtime_probe_jar()
-                        targets = ",".join(exp.orchestration.probe_targets or [])
-                        if jar and targets:
-                            cap = str(rundir / "runtime-capture.jsonl")   # OUTSIDE workdir
-                            suite_runner = make_suite_runner(
-                                workdir, suite_cmd, exp.verify.timeout_s,
-                                probe={"jar": jar, "targets": targets, "out": cap})
-                            read_evidence = build_evidence_reader(
-                                cap, exp.orchestration.target_label)
-                            _log(f"[abench] phased_runtime: probe on {targets} -> {cap}")
+                    if cond.orchestration == "rcc":
+                        # R1: build the MutationGraph via the seam (artifact loader
+                        # primary — a precomputed GT graph.json shipped in the overlay
+                        # at .impact/mutation-graph.json; llm fallback), focus() to a
+                        # prompt-sized subgraph, then run the phased-identical prefix +
+                        # causal loop. Degrades to plain phased if no graph is built.
+                        from .git_snapshot import strip_probe_lines_repo
+                        from .orchestration_adapters import make_subset_suite_runner
+                        from .rcc_graph import RccConfig
+                        from .rcc_memory import RccMemory
+                        from .rcc_mgraph_build import build_mutation_graph
+                        from .rcc_orchestrate import run_rcc_condition
+                        ocfg = exp.orchestration
+                        art = workdir / ".impact" / "mutation-graph.json"
+                        builder = os.environ.get(
+                            "ABENCH_RCC_GRAPH_BUILDER",
+                            "artifact" if art.is_file() else "llm")
+                        bkw = ({"artifact_path": art} if builder == "artifact"
+                               else {"phase_runner": phase_runner} if builder == "llm"
+                               else {"gt_home": os.environ.get("GRAPH_TIPPER_HOME", "")})
+                        mg = build_mutation_graph(
+                            workdir, (exp.target_methods or [""])[0],
+                            _load_coverage(workdir / ".impact"),
+                            builder=builder, **bkw)
+                        sub = (mg.focus(class_cap=ocfg.rcc_subset_class_cap or None)
+                               if mg else None)
+                        if sub is None:
+                            _log("[abench] rcc: no usable mutation graph — "
+                                 "degrading to plain phased")
+                            trace = _orchestrate(
+                                build_orchestrator_config(exp.orchestration, "phased"),
+                                phase_runner=phase_runner, suite_runner=suite_runner,
+                                snapshot=lambda: _gsnap(workdir),
+                                restore=lambda t: _grestore(workdir, t),
+                                on_event=_orch_event, in_blast_radius=None,
+                                read_evidence=None, cancel_event=cancel_event)
                         else:
-                            _log("[abench] phased_runtime: probe jar/targets missing "
-                                 f"(jar={bool(jar)}, targets={bool(targets)}) — plain phased")
+                            mem_path = (os.environ.get("ABENCH_RCC_MEMORY")
+                                        or str(rundir / "rcc-memory.json"))
+                            _log(f"[abench] rcc: subgraph {len(sub.methods())} methods, "
+                                 f"{len(sub.test_classes)}/{sub.classes_total} test "
+                                 f"classes; builder={builder}; memory at {mem_path}")
+                            trace = run_rcc_condition(
+                                build_orchestrator_config(exp.orchestration, "phased"),
+                                RccConfig(target_label=ocfg.target_label,
+                                          max_attempts=ocfg.rcc_max_attempts,
+                                          cluster_cap=ocfg.cluster_cap),
+                                sub,
+                                phase_runner=phase_runner, suite_runner=suite_runner,
+                                subset_runner=make_subset_suite_runner(
+                                    workdir, suite_cmd, exp.verify.timeout_s),
+                                memory=RccMemory(mem_path),
+                                strip_probes=lambda: strip_probe_lines_repo(workdir),
+                                on_event=_orch_event, cancel_event=cancel_event)
+                        result = RunResult(trace=trace)
+                    else:
+                        # phased+graph ablation: a graph-derived "is this failing test
+                        # in the target's blast radius?" predicate that focuses the
+                        # diagnose loop. Best-effort — None (→ plain phased) if the
+                        # .impact coverage data is absent/unmatched.
+                        in_blast_radius = None
+                        if cond.orchestration == "phased_graph":
+                            from .graph_cover import make_blast_radius_predicate
+                            in_blast_radius = make_blast_radius_predicate(
+                                workdir / ".impact", exp.target_methods or [])
 
-                    trace = _orchestrate(
-                        build_orchestrator_config(exp.orchestration, cond.orchestration),
-                        phase_runner=phase_runner, suite_runner=suite_runner,
-                        snapshot=lambda: _gsnap(workdir),
-                        restore=lambda t: _grestore(workdir, t),
-                        on_event=_orch_event,
-                        in_blast_radius=in_blast_radius,
-                        read_evidence=read_evidence,
-                        cancel_event=cancel_event)
-                    result = RunResult(trace=trace)
+                        # phased+runtime ablation: attach the runtime-evidence probe to
+                        # the suite JVM (capture written OUTSIDE the workdir so git
+                        # restore can't wipe it between rounds) + feed a diagnostic card
+                        # into DIAGNOSE. Best-effort — missing jar/targets degrades to
+                        # plain phased (logged), never aborts the run.
+                        read_evidence = None
+                        if cond.orchestration == "phased_runtime":
+                            from .orchestration_adapters import build_evidence_reader
+                            jar = _runtime_probe_jar()
+                            targets = ",".join(exp.orchestration.probe_targets or [])
+                            if jar and targets:
+                                cap = str(rundir / "runtime-capture.jsonl")   # OUTSIDE workdir
+                                suite_runner = make_suite_runner(
+                                    workdir, suite_cmd, exp.verify.timeout_s,
+                                    probe={"jar": jar, "targets": targets, "out": cap})
+                                read_evidence = build_evidence_reader(
+                                    cap, exp.orchestration.target_label)
+                                _log(f"[abench] phased_runtime: probe on {targets} -> {cap}")
+                            else:
+                                _log("[abench] phased_runtime: probe jar/targets missing "
+                                     f"(jar={bool(jar)}, targets={bool(targets)}) — plain phased")
+
+                        trace = _orchestrate(
+                            build_orchestrator_config(exp.orchestration, cond.orchestration),
+                            phase_runner=phase_runner, suite_runner=suite_runner,
+                            snapshot=lambda: _gsnap(workdir),
+                            restore=lambda t: _grestore(workdir, t),
+                            on_event=_orch_event,
+                            in_blast_radius=in_blast_radius,
+                            read_evidence=read_evidence,
+                            cancel_event=cancel_event)
+                        result = RunResult(trace=trace)
                 else:
                     result = client.run_task(
                         workdir=str(workdir),
