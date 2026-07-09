@@ -65,3 +65,80 @@ def build_index(graph: MutationGraph) -> dict:
             "distinct_tests": graph.stats.get("distinct_tests", len(tests)),
             "status_counts": status_counts, "top_callers": top_callers,
             "edge_type_counts": edge_type_counts, "reachable_test_classes": rtc}
+
+
+def _is_direct_caller(graph, method_id) -> bool:
+    return any(e.tgt == graph.target_id and e.src == method_id
+               and e.type in ("CALLS", "DATA_DEP") for e in graph.edges)
+
+
+def score_chains(graph: MutationGraph) -> list:
+    """Deterministic per-chain score + selection_reason. No ML — a simple additive
+    weight; the reason list matters more than the exact formula (Phase-3: k-medoid/HGT)."""
+    has_dd = {e.type == "DATA_DEP" and pid for e in graph.edges for pid in e.path_ids}
+    out = []
+    for c in graph.chains:
+        reasons, score = [], 0
+        if c.status == "failed":
+            score += 100; reasons.append("leads_to_failed_test")
+        elif c.status == "passing":
+            score += 20; reasons.append("covered_by_red_run")
+        # direct caller path (chain reaches target via a direct caller)
+        mids = [n for n in c.node_ids if (graph.vertex(n) or None)
+                and graph.vertex(n).type == "method" and n != graph.target_id]
+        if any(_is_direct_caller(graph, m) for m in mids):
+            score += 50; reasons.append("direct_caller_path")
+        if c.id in has_dd:
+            score += 30; reasons.append("data_dep")
+        score -= max(0, len(c.node_ids) - 2) * 5      # distance penalty
+        reasons.append("shortest_path" if len(c.node_ids) <= 2 else "longer_path")
+        out.append({"path_id": c.id, "test_fqn": c.test_fqn, "status": c.status,
+                    "score": score, "nodes": list(c.node_ids),
+                    "selection_reason": reasons})
+    out.sort(key=lambda s: (-s["score"], s["path_id"]))
+    return out
+
+
+def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
+                   k_failed: int = 12, k_passing: int = 5, k_unknown: int = 5,
+                   k_methods: int = 8) -> dict:
+    """GraphSubgraph / G_MS — the ranked analysis object. Keeps: target + direct
+    callers/callees + ALL failed test ids + top-K paths per status bucket, with
+    dropped_counts + per-path selection_reason."""
+    scored = score_chains(graph)
+    buckets: dict = {"failed": [], "passing": [], "unknown_reachable": []}
+    for s in scored:
+        buckets.get(s["status"], buckets["unknown_reachable"]).append(s)
+    caps = {"failed": k_failed, "passing": k_passing, "unknown_reachable": k_unknown}
+    kept, dropped = [], {}
+    for st, items in buckets.items():
+        kept += items[:caps[st]]
+        dropped[st] = max(0, len(items) - caps[st])
+    # methods: target + direct callers/callees + any method on a kept path
+    methods = {graph.target_fqn}
+    for e in graph.edges:
+        if e.tgt == graph.target_id and e.type in ("CALLS", "DATA_DEP"):
+            v = graph.vertex(e.src)
+            if v and v.type == "method":
+                methods.add(v.fqn)
+        if e.src == graph.target_id and e.type == "CALLS":
+            v = graph.vertex(e.tgt)
+            if v and v.type == "method":
+                methods.add(v.fqn)
+    for s in kept:
+        for nid in s["nodes"]:
+            v = graph.vertex(nid)
+            if v and v.type == "method":
+                methods.add(v.fqn)
+    methods = ([graph.target_fqn]
+               + sorted(m for m in methods if m != graph.target_fqn))[:k_methods]
+    all_failed = sorted({v.fqn for v in graph.vertices
+                         if v.type in ("test", "assert") and v.status == "failed"})
+    frontier = {
+        "failed": all_failed,
+        "passing_sample": [s["test_fqn"] for s in buckets["passing"][:k_passing]],
+        "unknown_reachable_sample": [s["test_fqn"]
+                                     for s in buckets["unknown_reachable"][:k_unknown]]}
+    return {"target": graph.target_fqn, "change_origin": graph.change_origin,
+            "methods": methods, "test_frontier": frontier, "paths": kept,
+            "dropped_counts": dropped}

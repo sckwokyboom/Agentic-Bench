@@ -46,3 +46,28 @@ def test_build_index_summary():
     assert idx["top_callers"][0]["method"] == "C.caller"
     assert idx["edge_type_counts"]["TEST_ASSERTS"] == 3
     assert set(idx["reachable_test_classes"]) == {"T", "U"}
+
+
+def test_score_chains_prioritizes_failed_and_short():
+    from abench.rcc_graph_layers import score_chains
+    g = annotate_status(_g(), failed_ids={"T.a"})
+    scored = score_chains(g)
+    by_id = {s["path_id"]: s for s in scored}
+    # failed path scores higher than an unknown one of equal length
+    assert by_id["p1"]["score"] > by_id["p2"]["score"]
+    assert "leads_to_failed_test" in by_id["p1"]["selection_reason"]
+    # shorter path (p1 len2) beats a longer unknown path (p3 len3)
+    assert by_id["p1"]["score"] > by_id["p3"]["score"]
+
+
+def test_build_subgraph_keeps_all_failed_and_reports_drops():
+    from abench.rcc_graph_layers import build_subgraph
+    g = annotate_status(_g(), failed_ids={"T.a"})
+    gs = build_subgraph(g, k_failed=10, k_passing=2, k_unknown=1)
+    assert gs["target"] == "C.put"
+    assert set(gs["methods"]) >= {"C.put", "C.caller"}   # target + direct caller
+    assert gs["test_frontier"]["failed"] == ["T.a"]      # ALL failed ids
+    # dropped counts reported (we asked for 1 unknown of 2)
+    assert gs["dropped_counts"]["unknown_reachable"] >= 1
+    # every selected path carries a reason
+    assert all(p["selection_reason"] for p in gs["paths"])
