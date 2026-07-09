@@ -154,3 +154,8 @@ def test_gamma_over_slice_has_frontier_and_influence():
     assert "p.HT.tPut" in g                              # failed frontier present
     assert "dropped" in g.lower() or "omitted" in g.lower()
     assert "CLUSTERS" in g and "→" in g                   # representative path clusters
+
+
+def test_beta_carries_failed_test_grounding():
+    b = beta_prompt(_slice(), "SPECS")
+    assert "FAILED-TEST GROUNDING" in b and "probe what these failing tests observe" in b

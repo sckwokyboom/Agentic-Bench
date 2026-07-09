@@ -72,6 +72,16 @@ def _edges_block(sl: dict) -> str:
     return "\n".join(rows) or "(no edges in slice)"
 
 
+def _failed_links_block(sl: dict) -> str:
+    """The failed-test grounding: which failing test observes the target via which
+    path/relations — used by Beta (what to probe) and Gamma (what to explain)."""
+    links = sl.get("failed_test_links", [])
+    if not links:
+        return "(no failed-test links)"
+    return "\n".join(f"  - {link['test']} observes {_simple(link['observes'])} via "
+                     f"{link['path_shape']} {link['relations']}" for link in links)
+
+
 def _frontier_block(sl: dict) -> str:
     failed = sl.get("failed_tests", [])
     lines = [f"FAILED ({len(failed)}): " + ", ".join(failed)]
@@ -82,12 +92,9 @@ def _frontier_block(sl: dict) -> str:
         for c in cl:
             lines.append(f"  - [{c['size']} paths] {c['path_shape']}  "
                          f"(e.g. {c['medoid_test']})")
-    links = sl.get("failed_test_links", [])
-    if links:
+    if sl.get("failed_test_links"):
         lines.append("FAILED-TEST GROUNDING:")
-        for link in links:
-            lines.append(f"  - {link['test']} observes {_simple(link['observes'])} via "
-                         f"{link['path_shape']} {link['relations']}")
+        lines.append(_failed_links_block(sl))
     return "\n".join(lines)
 
 
@@ -114,8 +121,12 @@ def beta_prompt(sl: dict, specs_text: str) -> str:
         "runtime values. Insert System.out.println lines into the methods below. EVERY "
         f"inserted line: start its message with \"{PROBE_PREFIX} <Class.method>: \" and "
         "print args at entry + return at exit + key branch state; end with the trailing "
-        f"comment {PROBE_MARKER} on the SAME line; change NO behaviour; keep it compiling."
-        "\n\nCONTRACTS:\n" + _cap(specs_text, _MAX_SPECS_CHARS)
+        f"comment {PROBE_MARKER} on the SAME line; change NO behaviour; keep it compiling.\n"
+        "Prioritize probes that expose the values the FAILED tests below exercise "
+        "(their arguments into the target, the target's return, and key branch state).\n\n"
+        "CONTRACTS:\n" + _cap(specs_text, _MAX_SPECS_CHARS)
+        + "\n\nFAILED-TEST GROUNDING (probe what these failing tests observe):\n"
+        + _failed_links_block(sl)
         + "\n\nMETHODS:\n" + _methods_block(sl))
 
 
