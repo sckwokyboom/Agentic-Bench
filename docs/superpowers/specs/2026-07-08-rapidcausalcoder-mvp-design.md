@@ -452,3 +452,95 @@ Net: the pipeline gets CHEAPER and MORE leak-safe than either the coverage-overl
 or the "Joern-on-workdir per invocation" idea — the expensive structural analysis is
 precomputed once and shipped, and only the small focused graph + the agent's own source
 reach the model. The per-invocation cost is a JSON load + a deterministic focus filter.
+
+---
+
+# Revision R2 — layered graph: storage ≠ rendering (2026-07-09)
+
+## Why R2
+
+R1 built a real `MutationGraph`, but the driver's `focus(failing_tests=…)` AMPUTATED it
+— it replaced the 90-method / 1406-test / 3375-edge substrate with a 2-method / 3-test
+slice and called that "the mutation graph". That loses the passing/reachable substrate
+(false-negative signal — the "discount test that passes but is on the path"), the true
+scale, and turns RCC from "graph of potential influence from the diff" into "analyzer of
+already-failed tests". R2 separates STORAGE from RENDERING: keep the full graph as the
+substrate; annotate + rank with the failing tests; render a compact, honestly-labeled
+slice into the prompt. **Failing tests PRIORITIZE the graph, they do not DEFINE it.**
+
+## R2 layers (names deliberately avoid L1/L2/L3 — those are spec levels)
+
+- **GraphRaw** — the full structural substrate (`MutationGraph`): ALL reachable methods,
+  ALL reachable tests, ALL typed edges, and the call CHAINS (path grouping) + GT stats.
+  Never filtered by failed tests. Persisted to `rundir/rcc-graph/raw.json`.
+- **GraphIndex** — derived stats/summary: method_count, test_count, chain_count,
+  reachable_test_classes histogram, top_callers, edge_type_counts. → the prompt's stats
+  header. `rundir/rcc-graph/index.json`.
+- **GraphSubgraph (G_MS)** — the ranked analysis subgraph: target + direct callers/callees
+  + ALL failed test ids + top-K failed paths + top-K passing-covered paths + top-K
+  unknown-reachable paths, with `dropped_counts` and a `selection_reason` per node/path.
+  `rundir/rcc-graph/subgraph.json`.
+- **PromptSlice** — the compact rendering Alpha/Gamma actually receive: the GraphIndex
+  stats header + selected methods (source/skeleton) + bounded typed edges + a test
+  frontier (all failed ids; sampled passing; sampled unknown-reachable) + an explicit
+  OMISSION note ("ranked slice of N; omitted tests are NOT necessarily irrelevant").
+  `rundir/rcc-graph/slice.json`.
+
+Alpha/Beta/Gamma and CausalRank operate over GraphSubgraph/PromptSlice — NOT the raw
+graph dumped into a prompt (that re-explodes tokens). The causal graph may REFERENCE
+GraphRaw via `path_id` / stats / dropped_counts, but never renders it wholesale.
+
+## R2 decisions (ChatGPT-reviewed, all accepted)
+
+1. Layer names GraphRaw/GraphIndex/GraphSubgraph/PromptSlice (not L1–L4).
+2. GraphRaw is kept whole; failing tests only annotate + rank.
+3. **Test status is three-valued and honest:** `failed` = ran & failed (from the RED
+   suite's failures); `passing` = ran & passed; `unknown_reachable` = reachable in GT
+   but NOT run in this RED suite. Do NOT mark non-failed reachable tests as `passing`.
+   MVP: we cheaply know only `failed` from `cur.failures`; everything else →
+   `unknown_reachable`. `passing` is a seam (parse the RED JUnit XML for passed ids later).
+4. PromptSlice MUST carry GraphRaw stats + dropped_counts so the model cannot infer
+   "only these 3 tests matter".
+5. GraphSubgraph includes: target; direct callers/callees; all failed ids; top-K failed
+   paths; top-K passing-covered paths; top-K unknown-reachable paths; dropped_counts;
+   per-node/path selection_reason.
+6. Edges are typed JSON objects, never strings: `{id, from, to, type,
+   structural_direction, influence_direction, path_ids, test_status, source}`.
+7. Deterministic scoring for the MVP (no HGT/k-medoid): a simple additive weight
+   (+100 on a failed-test path, +50 direct caller/callee of target, +30 data_dep,
+   +20 covered-by-RED, − distance penalty), keeping `selection_reason` per included
+   path/node (the reason list matters more than the exact formula). k-medoid / HGT /
+   coverage_hits / changed-statement vertex are Phase-3 seams.
+8. `change_origin` field NOW (place for the changed statement): `{kind:
+   "method_level_only", method_fqn, changed_statement_available: false}`; replaced by a
+   real changed-statement vertex later.
+
+## R2 rename
+
+The 2-method/3-test object is a **PromptSlice / failure-focused slice**, never "the
+mutation graph". The mutation graph is GraphRaw.
+
+## R2 code shape
+
+- `rcc_mutation_graph.py` +: `MgChain` (id, test_fqn, ordered node ids, status);
+  `MutationGraph` + `chains`, `stats`, `change_origin`; `MgEdge` + `structural_direction`,
+  `influence_direction`, `path_ids`, `test_status`, `source`; `MgVertex` + `status`.
+  The amputating `focus()` is retired from the driver (kept only if some test needs it).
+- `rcc_gt_parse.py` +: preserve chains (one MgChain per GT chain, `path_id`), GT `stats`,
+  per-edge `path_ids` + directions; set `change_origin` (method_level_only).
+- `rcc_graph_layers.py` (NEW): `annotate_status(graph, failed_ids)`; `build_index(graph)`;
+  `score_chains(graph, failed_ids)` (+ selection_reason); `build_subgraph(graph, failed_ids,
+  *, k_*)` → GraphSubgraph (+ dropped_counts + selection_reason); `render_slice(subgraph,
+  index)` → PromptSlice dict; `persist(dir, raw, index, subgraph, slice)`.
+- `rcc_prompts.py`: `alpha_prompt`/`gamma_prompt` take the PromptSlice — render the stats
+  header + methods + bounded typed edges (with influence direction) + test frontier +
+  omission note. Gamma gets an explicit "method influences test (not the reverse)" line.
+- `rcc_orchestrate.py`: after the RED implement suite, build GraphRaw (already have `sub`)
+  → annotate_status(cur.failures) → index → subgraph → slice → persist to
+  `rundir/rcc-graph/` → hand the subgraph/slice to run_rcc. (run_rcc's nodes consume the
+  slice for prompts and the subgraph for CausalRank.)
+
+## R2 deferred (Phase 3)
+
+k-medoid / HGT ranking; `coverage_hits` (JaCoCo); a real changed-statement vertex;
+semantic name-similarity scoring; `passing` status via full JUnit-XML parse.
