@@ -29,6 +29,9 @@ def trim(graph_json: dict) -> dict:
     args[{origin}])."""
     d = json.loads(json.dumps(graph_json))          # copy — don't mutate the caller's
     (d.get("target") or {}).pop("current_body", None)
+    # local_context {siblings, used_types} is NOT read by parse_gt_graph and its
+    # `used_types` can hint at the fix's dependencies (a soft leak) — drop it.
+    d.pop("local_context", None)
     for c in d.get("chains", []):
         (c.get("test") or {}).pop("sliced_body", None)
         for st in c.get("steps", []):
