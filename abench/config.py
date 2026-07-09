@@ -61,7 +61,7 @@ class Condition(BaseModel):
         ),
     )
     orchestration: Literal[
-        "phased", "phased_plan", "phased_graph", "phased_runtime"
+        "phased", "phased_plan", "phased_graph", "phased_runtime", "rcc"
     ] | None = Field(
         default=None,
         title="Orchestration mode",
@@ -72,7 +72,10 @@ class Condition(BaseModel):
             "radius; 'phased_runtime' injects a runtime diagnostic card (actual "
             "args + call corridor + throw) into DIAGNOSE. Requires the "
             "experiment-level orchestration block (and probe_targets for "
-            "phased_runtime)."
+            "phased_runtime). 'rcc' = RapidCausalCoder: the same "
+            "understand→implement prefix, then a causal-debugging loop "
+            "(MutationGraph + Alpha/Beta/Gamma + CausalRank + Memory Graph) "
+            "instead of plain diagnose."
         ),
     )
     engine: Literal["python", "langgraph"] = Field(
@@ -461,6 +464,16 @@ class OrchestrationCfg(BaseModel):
             "to plain phased. NOT shown to the agent — used only to attach the probe."
         ),
     )
+    rcc_max_attempts: int = Field(
+        default=2, title="rcc fix attempts",
+        description="Fix ladder depth for 'rcc': top-1 -> ... -> DEFER.")
+    rcc_subset_class_cap: int = Field(
+        default=15, title="rcc subset class cap",
+        description=(
+            "Max test CLASSES in the narrowed rcc subset run (ranked by test count "
+            "via MutationGraph.focus). Dense targets are covered by 40+ classes — "
+            "uncapped subsets erase the cycle-time win. The full suite still gates "
+            "every accept; 0 disables the cap."))
 
 
 class BenchmarkCfg(BaseModel):
