@@ -69,3 +69,35 @@ def test_parses_the_real_committed_gt_sample():
     assert g.vertex(g.target_id).source is None
     assert len(g.methods()) > 3 and len(g.test_fqns) > 10
     assert any(e.type == "CALLS" for e in g.edges)
+
+
+def test_parse_preserves_chains_stats_and_directions():
+    g = parse_gt_graph(_mini())
+    # one chain per GT chain, ordered test-first, with a path id
+    assert len(g.chains) == 1
+    ch = g.chains[0]
+    assert ch.test_fqn == "p.CT.t1"
+    assert ch.node_ids[0] == "test:p.CT.t1" and ch.node_ids[-1] == "method:p.C.put"
+    # edges carry directions + the chain's path id
+    calls = [e for e in g.edges if e.type == "CALLS"]
+    assert all(e.structural_direction and e.influence_direction for e in calls)
+    assert any("p.CT.t1" in (e.path_ids and e.path_ids[0] or "") or e.path_ids
+               for e in calls)
+    # a TEST_ASSERTS edge is test→method structurally but method→test in influence
+    ta = next(e for e in g.edges if e.type == "TEST_ASSERTS")
+    assert ta.structural_direction == "test_to_method"
+    assert ta.influence_direction == "method_to_test"
+    assert g.change_origin["kind"] == "method_level_only"
+
+
+def test_parse_carries_gt_stats_on_real_sample():
+    import json as _json
+    from pathlib import Path
+    p = Path("experiments/picocli-putValue/gt-out/slice-work/357b6bd1af378e00.graph.json")
+    if not p.is_file():
+        import pytest
+        pytest.skip("gt-out sample not present")
+    g = parse_gt_graph(_json.loads(p.read_text()))
+    assert g.stats.get("chain_count", 0) > 1000
+    assert len(g.chains) > 1000
+    assert g.stats.get("distinct_tests", 0) > 1000
