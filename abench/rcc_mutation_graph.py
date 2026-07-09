@@ -18,6 +18,7 @@ class MgVertex:
     is_changed: bool = False                 # directly modified by the diff
     l1_skeleton: "dict | None" = None        # {signature, params, return_type, local_vars}
     source: "str | None" = None              # body FROM THE WORKDIR (leak-safe)
+    status: "str | None" = None      # tests: "failed" | "passing" | "unknown_reachable"
 
 
 @dataclass
@@ -27,6 +28,25 @@ class MgEdge:
     type: str                                # CALLS|DATA_DEP|CONTROL_DEP|TEST_ASSERTS|OVERRIDES
     call_site: "dict | None" = None          # {file, line, code} for CALLS
     data_var: "str | None" = None            # for DATA_DEP
+    # R2: structural is the call/assert direction; influence is causal-propagation
+    # direction (a method's behaviour influences the tests that assert it). path_ids
+    # link an edge to the call chains it belongs to. test_status mirrors the chain's
+    # test. source = provenance ("gt" | "llm").
+    structural_direction: "str | None" = None
+    influence_direction: "str | None" = None
+    path_ids: list = field(default_factory=list)
+    test_status: "str | None" = None
+    source: str = "gt"
+
+
+@dataclass
+class MgChain:
+    """A call chain (path) test → … → target from the GT graph. `node_ids` are
+    vertex ids ordered test-first; `status` mirrors the chain's test."""
+    id: str
+    test_fqn: str
+    node_ids: list = field(default_factory=list)
+    status: "str | None" = None
 
 
 @dataclass
@@ -35,6 +55,9 @@ class MutationGraph:
     vertices: list = field(default_factory=list)
     edges: list = field(default_factory=list)
     classes_total: int = 0                   # distinct test classes BEFORE any class cap
+    chains: list = field(default_factory=list)          # [MgChain]
+    stats: dict = field(default_factory=dict)           # GraphRaw summary counts
+    change_origin: dict = field(default_factory=dict)   # {kind, method_fqn, changed_statement_available}
 
     def __post_init__(self):
         self._by_id = {v.id: v for v in self.vertices}

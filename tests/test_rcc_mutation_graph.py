@@ -61,3 +61,32 @@ def test_focus_keeps_target_callers_and_failing_tests():
     f = g.focus(failing_tests={"p.T.f"}, k_methods=6)
     assert set(f.methods()) == {"p.C.t", "p.C.caller"}
     assert f.test_fqns == ["p.T.f"]
+
+
+def test_edge_directions_and_status_default_and_set():
+    from abench.rcc_mutation_graph import MgEdge
+    e = MgEdge(src="test:T.a", tgt="method:C.m", type="TEST_ASSERTS")
+    assert e.structural_direction is None and e.source == "gt"
+    e2 = MgEdge(src="test:T.a", tgt="method:C.m", type="CALLS",
+                structural_direction="test_to_method",
+                influence_direction="method_to_test", path_ids=["p1"],
+                test_status="failed")
+    assert e2.influence_direction == "method_to_test" and e2.path_ids == ["p1"]
+
+
+def test_chain_and_graph_stats_and_change_origin():
+    from abench.rcc_mutation_graph import MgChain, MgEdge, MgVertex, MutationGraph
+    ch = MgChain(id="p1", test_fqn="T.a", node_ids=["test:T.a", "method:C.m"],
+                 status="failed")
+    g = MutationGraph(
+        target_id="method:C.m",
+        vertices=[MgVertex(id="method:C.m", type="method", fqn="C.m", is_changed=True),
+                  MgVertex(id="test:T.a", type="test", fqn="T.a", status="failed")],
+        edges=[MgEdge(src="test:T.a", tgt="method:C.m", type="TEST_ASSERTS")],
+        chains=[ch], stats={"chain_count": 1, "distinct_tests": 1},
+        change_origin={"kind": "method_level_only", "method_fqn": "C.m",
+                       "changed_statement_available": False})
+    assert g.chains[0].status == "failed"
+    assert g.stats["chain_count"] == 1
+    assert g.change_origin["kind"] == "method_level_only"
+    assert g.vertex("test:T.a").status == "failed"
