@@ -27,11 +27,13 @@ from .trace_stitch import stitch
 
 def _slice_test_classes(slice_: dict) -> list:
     """Distinct test classes reachable from the PromptSlice's test frontier
-    (failed + passing/unknown samples) — the subset-run scope in place of the
+    (failed + each cluster's medoid test) — the subset-run scope in place of the
     old MutationGraph.test_classes."""
     f = slice_.get("test_frontier", {})
-    fqns = (list(f.get("failed", [])) + list(f.get("passing_sample", []))
-           + list(f.get("unknown_reachable_sample", [])))
+    fqns = list(f.get("failed", []))
+    for c in (list(f.get("unknown_reachable_clusters", []))
+             + list(f.get("passing_clusters", []))):
+        fqns.append(c.get("medoid_test", ""))
     return sorted({fqn.rsplit(".", 1)[0] for fqn in fqns if "." in fqn})
 
 

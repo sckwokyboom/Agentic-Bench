@@ -51,10 +51,17 @@ def _edges_block(sl: dict) -> str:
 
 def _frontier_block(sl: dict) -> str:
     f = sl.get("test_frontier", {})
-    return (f"FAILED ({len(f.get('failed', []))}): " + ", ".join(f.get("failed", [])) + "\n"
-            f"passing sample: " + ", ".join(f.get("passing_sample", []) or ["(none)"]) + "\n"
-            f"unknown-reachable sample: "
-            + ", ".join(f.get("unknown_reachable_sample", []) or ["(none)"]))
+    lines = [f"FAILED ({len(f.get('failed', []))}): " + ", ".join(f.get("failed", []))]
+    cl = f.get("unknown_reachable_clusters", [])
+    if cl:
+        lines.append("reachable-path CLUSTERS (representative usage scenarios, medoid "
+                     "per cluster):")
+        for c in cl:
+            lines.append(f"  - [{c['size']} paths] {c['path_shape']}  "
+                         f"(e.g. {c['medoid_test']})")
+    if f.get("passing_clusters"):
+        lines.append(f"passing clusters: {len(f['passing_clusters'])}")
+    return "\n".join(lines)
 
 
 def alpha_prompt(sl: dict) -> str:

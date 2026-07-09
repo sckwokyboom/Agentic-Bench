@@ -85,12 +85,27 @@ def _edge_types(graph, chain) -> set:
     return types
 
 
-def chain_distance(graph, ca, cb) -> float:
-    """0.7·weighted_lcs + 0.2·test_class_distance + 0.1·edge_type_jaccard."""
-    seq = weighted_lcs_distance(normalize_chain(graph, ca), normalize_chain(graph, cb))
+def chain_distance(graph, ca, cb, *, _cache: "dict | None" = None) -> float:
+    """0.7·weighted_lcs + 0.2·test_class_distance + 0.1·edge_type_jaccard.
+
+    `_cache` (optional, keyed by chain.id) memoizes normalize_chain/_edge_types —
+    both pure functions of a single chain — so callers doing many pairwise
+    comparisons (greedy_kmedoids) don't recompute the same O(chain_len·edge_count)
+    work per chain on every pair. Without a cache, behaves exactly as before."""
+    def _per_chain(chain):
+        if _cache is None:
+            return normalize_chain(graph, chain), _edge_types(graph, chain)
+        hit = _cache.get(chain.id)
+        if hit is None:
+            hit = (normalize_chain(graph, chain), _edge_types(graph, chain))
+            _cache[chain.id] = hit
+        return hit
+
+    na, ea = _per_chain(ca)
+    nb, eb = _per_chain(cb)
+    seq = weighted_lcs_distance(na, nb)
     tcd = 0.0 if _test_class(ca) == _test_class(cb) else 1.0
-    ta, tb = _edge_types(graph, ca), _edge_types(graph, cb)
-    jac = 1.0 - (len(ta & tb) / len(ta | tb) if (ta | tb) else 1.0)
+    jac = 1.0 - (len(ea & eb) / len(ea | eb) if (ea | eb) else 1.0)
     return 0.7 * seq + 0.2 * tcd + 0.1 * jac
 
 
@@ -136,17 +151,20 @@ def cluster_chains(graph, *, k_unknown: "int | None" = None) -> dict:
         by_status.get(c.status or "unknown_reachable",
                       by_status["unknown_reachable"]).append(c)
     forced = [c.id for c in by_status["failed"]]
+    _cache: dict = {}          # shared across buckets — normalize_chain/_edge_types memo
 
     def summarize(bucket_name, chains, k):
         if not chains:
             return []
-        clusters = greedy_kmedoids(chains, lambda a, b: chain_distance(graph, a, b), k)
+        clusters = greedy_kmedoids(
+            chains, lambda a, b: chain_distance(graph, a, b, _cache=_cache), k)
         out = []
         for i, cl in enumerate(clusters):
             med = cl["medoid"]
             shape = " → ".join(lbl for lbl, _ in normalize_chain(graph, med))
             examples = sorted(cl["members"],
-                              key=lambda x: (chain_distance(graph, x, med), x.id))[:3]
+                              key=lambda x: (chain_distance(graph, x, med, _cache=_cache),
+                                             x.id))[:3]
             out.append({
                 "cluster_id": f"{bucket_name}_{i}", "size": len(cl["members"]),
                 "medoid_path_id": med.id, "medoid_test": med.test_fqn,

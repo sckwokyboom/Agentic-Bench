@@ -125,7 +125,7 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
     event(f"graph layers: raw {index['method_count']}m/{index['distinct_tests']}t/"
           f"{index['chain_count']}chains → subgraph {len(methods)} methods, "
           f"frontier {len(subgraph['test_frontier']['failed'])} failed "
-          f"+ {len(subgraph['test_frontier']['unknown_reachable_sample'])} sampled",
+          f"+ {len(subgraph['test_frontier']['unknown_reachable_clusters'])} clusters",
           "implement")
 
     # ── hand off the red state to the rcc loop (one continuous trace) ──────

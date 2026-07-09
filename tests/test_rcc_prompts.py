@@ -107,8 +107,12 @@ _SLICE = {
                "structural_direction": "caller_to_callee",
                "influence_direction": "callee_to_caller", "path_ids": ["p2"],
                "test_status": None}],
-    "test_frontier": {"failed": ["p.HT.tPut"], "passing_sample": [],
-                      "unknown_reachable_sample": ["p.HT.tOther"]},
+    "test_frontier": {"failed": ["p.HT.tPut"], "passing_clusters": [],
+                      "unknown_reachable_clusters": [
+                          {"cluster_id": "unknown_reachable_0", "size": 3,
+                           "medoid_path_id": "p2", "medoid_test": "p.HT.tOther",
+                           "path_shape": "test:p.HT → addRowValues → put",
+                           "status_mix": {"unknown_reachable": 3}}]},
     "paths": [{"path_id": "p1", "status": "failed", "score": 145,
                "selection_reason": ["leads_to_failed_test", "direct_caller_path"]}],
     "dropped_counts": {"unknown_reachable": 1400},
@@ -123,6 +127,7 @@ def test_alpha_over_slice_has_stats_and_omission():
     assert "p.C.put" in a and "addRowValues" in a
     assert "1526" in a and "RANKED SLICE" in a           # full-graph stats + honesty
     assert "CALLS" in a and "pre" in a and "edge" in a.lower()
+    assert "CLUSTERS" in a and "put" in a and "→" in a   # representative path clusters
 
 
 def test_gamma_over_slice_has_frontier_and_influence():
@@ -131,3 +136,4 @@ def test_gamma_over_slice_has_frontier_and_influence():
     assert "influence" in g.lower()                      # method->test direction cue
     assert "p.HT.tPut" in g                              # failed frontier present
     assert "dropped" in g.lower() or "omitted" in g.lower()
+    assert "CLUSTERS" in g and "→" in g                   # representative path clusters
