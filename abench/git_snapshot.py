@@ -100,6 +100,27 @@ def strip_marked_lines(repo: Path, rel_path: str, marker: str = "//[probe]") -> 
     return removed
 
 
+def strip_probe_lines_repo(repo: Path, marker: str = "//[probe]") -> int:
+    """Strip marked probe lines from EVERY changed .java file (tracked or
+    untracked) — the rcc loop's mid-run cleanup after the instrumented subset
+    run. Per-file work is strip_marked_lines. Returns total lines removed;
+    best-effort (a git failure returns 0 rather than aborting the run)."""
+    try:
+        out = _git(repo, "status", "--porcelain")
+    except Exception:
+        return 0
+    total = 0
+    for ln in out.splitlines():
+        if not ln.strip():
+            continue
+        path = ln[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if path.endswith(".java"):
+            total += strip_marked_lines(repo, path, marker=marker)
+    return total
+
+
 def forbidden_changes(repo: Path, allowed_prefixes: list[str]) -> list[str]:
     """Changed paths (tracked or untracked) that fall OUTSIDE the allowlist —
     e.g. edits to src/test, build.gradle, configs. The orchestrator reverts

@@ -150,3 +150,21 @@ def test_forbidden_changes_flags_non_allowlisted_paths(tmp_path):
     (r / "t.txt").write_text("y")                            # forbidden
     bad = forbidden_changes(r, allowed_prefixes=["src/"])
     assert "build.gradle" in bad and "t.txt" in bad and "src/A.java" not in bad
+
+
+def test_strip_probe_lines_repo(tmp_path):
+    import subprocess
+    from abench.git_snapshot import strip_probe_lines_repo
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    a = tmp_path / "A.java"
+    a.write_text("class A {}\n")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                    "commit", "-qm", "init"], cwd=tmp_path, check=True)
+    a.write_text('class A { void m() { System.out.println("RCC_PROBE"); //[probe]\n } }\n')
+    b = tmp_path / "B.java"
+    b.write_text('class B {}\nSystem.out.println("x"); //[probe]\n')
+    n = strip_probe_lines_repo(tmp_path)
+    assert n == 2
+    assert "//[probe]" not in a.read_text() and "//[probe]" not in b.read_text()
+    assert strip_probe_lines_repo(tmp_path) == 0
