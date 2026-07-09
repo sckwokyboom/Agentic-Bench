@@ -106,6 +106,52 @@ def test_subgraph_frontier_dedups_and_honors_failed_ids():
     g = _g()  # NOT annotated — failed_ids param must still yield the failed frontier
     gs = build_subgraph(g, failed_ids={"T.a"}, k_unknown=5)
     assert "T.a" in gs["test_frontier"]["failed"]
-    # samples carry no duplicate test fqns
-    us = gs["test_frontier"]["unknown_reachable_sample"]
-    assert len(us) == len(set(us))
+    # cluster medoids carry no duplicate path ids
+    cl = gs["test_frontier"]["unknown_reachable_clusters"]
+    medoids = [c["medoid_path_id"] for c in cl]
+    assert len(medoids) == len(set(medoids))
+
+
+def test_build_subgraph_uses_clusters_and_keeps_all_failed():
+    from abench.rcc_graph_layers import annotate_status, build_subgraph
+    from abench.rcc_mutation_graph import MgChain, MgEdge, MgVertex, MutationGraph
+    vs = [MgVertex(id="method:C.put", type="method", fqn="C.put", is_changed=True),
+          MgVertex(id="method:C.addRow", type="method", fqn="C.addRow"),
+          MgVertex(id="method:H.syn", type="method", fqn="H.syn")]
+    for t in ("HT.f1", "HT.u1", "HT.u2", "HT.u3", "TT.u4"):
+        vs.append(MgVertex(id=f"test:{t}", type="test", fqn=f"picocli.{t}"))
+    es = [MgEdge(src="method:C.addRow", tgt="method:C.put", type="CALLS")]
+    chains = [MgChain(id="p0", test_fqn="picocli.HT.f1",
+                      node_ids=["test:HT.f1", "method:C.addRow", "method:C.put"])]
+    for i, t in enumerate(("HT.u1", "HT.u2", "HT.u3", "TT.u4"), 1):
+        seq = (["test:" + t, "method:C.addRow", "method:C.put"] if i < 3
+               else ["test:" + t, "method:H.syn", "method:C.addRow", "method:C.put"])
+        chains.append(MgChain(id=f"p{i}", test_fqn=f"picocli.{t}", node_ids=seq))
+    g = MutationGraph(target_id="method:C.put", vertices=vs, edges=es, chains=chains)
+    annotate_status(g, failed_ids={"picocli.HT.f1"})
+    gs = build_subgraph(g, failed_ids={"picocli.HT.f1"}, k_unknown=2)
+    assert gs["test_frontier"]["failed"] == ["picocli.HT.f1"]     # all failed kept
+    assert "unknown_reachable_clusters" in gs["test_frontier"]     # clusters, not flat sample
+    cl = gs["test_frontier"]["unknown_reachable_clusters"]
+    assert len(cl) >= 2 and all("path_shape" in c and "medoid_test" in c for c in cl)
+    assert gs["selection_method"] == "path_k_medoids_weighted_lcs"
+
+
+def test_render_slice_edges_sample_path_ids_not_full():
+    from abench.rcc_graph_layers import (annotate_status, build_index, build_subgraph,
+                                         render_slice)
+    from abench.rcc_mutation_graph import MgChain, MgEdge, MgVertex, MutationGraph
+    e = MgEdge(src="test:T.a", tgt="method:C.put", type="TEST_ASSERTS",
+               path_ids=[f"p{i}" for i in range(12)])
+    g = MutationGraph(
+        target_id="method:C.put",
+        vertices=[MgVertex(id="method:C.put", type="method", fqn="C.put", is_changed=True),
+                  MgVertex(id="test:T.a", type="test", fqn="p.T.a")],
+        edges=[e], chains=[MgChain(id="p0", test_fqn="p.T.a",
+                                   node_ids=["test:T.a", "method:C.put"])])
+    annotate_status(g, failed_ids={"p.T.a"})
+    sl = render_slice(g, build_subgraph(g, failed_ids={"p.T.a"}), build_index(g))
+    edge = sl["edges"][0]
+    assert "path_ids" not in edge                        # full array gone
+    assert edge["path_count"] == 12 and len(edge["sample_path_ids"]) <= 5
+    assert edge["omitted_path_ids_count"] == 12 - len(edge["sample_path_ids"])

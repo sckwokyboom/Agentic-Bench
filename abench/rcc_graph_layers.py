@@ -102,18 +102,35 @@ def score_chains(graph: MutationGraph) -> list:
 def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
                    k_failed: int = 12, k_passing: int = 5, k_unknown: int = 5,
                    k_methods: int = 8) -> dict:
-    """GraphSubgraph / G_MS — the ranked analysis object. Keeps: target + direct
-    callers/callees + ALL failed test ids + top-K paths per status bucket, with
-    dropped_counts + per-path selection_reason."""
-    scored = score_chains(graph)
-    buckets: dict = {"failed": [], "passing": [], "unknown_reachable": []}
-    for s in scored:
-        buckets.get(s["status"], buckets["unknown_reachable"]).append(s)
-    caps = {"failed": k_failed, "passing": k_passing, "unknown_reachable": k_unknown}
-    kept, dropped = [], {}
-    for st, items in buckets.items():
-        kept += items[:caps[st]]
-        dropped[st] = max(0, len(items) - caps[st])
+    """GraphSubgraph / G_MS — the ranked analysis object (R3-lite: path k-medoid
+    clustering for diversity, not top-K score). Keeps: target + direct
+    callers/callees + ALL failed test ids (uncapped) + one representative medoid
+    path per diversity cluster, with dropped_counts + per-path selection_reason.
+    `k_failed`/`k_passing` are accepted for backward compatibility but no longer cap
+    anything (failed is always uncapped; passing sizing is internal to
+    cluster_chains) — only `k_unknown` is forwarded."""
+    from .rcc_path_clusters import cluster_chains
+    failed_ids = set(failed_ids or ())
+    clustered = cluster_chains(graph, k_unknown=k_unknown)
+    # kept paths = every forced (failed-status) chain + any chain whose test is in
+    # the failed_ids param (covers callers that pass failed_ids without annotating
+    # the graph first — the dead-param footgun) + each cluster's medoid.
+    kept_ids = set(clustered["forced_paths"])
+    kept_ids |= {c.id for c in graph.chains if c.test_fqn in failed_ids}
+    for c in clustered["clusters"]:
+        kept_ids.add(c["medoid_path_id"])
+    kept_chains = [ch for ch in graph.chains if ch.id in kept_ids]
+
+    def _reason(ch):
+        if ch.status == "failed" or ch.test_fqn in failed_ids:
+            return ["leads_to_failed_test"]
+        cl = next((c for c in clustered["clusters"]
+                   if c["medoid_path_id"] == ch.id), None)
+        return cl["selection_reason"] if cl else ["kept"]
+
+    kept = [{"path_id": ch.id, "test_fqn": ch.test_fqn, "status": ch.status,
+            "node_ids": list(ch.node_ids), "selection_reason": _reason(ch)}
+           for ch in kept_chains]
     # methods: target + direct callers/callees + any method on a kept path
     methods = {graph.target_fqn}
     for e in graph.edges:
@@ -125,8 +142,8 @@ def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
             v = graph.vertex(e.tgt)
             if v and v.type == "method":
                 methods.add(v.fqn)
-    for s in kept:
-        for nid in s["nodes"]:
+    for ch in kept_chains:
+        for nid in ch.node_ids:
             v = graph.vertex(nid)
             if v and v.type == "method":
                 methods.add(v.fqn)
@@ -137,18 +154,27 @@ def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
     # frontier rather than silently empty (dead-param footgun).
     all_failed = sorted({v.fqn for v in graph.vertices
                          if v.type in ("test", "assert") and v.status == "failed"}
-                        | set(failed_ids or ()))
+                        | failed_ids)
 
-    def _dedup(seq):
-        return list(dict.fromkeys(seq))          # order-preserving unique test fqns
-
-    frontier = {
-        "failed": all_failed,
-        "passing_sample": _dedup(s["test_fqn"] for s in buckets["passing"])[:k_passing],
-        "unknown_reachable_sample":
-            _dedup(s["test_fqn"] for s in buckets["unknown_reachable"])[:k_unknown]}
+    sc = clustered["status_counts"]
+    unknown_clusters = [c for c in clustered["clusters"]
+                       if c["cluster_id"].startswith("unknown_reachable")]
+    passing_clusters = [c for c in clustered["clusters"]
+                       if c["cluster_id"].startswith("passing")]
+    # "dropped" = chains not individually detailed as a kept path (failed is never
+    # dropped; the rest are represented — but not individually shown — via their
+    # cluster's summary/omitted_count).
+    dropped = {"failed": 0,
+              "unknown_reachable": max(0, sc.get("unknown_reachable", 0)
+                                       - len(unknown_clusters)),
+              "passing": max(0, sc.get("passing", 0) - len(passing_clusters))}
+    frontier = {"failed": all_failed,
+               "unknown_reachable_clusters": unknown_clusters,
+               "passing_clusters": passing_clusters}
     return {"target": graph.target_fqn, "change_origin": graph.change_origin,
             "methods": methods, "test_frontier": frontier, "paths": kept,
+            "clusters": clustered["clusters"], "forced_paths": clustered["forced_paths"],
+            "selection_method": clustered["selection_method"],
             "dropped_counts": dropped}
 
 
@@ -157,9 +183,10 @@ def render_slice(graph: MutationGraph, subgraph: dict, index: dict) -> dict:
     stats + dropped_counts + the omission note so the model can't infer that only the
     shown tests matter. Edges are typed objects (from/to/type/directions/status)."""
     keep_methods = set(subgraph["methods"])
-    keep_tests = set(subgraph["test_frontier"]["failed"]
-                     + subgraph["test_frontier"]["passing_sample"]
-                     + subgraph["test_frontier"]["unknown_reachable_sample"])
+    keep_tests = set(subgraph["test_frontier"]["failed"])
+    for c in (subgraph["test_frontier"].get("unknown_reachable_clusters", [])
+              + subgraph["test_frontier"].get("passing_clusters", [])):
+        keep_tests.add(c["medoid_test"])
     methods = []
     for fqn in subgraph["methods"]:
         v = next((x for x in graph.vertices if x.type == "method" and x.fqn == fqn), None)
@@ -178,24 +205,31 @@ def render_slice(graph: MutationGraph, subgraph: dict, index: dict) -> dict:
             edges.append({"from": e.src, "to": e.tgt, "type": e.type,
                           "structural_direction": e.structural_direction,
                           "influence_direction": e.influence_direction,
-                          "path_ids": e.path_ids, "test_status": e.test_status})
+                          "path_count": len(e.path_ids),
+                          "sample_path_ids": list(e.path_ids)[:5],
+                          "omitted_path_ids_count": max(0, len(e.path_ids) - 5),
+                          "test_status": e.test_status})
     total_tests = index["test_count"]
     shown = len(keep_tests)
+    n_clusters = (len(subgraph["test_frontier"].get("unknown_reachable_clusters", []))
+                 + len(subgraph["test_frontier"].get("passing_clusters", [])))
     note = (f"This is a RANKED SLICE of a larger mutation graph: {index['method_count']} "
             f"methods, {index['distinct_tests']} reachable tests, {index['chain_count']} "
             f"call chains. Showing {len(subgraph['methods'])} methods and {shown} of "
             f"{total_tests} tests (all {len(subgraph['test_frontier']['failed'])} failed "
-            f"+ samples). Omitted tests/paths are NOT necessarily irrelevant — "
-            f"dropped_counts records what was left out. Influence flows method→test "
-            f"(a method's behaviour influences the tests that assert it), the reverse of "
-            f"the structural call direction.")
+            f"+ {n_clusters} cluster medoids). Omitted tests/paths are NOT necessarily "
+            f"irrelevant — dropped_counts records what was left out. Influence flows "
+            f"method→test (a method's behaviour influences the tests that assert it), "
+            f"the reverse of the structural call direction.")
     return {"target": graph.target_fqn, "change_origin": graph.change_origin,
             "source_graph_stats": {k: index[k] for k in
                 ("method_count", "test_count", "distinct_tests", "chain_count",
                  "edge_count", "status_counts", "top_callers")},
             "methods": methods, "edges": edges,
             "test_frontier": subgraph["test_frontier"],
-            "paths": subgraph["paths"], "dropped_counts": subgraph["dropped_counts"],
+            "paths": subgraph["paths"], "clusters": subgraph["clusters"],
+            "selection_method": subgraph["selection_method"],
+            "dropped_counts": subgraph["dropped_counts"],
             "omission_note": note}
 
 
@@ -223,5 +257,9 @@ def persist(out_dir, graph, index, subgraph, slice_) -> None:
         (d / "index.json").write_text(json.dumps(index, indent=1))
         (d / "subgraph.json").write_text(json.dumps(subgraph, indent=1))
         (d / "slice.json").write_text(json.dumps(slice_, indent=1))
+        (d / "clusters.json").write_text(json.dumps({
+            "selection_method": subgraph.get("selection_method"),
+            "forced_paths": subgraph.get("forced_paths"),
+            "clusters": subgraph.get("clusters")}, indent=1))
     except OSError:
         pass
