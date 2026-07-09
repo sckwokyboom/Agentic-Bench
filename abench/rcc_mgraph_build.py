@@ -63,12 +63,29 @@ def _from_json(obj: dict) -> MutationGraph:
 def artifact_builder(workdir, target_fqn, coverage, *, artifact_path,
                      target_source=None) -> "MutationGraph | None":
     """PRIMARY: load a precomputed GT graph.json artifact -> leak-safe MutationGraph.
-    None on a missing/corrupt artifact (caller degrades to plain phased)."""
+    Transparently handles a gzip-compressed artifact (``*.json.gz``) — the shipped
+    overlay artifact is gzipped (~90KB vs ~9MB raw). None on a missing/corrupt
+    artifact (caller degrades to plain phased)."""
     try:
-        gj = json.loads(Path(artifact_path).read_text())
+        p = Path(artifact_path)
+        if str(p).endswith(".gz"):
+            import gzip
+            gj = json.loads(gzip.decompress(p.read_bytes()).decode("utf-8"))
+        else:
+            gj = json.loads(p.read_text())
     except (OSError, ValueError):
         return None
     return parse_gt_graph(gj, target_source=target_source)
+
+
+def resolve_artifact(impact_dir) -> "Path | None":
+    """The precomputed GT mutation-graph artifact in an .impact dir, if present:
+    ``mutation-graph.json`` (plain) or ``mutation-graph.json.gz`` (shipped form)."""
+    d = Path(impact_dir)
+    for name in ("mutation-graph.json", "mutation-graph.json.gz"):
+        if (d / name).is_file():
+            return d / name
+    return None
 
 
 def _build_graph_prompt(target_fqn: str, coverage: dict) -> str:

@@ -81,3 +81,21 @@ def test_build_mutation_graph_dispatches(tmp_path):
     art.write_text(json.dumps(_GT_JSON))
     g = build_mutation_graph("/wd", "p.C.put", {}, builder="artifact", artifact_path=art)
     assert g.target_fqn == "p.C.put"
+
+
+def test_artifact_builder_handles_gzip_and_resolve(tmp_path):
+    import gzip, json
+    from abench.rcc_mgraph_build import artifact_builder, resolve_artifact
+    gj = {"target": {"fqn": "p.C.put", "current_body": "SECRET"},
+          "method_bodies": {}, "chains": []}
+    d = tmp_path / ".impact"; d.mkdir()
+    (d / "mutation-graph.json.gz").write_bytes(gzip.compress(json.dumps(gj).encode()))
+    p = resolve_artifact(d)
+    assert p is not None and p.name == "mutation-graph.json.gz"
+    g = artifact_builder("/wd", "p.C.put", {}, artifact_path=p)
+    assert g is not None and g.target_fqn == "p.C.put"
+    assert g.vertex(g.target_id).source is None            # leak stripped from .gz too
+    # plain .json still preferred when both present
+    (d / "mutation-graph.json").write_text(json.dumps(gj))
+    assert resolve_artifact(d).name == "mutation-graph.json"
+    assert resolve_artifact(tmp_path / "nope") is None

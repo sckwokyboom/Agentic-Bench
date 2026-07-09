@@ -598,17 +598,21 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         from .rcc_mgraph_build import build_mutation_graph
                         from .rcc_orchestrate import run_rcc_condition
                         ocfg = exp.orchestration
-                        art = workdir / ".impact" / "mutation-graph.json"
+                        from .rcc_mgraph_build import resolve_artifact
+                        art = resolve_artifact(workdir / ".impact")   # .json or .json.gz
                         builder = os.environ.get(
                             "ABENCH_RCC_GRAPH_BUILDER",
-                            "artifact" if art.is_file() else "llm")
+                            "artifact" if art else "llm")
                         if builder not in ("artifact", "llm", "gt"):
                             _log(f"[abench] rcc: unknown builder '{builder}' — using llm")
                             builder = "llm"
-                        if builder == "llm" and not art.is_file():
-                            _log("[abench] rcc: no .impact/mutation-graph.json artifact "
-                                 "— using the LLM graph builder (precompute a GT artifact "
-                                 "for the GT-graph arm)")
+                        if builder == "artifact" and art is None:
+                            _log("[abench] rcc: ABENCH_RCC_GRAPH_BUILDER=artifact but no "
+                                 ".impact/mutation-graph.json[.gz] — falling back to llm")
+                            builder = "llm"
+                        if builder == "llm":
+                            _log("[abench] rcc: LLM graph builder"
+                                 + ("" if art is None else " (artifact present but overridden)"))
                         bkw = ({"artifact_path": art} if builder == "artifact"
                                else {"phase_runner": phase_runner} if builder == "llm"
                                else {"gt_home": os.environ.get("GRAPH_TIPPER_HOME", "")})
