@@ -207,4 +207,11 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         # Advisory validity check: did the agent likely cheat? (network/git
         # history/outside-FS/broad-search from the trace + output≈original).
         "cheating": detect_cheating(trace, target_similarity=trace.target_similarity),
+        # RapidCausalCoder telemetry (None/False/0 for non-rcc runs) — feeds APFDc
+        # (root_rank), the hit-rate demo, and degrade-frequency analysis.
+        "rcc_root_rank": trace.rcc_root_rank,
+        "rcc_memory_hit": trace.rcc_memory_hit,
+        "rcc_beta_degraded": trace.rcc_beta_degraded,
+        "rcc_gamma_degraded": trace.rcc_gamma_degraded,
+        "rcc_subset_test_runs": trace.rcc_subset_test_runs,
     }

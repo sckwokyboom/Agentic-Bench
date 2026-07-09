@@ -345,3 +345,21 @@ def test_seed_prefixes_trace_and_counters():
     assert tr.controller_test_runs == 2 + 3      # seeded 2 + beta/fix subset/full
     assert tr.accepted_rounds == 1 + 1           # seeded 1 + green full
     assert tr.orchestration_outcome == "green"
+
+
+def test_metrics_carry_rcc_fields():
+    from abench.metrics import MetricsConfig, extract
+    from abench.trace_model import Trace
+    m_cfg = MetricsConfig(test_command_patterns=[], shell_tool_names=[],
+                          read_tool_names=[], search_tool_names=[],
+                          command_arg_keys=[])
+    tr = Trace()
+    tr.rcc_root_rank = 2
+    tr.rcc_memory_hit = True
+    tr.rcc_beta_degraded = True
+    tr.rcc_gamma_degraded = False
+    tr.rcc_subset_test_runs = 4
+    m = extract(tr, "", m_cfg)
+    assert m["rcc_root_rank"] == 2 and m["rcc_memory_hit"] is True
+    assert m["rcc_beta_degraded"] is True and m["rcc_gamma_degraded"] is False
+    assert m["rcc_subset_test_runs"] == 4
