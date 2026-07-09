@@ -1,0 +1,54 @@
+# phased-vs-rcc A/B on the putValue mutant (host mode, Mac). Same model, same
+# temperature, same understand->implement prefix — the ONLY contrast is the
+# repair loop: plain diagnose (phased) vs RapidCausalCoder (rcc).
+#
+# Run (venv active, JDK 21):
+#   JAVA_HOME=/opt/homebrew/opt/openjdk@21 \
+#     .venv/bin/abench run experiments/picocli-putValue/experiment-mac-rcc-ab.yaml
+#
+# Memory validity: each rep gets a FRESH rcc-memory.json (per-rep rundir).
+# The hit-rate demo is scripts/rcc_hit_demo.py — NEVER mixed into this A/B.
+name: picocli-putValue-rcc-ab
+fixture_path: ./stripped
+reference_path: ./original
+task_prompt: ./prompts/task.md
+system_prompt: ./prompts/system.md
+
+model: openrouter/nvidia/nemotron-3-super-120b-a12b:free
+timeout_s: 1800
+repetitions: 1      # raise to 3+ for the real A/B; 1 = smoke
+output_dir: ./runs
+
+opencode:
+  agent: abench
+  sandbox:
+    mode: none
+
+orchestration:
+  target_label: the TextTable.putValue method
+  max_diagnose_iters: 8
+  no_progress_limit: 2
+  cluster_cap: 5
+  rcc_max_attempts: 2
+  rcc_subset_class_cap: 15
+
+conditions:
+  - name: phased
+    orchestration: phased
+    overlay: ./overlays/impact-artifacts
+    restore_non_target_before_verify: true
+  - name: rcc
+    orchestration: rcc
+    overlay: ./overlays/impact-artifacts
+    restore_non_target_before_verify: true
+
+target_file: src/main/java/picocli/CommandLine.java
+target_methods: [putValue]
+
+verify:
+  timeout_s: 1800
+
+metrics:
+  test_command_patterns:
+    - "(mvn|mvnw)( |$)"
+    - "gradle(w)?( |$)"
