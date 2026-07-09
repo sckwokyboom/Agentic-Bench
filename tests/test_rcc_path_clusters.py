@@ -70,3 +70,18 @@ def test_cluster_chains_separates_direct_from_deep_paths():
     assert c0["medoid_path_id"] in {"p2", "p3", "p4", "p5"}
     assert "put" in c0["path_shape"] and "→" in c0["path_shape"]
     assert c0["size"] >= 1 and "selection_reason" in c0
+
+
+def test_weighted_lcs_distance_is_symmetric():
+    g = _g()
+    a = normalize_chain(g, g.chains[0])   # test → addRow → put
+    b = normalize_chain(g, g.chains[4])   # test → syn → join → addRow → put
+    assert abs(weighted_lcs_distance(a, b) - weighted_lcs_distance(b, a)) < 1e-9
+
+
+def test_score_used_as_within_cluster_priority():
+    g = _g()
+    from abench.rcc_graph_layers import annotate_status
+    annotate_status(g, failed_ids={"picocli.HT.a1"})
+    res = cluster_chains(g, k_unknown=2)
+    assert all("top_scored_test" in c for c in res["clusters"])   # score wired in

@@ -51,18 +51,19 @@ def _wlen(seq) -> float:
 
 
 def weighted_lcs_distance(a, b) -> float:
-    """1 − 2·wLCS/(w(a)+w(b)); labels match on equality, matched weight = a's weight.
-    0 identical, →1 disjoint."""
+    """1 − 2·wLCS/(w(a)+w(b)); labels match on equality, matched weight = the MEAN of
+    the two sides' weights so the distance is SYMMETRIC (d(a,b)==d(b,a)) — greedy_kmedoids
+    assumes symmetry. 0 identical, →1 disjoint."""
     if not a or not b:
         return 1.0
     la, lb = [x[0] for x in a], [x[0] for x in b]
-    wa = [x[1] for x in a]
-    # weighted LCS DP
+    wa, wb = [x[1] for x in a], [x[1] for x in b]
+    # weighted LCS DP; a matched label contributes the mean of its two role-weights
     dp = [[0.0] * (len(lb) + 1) for _ in range(len(la) + 1)]
     for i in range(1, len(la) + 1):
         for j in range(1, len(lb) + 1):
             if la[i - 1] == lb[j - 1]:
-                dp[i][j] = dp[i - 1][j - 1] + wa[i - 1]
+                dp[i][j] = dp[i - 1][j - 1] + (wa[i - 1] + wb[j - 1]) / 2.0
             else:
                 dp[i][j] = dp[i - 1][j] if dp[i - 1][j] >= dp[i][j - 1] else dp[i][j - 1]
     wlcs = dp[len(la)][len(lb)]
@@ -152,6 +153,11 @@ def cluster_chains(graph, *, k_unknown: "int | None" = None) -> dict:
                       by_status["unknown_reachable"]).append(c)
     forced = [c.id for c in by_status["failed"]]
     _cache: dict = {}          # shared across buckets — normalize_chain/_edge_types memo
+    # R3-lite: k-medoid gives DIVERSITY; the R2 deterministic score is demoted to a
+    # WITHIN-cluster PRIORITY signal (tie-break example ordering + a top-scored pick),
+    # not the diversity mechanism.
+    from .rcc_graph_layers import score_chains
+    _score = {s["path_id"]: s["score"] for s in score_chains(graph)}
 
     def summarize(bucket_name, chains, k):
         if not chains:
@@ -162,12 +168,15 @@ def cluster_chains(graph, *, k_unknown: "int | None" = None) -> dict:
         for i, cl in enumerate(clusters):
             med = cl["medoid"]
             shape = " → ".join(lbl for lbl, _ in normalize_chain(graph, med))
+            # nearest to the medoid, ties broken by higher within-cluster score
             examples = sorted(cl["members"],
                               key=lambda x: (chain_distance(graph, x, med, _cache=_cache),
-                                             x.id))[:3]
+                                             -_score.get(x.id, 0), x.id))[:3]
+            top = max(cl["members"], key=lambda x: (_score.get(x.id, 0), x.id))
             out.append({
                 "cluster_id": f"{bucket_name}_{i}", "size": len(cl["members"]),
                 "medoid_path_id": med.id, "medoid_test": med.test_fqn,
+                "top_scored_test": top.test_fqn,
                 "path_shape": shape, "status_mix": {bucket_name: len(cl["members"])},
                 "member_ids": [m.id for m in cl["members"]],
                 "nearest_examples": [e.test_fqn for e in examples],
