@@ -173,7 +173,7 @@ def test_build_index_top_callers_distinct_chains_and_topN_classes():
               MgChain(id="p3", test_fqn="p.B.t3", node_ids=["test:B.t3", "method:C.put"])]
     g = MutationGraph(target_id="method:C.put", vertices=vs, edges=[], chains=chains)
     idx = build_index(g)
-    tc = {c["method"]: c["chains"] for c in idx["top_callers"]}
+    tc = {c["method"]: c["distinct_chains"] for c in idx["top_callers"]}
     assert tc["C.addRow"] == 2                       # 2 distinct chains, NOT 3
     assert "reachable_test_classes_top" in idx and "other_reachable_test_classes" in idx
 
@@ -255,6 +255,69 @@ def test_persist_writes_prompt_slice_separate_from_debug(tmp_path):
         assert (tmp_path / f"{name}.json").is_file()
     ps = json.loads((tmp_path / "prompt_slice.json").read_text())
     assert ps["schema"] == "rcc.prompt_slice.v2"
+
+
+def test_compact_edges_preserves_both_calls_and_data_dep_types():
+    # A direct caller with BOTH a CALLS and a DATA_DEP edge into the target must keep
+    # both types after the (from,to) collapse in render_prompt_slice's compact_edges —
+    # the collapse already unions edge_types; this locks the invariant.
+    from abench.rcc_graph_layers import (annotate_status, build_index, build_subgraph,
+                                         render_prompt_slice)
+    from abench.rcc_mutation_graph import MgChain, MgEdge, MgVertex, MutationGraph
+    vs = [MgVertex(id="method:C.put", type="method", fqn="C.put", is_changed=True),
+          MgVertex(id="method:C.caller", type="method", fqn="C.caller"),
+          MgVertex(id="test:T.a", type="test", fqn="p.T.a")]
+    es = [MgEdge(src="method:C.caller", tgt="method:C.put", type="CALLS"),
+          MgEdge(src="method:C.caller", tgt="method:C.put", type="DATA_DEP", data_var="v"),
+          MgEdge(src="test:T.a", tgt="method:C.put", type="TEST_ASSERTS")]
+    chains = [MgChain(id="p0", test_fqn="p.T.a",
+                      node_ids=["test:T.a", "method:C.caller", "method:C.put"])]
+    g = MutationGraph(target_id="method:C.put", vertices=vs, edges=es, chains=chains)
+    annotate_status(g, failed_ids={"p.T.a"})
+    ps = render_prompt_slice(g, build_subgraph(g, failed_ids={"p.T.a"}), build_index(g))
+    e = next(e for e in ps["compact_edges"]
+            if e["from"] == "method:C.caller" and e["to"] == "method:C.put")
+    assert set(e["edge_types"]) == {"CALLS", "DATA_DEP"}
+
+
+def test_render_prompt_slice_v2_failed_test_links_and_gamma_grounding():
+    from abench.rcc_graph_layers import (annotate_status, build_index, build_subgraph,
+                                         render_prompt_slice)
+    from abench.rcc_mgraph_build import artifact_builder
+    from abench.rcc_prompts import gamma_prompt
+    g = artifact_builder("/wd", "putValue", {}, artifact_path=(
+        "experiments/picocli-putValue/gt-out/slice-work/357b6bd1af378e00.graph.json"))
+    if not g:
+        import pytest; pytest.skip("gt sample absent")
+    f = {"picocli.HelpTest.testTextTablePutValue_NullOrEmpty",
+         "picocli.HelpTest.testTextTablePutValue_DisallowsInvalidRowIndex",
+         "picocli.TextTableTest.addRowValues"}
+    annotate_status(g, failed_ids=f)
+    ps = render_prompt_slice(g, build_subgraph(g, failed_ids=f), build_index(g))
+    links = ps.get("failed_test_links", [])
+    assert len(links) == 3
+    for link in links:
+        assert {"test", "observes", "path_shape", "relations"} <= set(link)
+        assert link["observes"] == ps["target"]
+    gp = gamma_prompt(ps, "SPECS", [])
+    assert "FAILED-TEST GROUNDING" in gp
+
+
+def test_focused_method_truncated_source_gets_note():
+    from abench.rcc_graph_layers import (annotate_status, build_index, build_subgraph,
+                                         render_prompt_slice)
+    from abench.rcc_mgraph_build import artifact_builder
+    g = artifact_builder("/wd", "putValue", {}, artifact_path=(
+        "experiments/picocli-putValue/gt-out/slice-work/357b6bd1af378e00.graph.json"))
+    if not g:
+        import pytest; pytest.skip("gt sample absent")
+    f = {"picocli.HelpTest.testTextTablePutValue_NullOrEmpty",
+         "picocli.HelpTest.testTextTablePutValue_DisallowsInvalidRowIndex",
+         "picocli.TextTableTest.addRowValues"}
+    annotate_status(g, failed_ids=f)
+    ps = render_prompt_slice(g, build_subgraph(g, failed_ids=f), build_index(g))
+    m = next(m for m in ps["focused_methods"] if m["role"] == "direct_caller")
+    assert m.get("source_note") == "(excerpt — read the full body from the workdir if needed)"
 
 
 def test_focused_keeps_late_named_direct_caller_despite_context_noise():

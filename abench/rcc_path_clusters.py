@@ -186,6 +186,12 @@ def cluster_chains(graph, *, k_unknown: "int | None" = None) -> dict:
                               key=lambda x: (chain_distance(graph, x, med, _cache=_cache),
                                              -_score.get(x.id, 0), x.id))[:3]
             top = max(cl["members"], key=lambda x: (_score.get(x.id, 0), x.id))
+            # cluster_quality — how tight the cluster is around its medoid (diagnostics
+            # only; clusters.json via persist, NEVER the v2 prompt slice — that stays
+            # lean). Empty/singleton clusters have nothing to spread from -> 0.0.
+            dists = [chain_distance(graph, m, med, _cache=_cache) for m in cl["members"]]
+            avg_d = round(sum(dists) / len(dists), 3) if dists else 0.0
+            max_d = round(max(dists), 3) if dists else 0.0
             out.append({
                 "cluster_id": f"{bucket_name}_{i}", "size": len(cl["members"]),
                 "medoid_path_id": med.id, "medoid_test": med.test_fqn,
@@ -194,6 +200,8 @@ def cluster_chains(graph, *, k_unknown: "int | None" = None) -> dict:
                 "member_ids": [m.id for m in cl["members"]],
                 "nearest_examples": [e.test_fqn for e in examples],
                 "omitted_count": max(0, len(cl["members"]) - len(examples)),
+                "cluster_quality": {"avg_distance_to_medoid": avg_d,
+                                    "max_distance_to_medoid": max_d},
                 "selection_reason": ["k_medoid_representative", f"bucket:{bucket_name}"]})
         return out
 

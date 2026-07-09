@@ -87,6 +87,21 @@ def test_score_used_as_within_cluster_priority():
     assert all("top_scored_test" in c for c in res["clusters"])   # score wired in
 
 
+def test_cluster_quality_present_in_clusters_but_excluded_from_v2_slice():
+    g = _g()
+    from abench.rcc_graph_layers import (annotate_status, build_index, build_subgraph,
+                                         render_prompt_slice)
+    annotate_status(g, failed_ids={"picocli.HT.a1"})
+    res = cluster_chains(g, k_unknown=2)
+    for c in res["clusters"]:
+        assert "cluster_quality" in c
+        assert {"avg_distance_to_medoid", "max_distance_to_medoid"} <= set(c["cluster_quality"])
+    ps = render_prompt_slice(g, build_subgraph(g, failed_ids={"picocli.HT.a1"}, k_unknown=2),
+                             build_index(g))
+    assert ps["representative_path_clusters"]      # non-empty, so the check is meaningful
+    assert all("cluster_quality" not in c for c in ps["representative_path_clusters"])
+
+
 def test_compress_shape_run_length():
     from abench.rcc_path_clusters import compress_shape
     assert compress_shape(["t", "addRow", "addRow", "put"]) == "t → addRow×2 → put"

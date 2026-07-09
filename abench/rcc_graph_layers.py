@@ -53,7 +53,7 @@ def build_index(graph: MutationGraph) -> dict:
                     and v.fqn not in seen:
                 seen.add(v.fqn)
                 through[v.fqn] = through.get(v.fqn, 0) + 1
-    top_callers = [{"method": m, "chains": n}
+    top_callers = [{"method": m, "distinct_chains": n}
                    for m, n in sorted(through.items(), key=lambda kv: (-kv[1], kv[0]))[:8]]
     edge_type_counts: dict = {}
     for e in graph.edges:
@@ -269,6 +269,8 @@ def render_prompt_slice(graph: MutationGraph, subgraph: dict, index: dict) -> di
     inspector object). focused_methods (contract subjects) = target + direct callers/
     callees, with source; path-context methods are labels; one cluster block (no
     member_ids); collapsed edges; top-N index; run-length-compressed shapes."""
+    from .rcc_path_clusters import _edge_types, _simple, compress_shape, normalize_chain
+
     tfqn = graph.target_fqn
     src_by_fqn = {v.fqn: v for v in graph.vertices if v.type == "method"}
 
@@ -277,9 +279,14 @@ def render_prompt_slice(graph: MutationGraph, subgraph: dict, index: dict) -> di
         v = src_by_fqn.get(m["fqn"])
         sig = (v.l1_skeleton or {}).get("signature") if v else None
         body = v.source if v else None
-        focused.append({"fqn": m["fqn"], "role": m["role"], "signature": sig,
-                        "source": body,
-                        "source_from_workdir": (m["role"] == "target" and body is None)})
+        entry = {"fqn": m["fqn"], "role": m["role"], "signature": sig,
+                 "source": body,
+                 "source_from_workdir": (m["role"] == "target" and body is None)}
+        # GT sliced_body excerpts are truncated ("// ..."); flag it (and any missing,
+        # non-target source) so Alpha/Beta know to read the full body from the workdir.
+        if (body and "// ..." in body) or (body is None and m["role"] != "target"):
+            entry["source_note"] = "(excerpt — read the full body from the workdir if needed)"
+        focused.append(entry)
 
     frontier = subgraph.get("test_frontier", {})
     clusters = []
@@ -290,6 +297,20 @@ def render_prompt_slice(graph: MutationGraph, subgraph: dict, index: dict) -> di
                          "sample_member_ids": (c.get("member_ids") or [])[:3],
                          "omitted_member_ids_count": max(0, c["size"]
                                                          - len((c.get("member_ids") or [])[:3]))})
+
+    # failed_test_links — grounds each failed test to a concrete chain reaching the
+    # target, so Gamma isn't just told "these tests failed" but HOW they observe it.
+    failed_test_links = []
+    for tfqn_failed in frontier.get("failed", []):
+        ch = next((c for c in graph.chains if c.test_fqn == tfqn_failed), None)
+        if ch is not None:
+            shape = compress_shape([lbl for lbl, _ in normalize_chain(graph, ch)])
+            relations = sorted(_edge_types(graph, ch))
+        else:
+            shape = f"test → {_simple(tfqn)}"
+            relations = ["TEST_ASSERTS"]
+        failed_test_links.append({"test": tfqn_failed, "observes": tfqn,
+                                  "path_shape": shape, "relations": relations})
 
     # collapse CALLS/DATA_DEP between the same (from,to), among focused methods only
     fset = {m["fqn"] for m in focused}
@@ -337,6 +358,7 @@ def render_prompt_slice(graph: MutationGraph, subgraph: dict, index: dict) -> di
           "selection_summary": selection, "focused_methods": focused,
           "path_context_methods": subgraph.get("path_context_methods", []),
           "failed_tests": frontier.get("failed", []),
+          "failed_test_links": failed_test_links,
           "representative_path_clusters": clusters, "compact_edges": compact_edges,
           "omission_note": note}
     blob = json.dumps(ps)

@@ -40,7 +40,7 @@ def _stats_line(sl: dict) -> str:
             f"{s.get('tests','?')} reachable tests, {s.get('chains','?')} "
             f"call chains; status {s.get('status', {})}; "
             f"top reachable test classes: {rtc_txt}; "
-            f"top caller: {tc.get('method','?')} ({tc.get('chains','?')} chains).")
+            f"top caller: {tc.get('method','?')} ({tc.get('distinct_chains','?')} chains).")
 
 
 def _methods_block(sl: dict) -> str:
@@ -51,7 +51,10 @@ def _methods_block(sl: dict) -> str:
             src = "(target body — read it from the workdir)"
         else:
             src = m.get("source") or "(source unavailable — read it yourself)"
-        parts.append(f"### {m['fqn']}{tag}  {m.get('signature') or ''}\n```java\n{src}\n```")
+        block = f"### {m['fqn']}{tag}  {m.get('signature') or ''}\n```java\n{src}\n```"
+        if m.get("source_note"):
+            block += f"\n{m['source_note']}"
+        parts.append(block)
     pc = sl.get("path_context_methods", [])
     names = ", ".join(_simple(fqn) for fqn in pc[:20]) or "(none)"
     parts.append("Path-context methods (structural reference only — do NOT write "
@@ -79,6 +82,12 @@ def _frontier_block(sl: dict) -> str:
         for c in cl:
             lines.append(f"  - [{c['size']} paths] {c['path_shape']}  "
                          f"(e.g. {c['medoid_test']})")
+    links = sl.get("failed_test_links", [])
+    if links:
+        lines.append("FAILED-TEST GROUNDING:")
+        for link in links:
+            lines.append(f"  - {link['test']} observes {_simple(link['observes'])} via "
+                         f"{link['path_shape']} {link['relations']}")
     return "\n".join(lines)
 
 

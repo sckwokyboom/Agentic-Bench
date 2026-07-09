@@ -103,7 +103,7 @@ _SLICE = {
         "status": {"failed": 3, "passing": 0, "unknown_reachable": 1403},
         "reachable_test_classes_top": [{"class": "p.HT", "tests": 1200}],
         "other_reachable_test_classes": 4,
-        "top_callers": [{"method": "p.C.addRowValues", "chains": 1256}]},
+        "top_callers": [{"method": "p.C.addRowValues", "distinct_chains": 1256}]},
     "selection_summary": {"method": "path_k_medoids_weighted_lcs",
                           "shown_failed_tests": 1, "shown_unknown_clusters": 1,
                           "shown_focused_methods": 2,
