@@ -613,3 +613,79 @@ split: **k-medoid = representativeness; deterministic score = within-cluster pri
 ## R3-lite deferred (Phase 3, unchanged)
 Silhouette k-search, PAM/true k-medoids, HGT/spectral, `passing` status via JUnit-XML,
 changed-statement vertex, coverage_hits, semantic name similarity.
+
+---
+
+# Revision R3.1 — PromptSlice v2 (debug ≠ model contract) (2026-07-09)
+
+## Why R3.1
+
+R1/R2/R3 fixed the SUBSTRATE, but the object Alpha/Gamma actually render is still a
+debug dump, not a prompt contract. Concretely (measured on the real putValue slice):
+Alpha is asked to write pre/post/inv for 8 methods, but only 2 (`putValue` target +
+`addRowValues` direct caller) matter — the other 6 (`Assert.assertTrue`,
+`detailedSynopsis`, `join`, `createHeading`, `insertSynopsisCommandName`, `heading`) are
+PATH-CONTEXT methods on the chains, irrelevant as contract subjects. The persisted
+slice.json also carries debug-only noise (full member_ids, full reachable_test_classes,
+duplicated clusters, raw node_ids). Three consumers are conflated into one object:
+debug artifact ≠ model contract ≠ research artifact. **Status: graph substrate accepted;
+PromptSlice format NOT accepted — R3.1 cleans it.**
+
+## R3.1 decisions (ChatGPT-reviewed, accepted)
+
+1. **Split debug from the model contract.** Full member_ids / reachable_test_classes /
+   raw cluster members / raw node_ids stay in `raw.json`/`index.json`/`subgraph.json`/
+   `clusters.json` (may be large). A NEW `prompt_slice.json` (schema
+   `rcc.prompt_slice.v2`) is the ONLY thing Alpha/Gamma render — summary-only.
+2. **Method roles are the core fix.** `focused_methods` (contract subjects, WITH source)
+   = target + direct callers/callees ONLY. PATH-CONTEXT methods (on longer chains) →
+   labels in `path_shape`, NOT contract subjects. UTILITY helpers (Assert.*, etc.) →
+   excluded / role-labeled, no source. Alpha writes contracts for focused_methods only.
+3. **PromptSlice v2 fields:** `schema, target, change_origin, source_graph_summary
+   {methods,tests,chains,edges,status}, selection_summary {method, shown_tests,
+   shown_failed_tests, shown_unknown_clusters, dropped}, focused_methods
+   [{fqn,role,signature,source|source_from_workdir}], path_context_methods [labels],
+   failed_tests [names], representative_path_clusters (ONE block; no member_ids),
+   compact_edges, omission_note, prompt_slice_stats {approx_tokens,methods,edges,clusters}`.
+4. **No full member_ids in the slice** → `member_count`, `sample_member_ids` (≤3),
+   `omitted_member_ids_count`.
+5. **One cluster block** — no duplication between a `test_frontier` and a top-level
+   `clusters`.
+6. **Compress repeated nodes** in path shapes: `addRowValues→addRowValues→putValue` →
+   `addRowValues×2 → putValue`; `parse→parse→parse` → `parse×3`.
+7. **GraphIndex in the prompt = top-N only:** `reachable_test_classes_top` (≤5) +
+   `other_reachable_test_classes` count. The full histogram stays in `index.json`.
+8. **Collapse CALLS/DATA_DEP** between the same (from,to) into one compact_edge with
+   `edge_types: [...]` + `path_count`/`sample_path_ids`(≤3)/`omitted_path_ids_count`.
+   Only edges among focused_methods appear.
+9. **Fix top_callers double-count:** count DISTINCT chains through a method (a method
+   that appears twice in a chain counts once) — the current count exceeds total chains.
+10. **`prompt_slice_stats`** with approx_tokens for a hard acceptance gate.
+
+## R3.1 acceptance (enforced in tests)
+- `prompt_slice.json` approx_tokens < 5000;
+- `focused_methods` = target + direct callers/callees only (small; NO synopsis/assert
+  path-context noise) — every entry role ∈ {target, direct_caller, direct_callee};
+- NO `member_ids` / full `reachable_test_classes` anywhere in the prompt slice;
+- clusters appear exactly once;
+- path shapes are run-length compressed;
+- Alpha/Gamma render `prompt_slice.json`, not the inspector object.
+
+## R3.1 code shape
+- `rcc_graph_layers.py`: `build_index` — fix distinct-chain top_callers + add
+  `reachable_test_classes_top`/`other_reachable_test_classes`. `build_subgraph` — classify
+  method roles (target/direct_caller/direct_callee/path_context/utility); keep the rich
+  object as the inspector/subgraph data. New `render_prompt_slice(graph, subgraph, index)`
+  → the v2 compact object (focused_methods only + path_context labels + one cluster block
+  + compact_edges + stats). Keep the old `render_slice` as the inspector renderer (persist
+  it as `subgraph`/`inspector`, not as the prompt input). `persist` writes
+  `prompt_slice.json` (v2) + the big debug layers.
+- `rcc_path_clusters.py`: `path_shape` compression helper (run-length).
+- `rcc_prompts.py`: Alpha/Gamma render v2 — contracts for focused_methods; path_context +
+  clusters shown as structural REFERENCE (not contract subjects); top-N index header.
+- `rcc_orchestrate.py` / `rcc_graph.py`: hand the v2 prompt_slice to run_rcc; methods for
+  CausalRank = focused_methods (target-first).
+
+## R3.1 deferred (Phase 3)
+Semantic path role naming ("parser/validation rendering cluster"); per-method AST
+skeleton in focused_methods; the same v2 treatment for the memory-cache prompt.
