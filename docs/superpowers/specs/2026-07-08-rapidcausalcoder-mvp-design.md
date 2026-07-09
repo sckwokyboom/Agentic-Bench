@@ -544,3 +544,72 @@ mutation graph". The mutation graph is GraphRaw.
 
 k-medoid / HGT ranking; `coverage_hits` (JaCoCo); a real changed-statement vertex;
 semantic name-similarity scoring; `passing` status via full JUnit-XML parse.
+
+---
+
+# Revision R3-lite — path k-medoid clustering (2026-07-09)
+
+## Why R3-lite
+
+R2's `score_chains` is deterministic PRIORITY, not DIVERSITY. top-K-by-score picks
+near-duplicate high-priority paths (all `test → addRowValues → putValue`) and drops the
+structurally-different usage scenarios (`… → detailedSynopsis → makeSynopsisFromParts →
+insertSynopsisCommandName → addRowValues → putValue`). The original concept builds the
+mutational subgraph via k-medoid over chains — R2 deferred it; R3-lite implements it (the
+artifact-informativeness the user asked for + it trims the residual slice bloat). Guiding
+split: **k-medoid = representativeness; deterministic score = within-cluster priority.**
+
+## R3-lite design (ChatGPT-reviewed, accepted)
+
+1. **Cluster CHAINS (paths), not methods/edges.** One data point = one `MgChain`
+   (normalized to a sequence of node labels test→…→target).
+2. **Distance = weighted LCS** over the node sequence + small mixed components:
+   `dist = 0.7·weighted_lcs + 0.2·test_class_distance + 0.1·edge_type_jaccard`.
+   Node weights (so a shared `…→putValue` suffix doesn't collapse everything):
+   target ≈ 0.1, direct caller (addRowValues) ≈ 0.5, upstream method ≈ 1.0, test node
+   carries its test-class ≈ 0.7. `weighted_lcs_distance = 1 − 2·wLCS/(w(a)+w(b))`.
+3. **Status buckets:** `failed` = force-include ALL; `unknown_reachable` = k-medoid;
+   `passing` = k-medoid when available (Phase-3 status seam).
+4. **k** = `min(8, max(3, round(sqrt(n_unknown)/5)))` (MVP; ~1523 → 8).
+5. **Dependency-free greedy k-medoids:** farthest-first init (first medoid = the
+   lowest-avg-distance / most-central chain; then repeatedly add the chain farthest from
+   its nearest medoid) → assign each chain to nearest medoid → refine each cluster's
+   medoid (min sum of intra-cluster distance; cap the refinement scan at ~200 sampled
+   members for big clusters). Deterministic (stable tie-breaks by path_id).
+6. **New artifact `rundir/rcc-graph/clusters.json`:** `{schema:
+   "rcc.path_clusters.v1", target, selection_method:
+   "path_k_medoids_weighted_lcs", distance{...}, status_buckets{...}, clusters:[{cluster_id,
+   size, medoid_path_id, medoid_test, path_shape, status_mix, selection_reason,
+   nearest_examples(≤3), omitted_count}], forced_paths:[failed path ids]}`.
+7. **PromptSlice renders CLUSTERS, not raw sample arrays:** the test_frontier's
+   `unknown_reachable_sample` (a flat list) becomes `unknown_reachable_clusters`
+   (medoid_test + path_shape + size). Edges drop the full `path_ids` array → carry
+   `path_count`, `sample_path_ids` (≤5), `omitted_path_ids_count`. This also cuts slice
+   size.
+8. **Deterministic score kept as within-cluster priority** (pick the top-scored path as
+   the cluster's representative example alongside the medoid), NOT as the diversity
+   mechanism. `selection_method` recorded so the slice is honest about how it was built.
+
+## R3-lite code shape
+- Create `abench/rcc_path_clusters.py`: `normalize_chain(graph, chain)`,
+  `weighted_lcs_distance(a, b)`, `chain_distance(graph, ca, cb)`,
+  `greedy_kmedoids(items, dist, k)`, `cluster_chains(graph, *, k_unknown)` → the
+  clusters + forced_paths structure.
+- `rcc_graph_layers.build_subgraph`: use `cluster_chains` (force-include failed +
+  cluster unknown) in place of top-K bucket slicing; carry `clusters` + `forced_paths`
+  + per-cluster selection_reason; keep dropped_counts.
+- `rcc_graph_layers.render_slice`: render `*_clusters` summaries; edges use
+  path_count/sample/omitted instead of full path_ids.
+- `rcc_graph_layers.persist`: also write `clusters.json`.
+- Alpha/Gamma prompts: render the cluster summaries (medoid_test + path_shape + size)
+  under the test frontier, with the omission note unchanged.
+
+## R3-lite tests (acceptance)
+- all failed paths preserved (force-included); ≥ k unknown clusters produced;
+  a direct `addRowValues` path and a longer help-rendering path land in DIFFERENT
+  clusters; PromptSlice edges carry no full path_ids arrays (sample ≤ 5 + omitted count);
+  weighted_lcs_distance sane (identical=0, disjoint≈1, shared-suffix-only < 1 but > 0).
+
+## R3-lite deferred (Phase 3, unchanged)
+Silhouette k-search, PAM/true k-medoids, HGT/spectral, `passing` status via JUnit-XML,
+changed-statement vertex, coverage_hits, semantic name similarity.
