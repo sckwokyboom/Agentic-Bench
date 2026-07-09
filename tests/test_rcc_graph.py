@@ -248,3 +248,18 @@ def test_gamma_unparseable_twice_falls_back_to_target_first():
     # fix-1 focused on the target (first in subgraph order)
     fix_prompt_text = [p for (n, p, _t) in phase.calls if n == "fix-1"][0]
     assert "p.C.put" in fix_prompt_text and "no causal graph" in fix_prompt_text
+
+
+def test_trace_rcc_fields_roundtrip():
+    from abench.trace_model import Trace, trace_from_dict
+    tr = Trace()
+    assert tr.rcc_root_rank is None and tr.rcc_memory_hit is False
+    tr.rcc_root_rank = 1
+    tr.rcc_memory_hit = True
+    tr.rcc_beta_degraded = True
+    tr.rcc_gamma_degraded = False
+    tr.rcc_subset_test_runs = 2
+    back = trace_from_dict(tr.to_dict())
+    assert back.rcc_root_rank == 1 and back.rcc_memory_hit is True
+    assert back.rcc_beta_degraded is True and back.rcc_gamma_degraded is False
+    assert back.rcc_subset_test_runs == 2

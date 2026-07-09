@@ -148,6 +148,17 @@ class Trace:
     # (does NOT affect the final state — the working tree is never reverted to it).
     best_failed_reached: int | None = None
 
+    # RapidCausalCoder (rcc) telemetry — None/False/0 for non-rcc runs.
+    # root_rank: CausalRank position of the known true root (APFDc numerator);
+    # memory_hit: the Memory Graph fast path was taken; *_degraded: the loop fell
+    # back (beta = no runtime logs, gamma = no causal graph); subset_test_runs:
+    # narrowed suite invocations (controller_test_runs counts subset + full).
+    rcc_root_rank: int | None = None
+    rcc_memory_hit: bool = False
+    rcc_beta_degraded: bool = False
+    rcc_gamma_degraded: bool = False
+    rcc_subset_test_runs: int = 0
+
     # v2 timing breakdown — placeholder fields, populated in Phase 2
     llm_latency_s: float | None = None
     tool_exec_s: float | None = None
