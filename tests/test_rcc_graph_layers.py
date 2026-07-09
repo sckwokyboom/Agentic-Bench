@@ -17,7 +17,9 @@ def _g():
           MgChain(id="p3", test_fqn="U.c", node_ids=["test:U.c", "method:C.caller",
                                                      "method:C.put"])]
     return MutationGraph(target_id="method:C.put", vertices=vs, edges=es, chains=ch,
-                         stats={"chain_count": 3, "distinct_tests": 3})
+                         stats={"chain_count": 3, "distinct_tests": 3},
+                         change_origin={"kind": "method_level_only", "method_fqn": "C.put",
+                                        "changed_statement_available": False})
 
 
 def test_annotate_status_marks_failed_else_unknown_reachable():
@@ -71,3 +73,29 @@ def test_build_subgraph_keeps_all_failed_and_reports_drops():
     assert gs["dropped_counts"]["unknown_reachable"] >= 1
     # every selected path carries a reason
     assert all(p["selection_reason"] for p in gs["paths"])
+
+
+def test_render_slice_has_stats_frontier_and_omission():
+    from abench.rcc_graph_layers import build_index, build_subgraph, render_slice
+    g = annotate_status(_g(), failed_ids={"T.a"})
+    slice_ = render_slice(g, build_subgraph(g), build_index(g))
+    assert slice_["source_graph_stats"]["chain_count"] == 3
+    assert slice_["test_frontier"]["failed"] == ["T.a"]
+    assert slice_["omission_note"]                       # non-empty honesty note
+    assert slice_["change_origin"]["kind"] == "method_level_only"
+    # edges are typed objects with both directions, never strings
+    e = slice_["edges"][0]
+    assert set(e) >= {"from", "to", "type", "structural_direction", "influence_direction"}
+
+
+def test_persist_writes_four_layers(tmp_path):
+    from abench.rcc_graph_layers import build_index, build_subgraph, persist, render_slice
+    g = annotate_status(_g(), failed_ids={"T.a"})
+    idx, gs = build_index(g), build_subgraph(g)
+    sl = render_slice(g, gs, idx)
+    persist(tmp_path, g, idx, gs, sl)
+    import json as _j
+    for name in ("raw", "index", "subgraph", "slice"):
+        assert (tmp_path / f"{name}.json").is_file()
+    raw = _j.loads((tmp_path / "raw.json").read_text())
+    assert raw["stats"]["chain_count"] == 3 and "SECRET" not in _j.dumps(raw)

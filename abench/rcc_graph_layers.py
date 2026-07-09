@@ -142,3 +142,78 @@ def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
     return {"target": graph.target_fqn, "change_origin": graph.change_origin,
             "methods": methods, "test_frontier": frontier, "paths": kept,
             "dropped_counts": dropped}
+
+
+def render_slice(graph: MutationGraph, subgraph: dict, index: dict) -> dict:
+    """PromptSlice — the compact object Alpha/Gamma render. Carries the FULL-graph
+    stats + dropped_counts + the omission note so the model can't infer that only the
+    shown tests matter. Edges are typed objects (from/to/type/directions/status)."""
+    keep_methods = set(subgraph["methods"])
+    keep_tests = set(subgraph["test_frontier"]["failed"]
+                     + subgraph["test_frontier"]["passing_sample"]
+                     + subgraph["test_frontier"]["unknown_reachable_sample"])
+    methods = []
+    for fqn in subgraph["methods"]:
+        v = next((x for x in graph.vertices if x.type == "method" and x.fqn == fqn), None)
+        methods.append({
+            "fqn": fqn, "role": ("target" if fqn == graph.target_fqn else "caller_or_callee"),
+            "signature": (v.l1_skeleton or {}).get("signature") if v else None,
+            "source": v.source if v else None,
+            "source_available_from_workdir": bool(v and v.source is None
+                                                  and fqn == graph.target_fqn)})
+    edges = []
+    for e in graph.edges:
+        sfqn = (graph.vertex(e.src) or None) and graph.vertex(e.src).fqn
+        tfqn = (graph.vertex(e.tgt) or None) and graph.vertex(e.tgt).fqn
+        if (sfqn in keep_methods or sfqn in keep_tests) and \
+           (tfqn in keep_methods or tfqn in keep_tests):
+            edges.append({"from": e.src, "to": e.tgt, "type": e.type,
+                          "structural_direction": e.structural_direction,
+                          "influence_direction": e.influence_direction,
+                          "path_ids": e.path_ids, "test_status": e.test_status})
+    total_tests = index["test_count"]
+    shown = len(keep_tests)
+    note = (f"This is a RANKED SLICE of a larger mutation graph: {index['method_count']} "
+            f"methods, {index['distinct_tests']} reachable tests, {index['chain_count']} "
+            f"call chains. Showing {len(subgraph['methods'])} methods and {shown} of "
+            f"{total_tests} tests (all {len(subgraph['test_frontier']['failed'])} failed "
+            f"+ samples). Omitted tests/paths are NOT necessarily irrelevant — "
+            f"dropped_counts records what was left out. Influence flows method→test "
+            f"(a method's behaviour influences the tests that assert it), the reverse of "
+            f"the structural call direction.")
+    return {"target": graph.target_fqn, "change_origin": graph.change_origin,
+            "source_graph_stats": {k: index[k] for k in
+                ("method_count", "test_count", "distinct_tests", "chain_count",
+                 "edge_count", "status_counts", "top_callers")},
+            "methods": methods, "edges": edges,
+            "test_frontier": subgraph["test_frontier"],
+            "paths": subgraph["paths"], "dropped_counts": subgraph["dropped_counts"],
+            "omission_note": note}
+
+
+def _graph_to_dict(graph: MutationGraph) -> dict:
+    return {"target": graph.target_fqn, "change_origin": graph.change_origin,
+            "stats": graph.stats,
+            "vertices": [{"id": v.id, "type": v.type, "fqn": v.fqn,
+                          "is_changed": v.is_changed, "status": v.status,
+                          "location": v.location} for v in graph.vertices],
+            "edges": [{"from": e.src, "to": e.tgt, "type": e.type,
+                       "structural_direction": e.structural_direction,
+                       "influence_direction": e.influence_direction,
+                       "path_ids": e.path_ids, "test_status": e.test_status}
+                      for e in graph.edges],
+            "chains": [{"id": c.id, "test_fqn": c.test_fqn, "status": c.status,
+                        "node_ids": c.node_ids} for c in graph.chains]}
+
+
+def persist(out_dir, graph, index, subgraph, slice_) -> None:
+    """Write the four layers for inspection / the future trace-visualizer. Best-effort."""
+    try:
+        d = Path(out_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "raw.json").write_text(json.dumps(_graph_to_dict(graph), indent=1))
+        (d / "index.json").write_text(json.dumps(index, indent=1))
+        (d / "subgraph.json").write_text(json.dumps(subgraph, indent=1))
+        (d / "slice.json").write_text(json.dumps(slice_, indent=1))
+    except OSError:
+        pass
