@@ -1,12 +1,13 @@
 """RapidCausalCoder prompt builders (Alpha/Beta/Gamma/fix) + Gamma JSON parsing
 + CausalRank. Pure text/data functions — no I/O, no LLM calls (the graph node
-calls phase_runner with these strings)."""
+calls phase_runner with these strings). Alpha/Beta/Gamma render the R2
+PromptSlice (a dict from rcc_graph_layers.render_slice) rather than the raw
+MutationGraph."""
 from __future__ import annotations
 
 import json
 
 from .orchestrator import _cap, _fmt_cluster
-from .rcc_mutation_graph import MutationGraph
 
 PROBE_MARKER = "//[probe]"
 PROBE_PREFIX = "RCC_PROBE"
@@ -19,84 +20,92 @@ GAMMA_FORMAT_REMINDER = (
     "object described above — no prose, no markdown fences.")
 
 
-def _vertices_block(g: MutationGraph) -> str:
+def _stats_line(sl: dict) -> str:
+    s = sl.get("source_graph_stats", {})
+    tc = (s.get("top_callers") or [{}])[0]
+    return (f"Full mutation graph: {s.get('method_count','?')} methods, "
+            f"{s.get('distinct_tests','?')} reachable tests, {s.get('chain_count','?')} "
+            f"call chains; status {s.get('status_counts', {})}; "
+            f"top caller: {tc.get('method','?')} ({tc.get('chains','?')} chains).")
+
+
+def _methods_block(sl: dict) -> str:
     parts = []
-    for fqn in g.methods():
-        v = next((x for x in g.vertices if x.type == "method" and x.fqn == fqn), None)
-        sig = (v.l1_skeleton or {}).get("signature", "") if v else ""
-        src = (v.source if v else "") or "(source unavailable — read it yourself)"
-        tag = " [CHANGED]" if v and v.is_changed else ""
-        parts.append(f"### {fqn}{tag}  {sig}\n```java\n{src}\n```")
+    for m in sl.get("methods", []):
+        tag = " [CHANGED/TARGET]" if m.get("role") == "target" else ""
+        src = m.get("source") or ("(target body — read it from the workdir)"
+                                  if m.get("source_available_from_workdir")
+                                  else "(source unavailable — read it yourself)")
+        parts.append(f"### {m['fqn']}{tag}  {m.get('signature') or ''}\n```java\n{src}\n```")
     return "\n".join(parts)
 
 
-def _edges_block(g: MutationGraph) -> str:
+def _edges_block(sl: dict) -> str:
     rows = []
-    for e in g.edges:
-        s = g.vertex(e.src); t = g.vertex(e.tgt)
-        sn = s.fqn if s else e.src; tn = t.fqn if t else e.tgt
-        extra = ""
-        if e.type == "CALLS" and e.call_site:
-            extra = f" @ {e.call_site.get('file')}:{e.call_site.get('line')} " \
-                    f"`{e.call_site.get('code','')}`"
-        elif e.type == "DATA_DEP" and e.data_var:
-            extra = f" [{e.data_var}]"
-        rows.append(f"- {sn} --{e.type}--> {tn}{extra}")
-    return "\n".join(rows) or "(no edges)"
+    for e in sl.get("edges", []):
+        extra = f"  (influence: {e.get('influence_direction')})"
+        st = f" [{e['test_status']}]" if e.get("test_status") else ""
+        rows.append(f"- {e['from']} --{e['type']}--> {e['to']}{st}{extra}")
+    return "\n".join(rows) or "(no edges in slice)"
 
 
-def alpha_prompt(g: MutationGraph) -> str:
+def _frontier_block(sl: dict) -> str:
+    f = sl.get("test_frontier", {})
+    return (f"FAILED ({len(f.get('failed', []))}): " + ", ".join(f.get("failed", [])) + "\n"
+            f"passing sample: " + ", ".join(f.get("passing_sample", []) or ["(none)"]) + "\n"
+            f"unknown-reachable sample: "
+            + ", ".join(f.get("unknown_reachable_sample", []) or ["(none)"]))
+
+
+def alpha_prompt(sl: dict) -> str:
     return (
-        "You are writing CONTRACTS over a MUTATION GRAPH (the call/dataflow structure "
-        f"from the changed method {g.target_fqn} to the tests that assert it).\n\n"
-        "For EACH METHOD vertex write a vertex contract:\n"
-        "- pre / post / inv (reference the signature + the source shown).\n"
-        "For EACH CALLS / DATA_DEP EDGE write an interaction contract:\n"
-        "- what the caller expects of the callee at that call site, and how the "
-        "callee's result/effect must be used (for DATA_DEP: the constraint on the "
-        "flowing variable).\n"
-        "Base everything on the source + structure. Do NOT edit code.\n\n"
-        "VERTICES:\n" + _vertices_block(g) + "\n\nEDGES:\n" + _edges_block(g))
+        "You are writing CONTRACTS over a MUTATION GRAPH slice (call/dataflow structure "
+        f"around the changed method {sl.get('target')}).\n" + _stats_line(sl) + "\n"
+        + sl.get("omission_note", "") + "\n\n"
+        "For EACH METHOD vertex: a vertex contract (pre/post/inv).\n"
+        "For EACH CALLS/DATA_DEP EDGE: an interaction contract (what the caller expects "
+        "of the callee; for DATA_DEP the constraint on the flowing variable).\n"
+        "Do NOT edit code.\n\nMETHODS:\n" + _methods_block(sl)
+        + "\n\nEDGES:\n" + _edges_block(sl)
+        + "\n\nTEST FRONTIER:\n" + _frontier_block(sl))
 
 
-def beta_prompt(g: MutationGraph, specs_text: str) -> str:
+def beta_prompt(sl: dict, specs_text: str) -> str:
     return (
-        "Instrument the code for INVASIVE DEBUGGING to check the contracts against "
-        "actual runtime values. Insert System.out.println lines into the methods "
-        "below. EVERY inserted line must:\n"
-        f"- start its message with \"{PROBE_PREFIX} <Class.method>: \" and print the "
-        "arguments at entry, the return value at exit, and key branch state;\n"
-        f"- end with the trailing comment {PROBE_MARKER} on the SAME line;\n"
-        "- change NO behaviour and keep the code compiling.\n\n"
-        "CONTRACTS to check:\n" + _cap(specs_text, _MAX_SPECS_CHARS)
-        + "\n\nMETHODS:\n" + _vertices_block(g))
+        "Instrument the code for INVASIVE DEBUGGING to check the contracts against actual "
+        "runtime values. Insert System.out.println lines into the methods below. EVERY "
+        f"inserted line: start its message with \"{PROBE_PREFIX} <Class.method>: \" and "
+        "print args at entry + return at exit + key branch state; end with the trailing "
+        f"comment {PROBE_MARKER} on the SAME line; change NO behaviour; keep it compiling."
+        "\n\nCONTRACTS:\n" + _cap(specs_text, _MAX_SPECS_CHARS)
+        + "\n\nMETHODS:\n" + _methods_block(sl))
 
 
-def beta_repair_prompt(g: MutationGraph) -> str:
-    return (
-        "The instrumented build no longer compiles. Fix the compilation — delete a "
-        f"probe line rather than leave the build broken. Every probe line keeps its "
-        f"trailing {PROBE_MARKER} comment. Do not change program logic.")
+def beta_repair_prompt(sl: dict) -> str:
+    return ("The instrumented build no longer compiles. Fix the compilation — delete a "
+            f"probe line rather than leave it broken. Keep each probe's trailing "
+            f"{PROBE_MARKER}. Do not change program logic.")
 
 
-def gamma_prompt(g: MutationGraph, specs_text: str, probe_lines: list) -> str:
+def gamma_prompt(sl: dict, specs_text: str, probe_lines: list) -> str:
     logs = "\n".join((probe_lines or [])[:_MAX_LOG_LINES]) \
         or "(no runtime logs — instrumentation was skipped)"
-    mids = "\n".join(f"- {v.id} ({v.fqn})" for v in g.vertices if v.type == "method")
+    mids = "\n".join(f"- method:{m['fqn']}" for m in sl.get("methods", []))
     return (
-        "Build a CausalDeltaSubGraph: compare each method/edge CONTRACT against the "
-        "runtime PROBE LOGS and mark violations, root cause, and downstream effects.\n"
-        "Return ONLY JSON:\n"
-        '{"vertices": [{"id": <str>, "mutation_vertex": <mutation-graph vertex id>, '
-        '"type": "root_cause|downstream_effect|spec_violation|unaffected", '
-        '"spec_text": <str>, "spec_level": "L1|L2|L3", "runtime_value": <any>, '
-        '"violated": <bool>, "is_root_cause": <bool>, "confidence": <0..1>}], '
-        '"edges": [{"from": <id>, "to": <id>, '
-        '"type": "CAUSES|CONTRIBUTES_TO|DATA_FLOWS_INTO|CONTRACT_REFINES", '
-        '"path": [<mutation vertex ids>], "reasoning": <str>}]}.\n'
-        "Exactly one vertex should have is_root_cause=true (the deepest violated "
-        "contract that explains the cascade). mutation_vertex MUST be one of:\n"
-        + mids + "\n\nCONTRACTS:\n" + _cap(specs_text, _MAX_SPECS_CHARS)
+        "Build a CausalDeltaSubGraph. Compare each method/edge CONTRACT against the "
+        "runtime PROBE LOGS; mark violations, the root cause, and the downstream cascade.\n"
+        "IMPORTANT: influence flows method→test (a method's behaviour influences the "
+        "tests that assert it) — the REVERSE of the structural call direction. Reason "
+        "about causation in the influence direction.\n" + _stats_line(sl) + "\n"
+        + sl.get("omission_note", "") + "\n"
+        "Return ONLY JSON: " '{"vertices": [{"id","mutation_vertex","type":'
+        '"root_cause|downstream_effect|spec_violation|unaffected","spec_text","spec_level":'
+        '"L1|L2|L3","runtime_value","violated","is_root_cause","confidence"}], '
+        '"edges": [{"from","to","type":"CAUSES|CONTRIBUTES_TO|DATA_FLOWS_INTO|'
+        'CONTRACT_REFINES","path","reasoning"}]}.\n'
+        "Exactly one vertex is_root_cause=true. mutation_vertex MUST be one of:\n"
+        + mids + "\n\nTEST FRONTIER:\n" + _frontier_block(sl)
+        + "\n\nCONTRACTS:\n" + _cap(specs_text, _MAX_SPECS_CHARS)
         + "\n\nPROBE LOGS:\n" + logs)
 
 

@@ -1,6 +1,7 @@
 # tests/test_rcc_prompts.py
 import json
 
+from abench.rcc_graph_layers import annotate_status, build_index, build_subgraph, render_slice
 from abench.rcc_mutation_graph import MgEdge, MgVertex, MutationGraph
 from abench.rcc_prompts import (GAMMA_FORMAT_REMINDER, PROBE_MARKER, PROBE_PREFIX,
                                 alpha_prompt, beta_prompt, beta_repair_prompt,
@@ -23,19 +24,26 @@ def _g():
     return MutationGraph(target_id="method:p.C.put", vertices=vs, edges=es)
 
 
+def _slice():
+    g = annotate_status(_g(), failed_ids=set())
+    idx = build_index(g)
+    sub = build_subgraph(g)
+    return render_slice(g, sub, idx)
+
+
 def test_alpha_covers_vertices_and_edges():
-    a = alpha_prompt(_g())
-    assert "p.C.put" in a and "return null" in a           # vertex source shown
-    assert "CALLS" in a and "get()" in a                    # edge with call_site
-    assert "DATA_DEP" in a and "value" in a                 # dataflow edge
+    a = alpha_prompt(_slice())
+    assert "p.C.put" in a and "return null" in a           # method source shown
+    assert "CALLS" in a and "DATA_DEP" in a                 # edges present
     assert "edge" in a.lower() and "pre" in a               # asks for edge + vertex specs
 
 
 def test_beta_prompt_targets_graph_methods():
-    b = beta_prompt(_g(), "SPECS")
+    sl = _slice()
+    b = beta_prompt(sl, "SPECS")
     assert PROBE_PREFIX in b and PROBE_MARKER in b and "SPECS" in b
     assert "p.C.put" in b
-    assert PROBE_MARKER in beta_repair_prompt(_g())
+    assert PROBE_MARKER in beta_repair_prompt(sl)
 
 
 _CDG = {
@@ -52,11 +60,11 @@ _CDG = {
 
 
 def test_gamma_prompt_asks_for_causal_delta_schema():
-    g = _g()
-    p = gamma_prompt(g, "SPECS", ["RCC_PROBE put: ret=null"])
+    sl = _slice()
+    p = gamma_prompt(sl, "SPECS", ["RCC_PROBE put: ret=null"])
     assert "CausalDeltaSubGraph" in p or "is_root_cause" in p
     assert "ret=null" in p and "mutation_vertex" in p
-    assert "no runtime logs" in gamma_prompt(g, "S", [])
+    assert "no runtime logs" in gamma_prompt(sl, "S", [])
 
 
 def test_parse_causal_delta_from_prose_and_reject_garbage():
@@ -80,3 +88,46 @@ def test_fix_prompt_and_cache_fix_carry_the_delta():
     assert "root" in f.lower() and "CAUSES" in f
     c = cache_fix_prompt("the put method", _CDG, [])
     assert "previous successful" in c and "is_root_cause" in c
+
+
+_SLICE = {
+    "target": "p.C.put",
+    "change_origin": {"kind": "method_level_only", "method_fqn": "p.C.put",
+                      "changed_statement_available": False},
+    "source_graph_stats": {"method_count": 90, "test_count": 1406, "distinct_tests": 1406,
+        "chain_count": 1526, "edge_count": 3375,
+        "status_counts": {"failed": 3, "passing": 0, "unknown_reachable": 1403},
+        "top_callers": [{"method": "p.C.addRowValues", "chains": 1256}]},
+    "methods": [{"fqn": "p.C.put", "role": "target", "signature": "Cell(int,int,Text)",
+                 "source": None, "source_available_from_workdir": True},
+                {"fqn": "p.C.addRowValues", "role": "caller_or_callee",
+                 "signature": "void(Text[])", "source": "void addRowValues(){...}",
+                 "source_available_from_workdir": False}],
+    "edges": [{"from": "method:p.C.addRowValues", "to": "method:p.C.put", "type": "CALLS",
+               "structural_direction": "caller_to_callee",
+               "influence_direction": "callee_to_caller", "path_ids": ["p2"],
+               "test_status": None}],
+    "test_frontier": {"failed": ["p.HT.tPut"], "passing_sample": [],
+                      "unknown_reachable_sample": ["p.HT.tOther"]},
+    "paths": [{"path_id": "p1", "status": "failed", "score": 145,
+               "selection_reason": ["leads_to_failed_test", "direct_caller_path"]}],
+    "dropped_counts": {"unknown_reachable": 1400},
+    "omission_note": ("This is a RANKED SLICE of a larger mutation graph. Omitted "
+                      "tests/paths are NOT necessarily irrelevant — dropped_counts "
+                      "records what was left out. Influence flows method->test."),
+}
+
+
+def test_alpha_over_slice_has_stats_and_omission():
+    a = alpha_prompt(_SLICE)
+    assert "p.C.put" in a and "addRowValues" in a
+    assert "1526" in a and "RANKED SLICE" in a           # full-graph stats + honesty
+    assert "CALLS" in a and "pre" in a and "edge" in a.lower()
+
+
+def test_gamma_over_slice_has_frontier_and_influence():
+    g = gamma_prompt(_SLICE, "SPECS", ["RCC_PROBE put: ret=null"])
+    assert "ret=null" in g and "mutation_vertex" in g
+    assert "influence" in g.lower()                      # method->test direction cue
+    assert "p.HT.tPut" in g                              # failed frontier present
+    assert "dropped" in g.lower() or "omitted" in g.lower()
