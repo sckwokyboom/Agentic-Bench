@@ -658,7 +658,8 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                                     workdir, suite_cmd, exp.verify.timeout_s),
                                 memory=RccMemory(mem_path),
                                 strip_probes=lambda: strip_probe_lines_repo(workdir),
-                                on_event=_orch_event, cancel_event=cancel_event)
+                                on_event=_orch_event, cancel_event=cancel_event,
+                                persist_dir=rundir / "rcc-graph")
                         result = RunResult(trace=trace)
                     else:
                         # phased+graph ablation: a graph-derived "is this failing test

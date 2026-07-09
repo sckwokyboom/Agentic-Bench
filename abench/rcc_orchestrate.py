@@ -19,6 +19,9 @@ from .orchestrator import (
     understand_prompt,
 )
 from .rcc_graph import RccConfig, RccSeed, run_rcc
+from .rcc_graph_layers import (
+    annotate_status, build_index, build_subgraph, persist, render_slice,
+)
 from .rcc_mutation_graph import MutationGraph
 from .regression_gate import SuiteResult
 from .trace_model import Step, StepKind, Trace
@@ -28,7 +31,8 @@ from .trace_stitch import stitch
 def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
                       sub: MutationGraph, *, phase_runner, suite_runner,
                       subset_runner, memory, strip_probes,
-                      on_event=None, cancel_event=None) -> Trace:
+                      on_event=None, cancel_event=None,
+                      persist_dir=None) -> Trace:
     phase_traces: list = []
     ctrl: list = []
     clock = [0.0]
@@ -105,22 +109,30 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
                     best_failed_reached=best)
         return tr
 
-    # Now that implement's red suite named the failing tests, FOCUS the mutation
-    # graph on them (+ target + direct callers, capped by class). The graph arrives
-    # capped by class only; without this Alpha would render every test-assert edge —
-    # ~950 tests / ~30k tokens for a dense target like putValue.
-    failing = {f"{f.classname}.{f.name}" for f in cur.failures}
-    sub = sub.focus(failing_tests=(failing or None),
-                    class_cap=rcfg.subset_class_cap or None)
-    event(f"focused mutation graph on {len(failing)} failing tests → "
-          f"{len(sub.methods())} methods, {len(sub.test_fqns)} tests, "
-          f"{len(sub.test_classes)} classes", "implement")
+    # Now that implement's red suite named the failing tests, build the R2 layers:
+    # annotate the RAW graph's tests (failed/passing/unknown_reachable) — never
+    # amputate it — then rank a bounded GraphSubgraph + render a PromptSlice for
+    # Alpha/Gamma. Replaces the R1 focus() amputation (which threw away the
+    # unfailing 99% of the graph before Alpha ever saw it).
+    failed = {f"{f.classname}.{f.name}" for f in cur.failures}
+    annotate_status(sub, failed_ids=failed)
+    index = build_index(sub)
+    subgraph = build_subgraph(sub, failed_ids=failed, k_methods=8)
+    slice_ = render_slice(sub, subgraph, index)
+    if persist_dir is not None:
+        persist(persist_dir, sub, index, subgraph, slice_)
+    methods = subgraph["methods"]
+    event(f"graph layers: raw {index['method_count']}m/{index['distinct_tests']}t/"
+          f"{index['chain_count']}chains → subgraph {len(methods)} methods, "
+          f"frontier {len(subgraph['test_frontier']['failed'])} failed "
+          f"+ {len(subgraph['test_frontier']['unknown_reachable_sample'])} sampled",
+          "implement")
 
     # ── hand off the red state to the rcc loop (one continuous trace) ──────
     seed = RccSeed(phase_traces=phase_traces, ctrl=ctrl, clock=clock[0],
                    full_runs=full_runs[0], productive=productive[0],
                    best_failed=best)
-    return run_rcc(rcfg, sub, cur, phase_runner=phase_runner,
+    return run_rcc(rcfg, slice_, methods, cur, phase_runner=phase_runner,
                    suite_runner=suite_runner, subset_runner=subset_runner,
                    memory=memory, strip_probes=strip_probes,
                    on_event=on_event, cancel_event=cancel_event, seed=seed)

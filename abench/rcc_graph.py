@@ -15,7 +15,6 @@ from typing import Annotated, TypedDict
 
 from .failure_report import cluster_failures, select_clusters
 from .orchestrator import PhaseOutcome, SuiteEval, _track_best
-from .rcc_mutation_graph import MutationGraph
 from .rcc_prompts import (
     GAMMA_FORMAT_REMINDER, alpha_prompt, beta_prompt, beta_repair_prompt,
     cache_fix_prompt, causal_rank, fix_prompt, gamma_prompt, parse_causal_delta,
@@ -24,6 +23,16 @@ from .rcc_prompts import (
 from .regression_gate import SuiteResult
 from .trace_model import Step, StepKind, Trace
 from .trace_stitch import stitch
+
+
+def _slice_test_classes(slice_: dict) -> list:
+    """Distinct test classes reachable from the PromptSlice's test frontier
+    (failed + passing/unknown samples) — the subset-run scope in place of the
+    old MutationGraph.test_classes."""
+    f = slice_.get("test_frontier", {})
+    fqns = (list(f.get("failed", [])) + list(f.get("passing_sample", []))
+           + list(f.get("unknown_reachable_sample", [])))
+    return sorted({fqn.rsplit(".", 1)[0] for fqn in fqns if "." in fqn})
 
 
 @dataclass
@@ -65,13 +74,18 @@ class RccState(TypedDict, total=False):
     ctrl: Annotated[list, operator.add]
 
 
-def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
+def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
             phase_runner, suite_runner, subset_runner, memory, strip_probes,
             on_event=None, cancel_event=None, seed: "RccSeed | None" = None) -> Trace:
-    """The rcc loop. `initial` is the RED suite state that triggered rcc (the
-    lead diff's failures). `subset_runner(classes) -> (SuiteEval, probe_lines)`;
-    `suite_runner() -> SuiteEval` (full); `strip_probes() -> int` removes
-    //[probe] lines from the working tree; `memory` is an RccMemory-like."""
+    """The rcc loop. `slice_` is the PromptSlice (rcc_graph_layers.render_slice)
+    Alpha/Beta/Gamma render; `methods` is the GraphSubgraph's ranked method-fqn
+    list (target first) CausalRank runs over. `initial` is the RED suite state
+    that triggered rcc (the lead diff's failures). `subset_runner(classes) ->
+    (SuiteEval, probe_lines)`; `suite_runner() -> SuiteEval` (full);
+    `strip_probes() -> int` removes //[probe] lines from the working tree;
+    `memory` is an RccMemory-like."""
+    target_fqn = methods[0]
+    test_classes = _slice_test_classes(slice_)
     try:
         from langgraph.graph import END, START, StateGraph
     except ImportError as exc:  # pragma: no cover
@@ -148,20 +162,22 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
     # ── nodes ────────────────────────────────────────────────────────────────
     def memory_node(state):
         steps: list = list(seed.ctrl) if seed else []
+        gs = slice_.get("source_graph_stats", {})
         steps.append(event(
-            f"mutation graph: {len(sub.methods())} methods, {len(sub.edges)} "
-            f"edges, {len(sub.test_fqns)} tests", "memory"))
-        entry = memory.get(sub.target_fqn)
+            f"mutation graph: {gs.get('method_count', '?')} methods, "
+            f"{gs.get('edge_count', '?')} edges, "
+            f"{gs.get('distinct_tests', '?')} tests", "memory"))
+        entry = memory.get(target_fqn)
         steps.append(event(
-            f"memory: HIT for {sub.target_fqn} — trying the cached causal insight"
+            f"memory: HIT for {target_fqn} — trying the cached causal insight"
             if entry else
-            f"memory: miss for {sub.target_fqn} — full causal pass", "memory"))
+            f"memory: miss for {target_fqn} — full causal pass", "memory"))
         return {"cached": entry, "attempt": 0, "cur": initial,
                 "best_failed": (seed.best_failed if seed else
                                 (initial.result.failed if initial.result.ran else None)),
                 "specs": "", "probe_lines": [], "graph": None, "root_rank": None,
                 "beta_degraded": False, "gamma_degraded": False,
-                "ranks": [(m, 0.0) for m in sub.methods()],
+                "ranks": [(m, 0.0) for m in methods],
                 "phase_traces": list(seed.phase_traces) if seed else [],
                 "ctrl": steps}
 
@@ -172,7 +188,7 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
                                       state["cached"]["causal_graph"],
                                       clusters_of(state["cur"])),
                      ["read", "edit"], steps)
-        classes = state["cached"].get("test_classes") or sub.test_classes
+        classes = state["cached"].get("test_classes") or test_classes
         ev, _lines = run_subset(steps, "cache-fix", classes)
         cur = ev
         full_ran = False
@@ -191,7 +207,7 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
                                "the cached entry (staleness was not tested); full "
                                "causal pass", "cache-fix"))
         else:
-            memory.invalidate(sub.target_fqn)
+            memory.invalidate(target_fqn)
             steps.append(event("cache-fix: cached insight is STALE (tests still "
                                "red) — invalidated; full causal pass", "cache-fix"))
         bf = (_track_best(cur, state["best_failed"], productive) if full_ran
@@ -201,10 +217,10 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
 
     def alpha_node(state):
         steps: list = []
-        a = do_phase("alpha", alpha_prompt(sub), ["read"], steps)
+        a = do_phase("alpha", alpha_prompt(slice_), ["read"], steps)
         specs = (a.text or "").strip()
         steps.append(event(
-            f"alpha: contracts for {len(sub.methods())} methods ({len(specs)} chars)"
+            f"alpha: contracts for {len(methods)} methods ({len(specs)} chars)"
             if specs else "alpha: EMPTY contracts — continuing without", "alpha"))
         return {"specs": specs, "phase_traces": [("alpha", a.trace)],
                 "ctrl": steps}
@@ -212,18 +228,18 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
     def beta_node(state):
         steps: list = []
         traces: list = []
-        b = do_phase("beta", beta_prompt(sub, state["specs"]), ["read", "edit"],
+        b = do_phase("beta", beta_prompt(slice_, state["specs"]), ["read", "edit"],
                      steps)
         traces.append(("beta", b.trace))
-        ev, lines = run_subset(steps, "beta", sub.test_classes)
+        ev, lines = run_subset(steps, "beta", test_classes)
         beta_ok = ev.result.compiled and ev.result.ran
         if not beta_ok and not cancelled():
             steps.append(event("beta: instrumented build broke — one repair "
                                "attempt", "beta"))
-            r = do_phase("beta-repair", beta_repair_prompt(sub), ["read", "edit"],
+            r = do_phase("beta-repair", beta_repair_prompt(slice_), ["read", "edit"],
                          steps)
             traces.append(("beta-repair", r.trace))
-            ev, lines = run_subset(steps, "beta", sub.test_classes)
+            ev, lines = run_subset(steps, "beta", test_classes)
             beta_ok = ev.result.compiled and ev.result.ran
         removed = safe_strip(steps, "beta")
         if beta_ok:
@@ -243,7 +259,7 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
     def gamma_node(state):
         steps: list = []
         traces: list = []
-        prompt = gamma_prompt(sub, state["specs"], state["probe_lines"])
+        prompt = gamma_prompt(slice_, state["specs"], state["probe_lines"])
         g1 = do_phase("gamma", prompt, ["read"], steps)
         traces.append(("gamma", g1.trace))
         graph = parse_causal_delta(g1.text)
@@ -255,13 +271,13 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
             traces.append(("gamma-retry", g2.trace))
             graph = parse_causal_delta(g2.text)
         if graph is None:
-            ranks = [(m, 0.0) for m in sub.methods()]
+            ranks = [(m, 0.0) for m in methods]
             steps.append(event("gamma: still unparseable — degraded to "
                                "subgraph-order ranking (target first)", "gamma"))
             return {"graph": None, "ranks": ranks, "root_rank": None,
                     "gamma_degraded": True, "phase_traces": traces, "ctrl": steps}
-        ranks = causal_rank(graph, sub.methods())
-        rr = root_rank(ranks, sub.target_fqn)
+        ranks = causal_rank(graph, methods)
+        rr = root_rank(ranks, target_fqn)
         steps.append(event(
             f"gamma: causal delta graph with {len(graph.get('vertices', []))} "
             f"vertices / {len(graph.get('edges', []))} edges; CausalRank of "
@@ -275,11 +291,11 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
         ranks = state["ranks"]
         focus = ranks[min(attempt - 1, len(ranks) - 1)][0]
         f = do_phase(f"fix-{attempt}",
-                     fix_prompt(cfg.target_label, sub.target_fqn, state["graph"],
+                     fix_prompt(cfg.target_label, target_fqn, state["graph"],
                                 state["specs"], clusters_of(state["cur"]),
                                 focus, attempt),
                      ["read", "edit"], steps)
-        ev, _lines = run_subset(steps, f"fix-{attempt}", sub.test_classes)
+        ev, _lines = run_subset(steps, f"fix-{attempt}", test_classes)
         cur = ev
         if _green(ev):
             steps.append(event(f"fix {attempt} (focus {focus}): subset GREEN — "
@@ -313,7 +329,7 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
             or (state.get("cached") or {}).get("causal_graph")
         saved = ""
         if outcome == "green" and graph_to_save:
-            memory.put(sub.target_fqn, graph_to_save, sub.test_classes)
+            memory.put(target_fqn, graph_to_save, test_classes)
             saved = " — causal insight saved to memory"
         step = event(f"finalized: {outcome}{saved}: "
                      f"{cur.result.passed} passed / {cur.result.failed} failed "

@@ -7,10 +7,18 @@ pytest.importorskip("langgraph")   # optional extra — skip cleanly without it
 
 from abench.orchestrator import PhaseOutcome, SuiteEval
 from abench.rcc_graph import RccConfig, run_rcc
+from abench.rcc_graph_layers import (
+    annotate_status, build_index, build_subgraph, render_slice,
+)
 from abench.rcc_mutation_graph import MgEdge, MgVertex, MutationGraph
 from abench.regression_gate import SuiteResult
 from abench.trace_model import StepKind, Trace
 
+# _SUB stays a MutationGraph — run_rcc_condition (tested in
+# tests/test_rcc_orchestrate.py, which imports it from here) still takes the
+# raw graph and builds the R2 layers itself. run_rcc (tested below) now takes
+# the PromptSlice + ranked method list the layers produce, so _SLICE/_METHODS
+# are built once, here, via the real layer functions to stay faithful.
 _SUB = MutationGraph(
     target_id="method:p.C.put",
     vertices=[MgVertex(id="method:p.C.put", type="method", fqn="p.C.put",
@@ -23,6 +31,16 @@ _SUB = MutationGraph(
            MgEdge(src="test:p.CT.t1", tgt="method:p.C.put", type="TEST_ASSERTS"),
            MgEdge(src="test:p.CT.t2", tgt="method:p.C.put", type="TEST_ASSERTS")],
 )
+
+
+def _build_slice(failed_ids):
+    g = annotate_status(_SUB, failed_ids=set(failed_ids))
+    idx = build_index(g)
+    subgraph = build_subgraph(g, failed_ids=set(failed_ids))
+    return render_slice(g, subgraph, idx), subgraph["methods"]
+
+
+_SLICE, _METHODS = _build_slice({"p.CT.t1", "p.CT.t2"})
 
 _GAMMA = json.dumps({
     "vertices": [{"id": "cd1", "mutation_vertex": "method:p.C.put",
@@ -104,7 +122,7 @@ def _phases_called(fake):
 def _run(phase, subset_seq, full_seq, memory=None, cfg=None, strip=None):
     strips = []
     tr = run_rcc(
-        cfg or RccConfig(target_label="p.C.put"), _SUB, initial=_ev(0, 2),
+        cfg or RccConfig(target_label="p.C.put"), _SLICE, _METHODS, initial=_ev(0, 2),
         phase_runner=phase,
         suite_runner=_seq_full(full_seq),
         subset_runner=_seq_subset(subset_seq),
@@ -188,7 +206,7 @@ def test_cancel_during_cache_fix_keeps_the_entry():
     mem = FakeMemory({"p.C.put": {"causal_graph": json.loads(_GAMMA),
                                   "test_classes": ["p.CT"], "ts": 1.0}})
     tr = run_rcc(
-        RccConfig(target_label="p.C.put"), _SUB, initial=_ev(0, 2),
+        RccConfig(target_label="p.C.put"), _SLICE, _METHODS, initial=_ev(0, 2),
         phase_runner=FakePhase(),
         suite_runner=_seq_full([]),
         subset_runner=_seq_subset([(_ev(1, 1), [])]),
@@ -334,7 +352,7 @@ def test_seed_prefixes_trace_and_counters():
     seed = RccSeed(phase_traces=[("implement", Trace())], ctrl=pre,
                    clock=2.0, full_runs=2, productive=1, best_failed=2)
     tr = run_rcc(
-        RccConfig(target_label="p.C.put"), _SUB, initial=_ev(0, 2),
+        RccConfig(target_label="p.C.put"), _SLICE, _METHODS, initial=_ev(0, 2),
         phase_runner=FakePhase(),
         suite_runner=_seq_full([_ev(100, 0)]),
         subset_runner=_seq_subset([(_ev(1, 1), []), (_ev(2, 0), [])]),
