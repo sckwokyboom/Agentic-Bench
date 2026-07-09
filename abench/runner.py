@@ -620,8 +620,11 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                                 workdir, (exp.target_methods or [""])[0],
                                 _load_coverage(workdir / ".impact"),
                                 builder=builder, **bkw)
-                            sub = (mg.focus(class_cap=ocfg.rcc_subset_class_cap or None)
-                                   if mg else None)
+                            # NOTE: focus happens in run_rcc_condition once the failing
+                            # tests are known (raw graph → target + failing-test callers);
+                            # focusing here by class only would leave Alpha rendering
+                            # ~950 test-assert edges. Pass the full graph.
+                            sub = mg
                         except Exception as exc:
                             _log(f"[abench] rcc: graph build failed ({exc!r}) — "
                                  "degrading to plain phased")
@@ -639,14 +642,16 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         else:
                             mem_path = (os.environ.get("ABENCH_RCC_MEMORY")
                                         or str(rundir / "rcc-memory.json"))
-                            _log(f"[abench] rcc: subgraph {len(sub.methods())} methods, "
-                                 f"{len(sub.test_classes)}/{sub.classes_total} test "
-                                 f"classes; builder={builder}; memory at {mem_path}")
+                            _log(f"[abench] rcc: raw graph {len(sub.methods())} methods, "
+                                 f"{sub.classes_total} test classes; builder={builder} "
+                                 f"(focus on failing tests happens post-implement); "
+                                 f"memory at {mem_path}")
                             trace = run_rcc_condition(
                                 build_orchestrator_config(exp.orchestration, "phased"),
                                 RccConfig(target_label=ocfg.target_label,
                                           max_attempts=ocfg.rcc_max_attempts,
-                                          cluster_cap=ocfg.cluster_cap),
+                                          cluster_cap=ocfg.cluster_cap,
+                                          subset_class_cap=ocfg.rcc_subset_class_cap),
                                 sub,
                                 phase_runner=phase_runner, suite_runner=suite_runner,
                                 subset_runner=make_subset_suite_runner(

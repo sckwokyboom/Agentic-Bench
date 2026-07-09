@@ -31,6 +31,7 @@ class RccConfig:
     target_label: str = "the target method"
     max_attempts: int = 2          # top-1 → top-2 → DEFER
     cluster_cap: int = 5
+    subset_class_cap: int = 15     # cap on test classes kept by the focus step
 
 
 @dataclass

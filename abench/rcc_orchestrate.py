@@ -105,6 +105,17 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
                     best_failed_reached=best)
         return tr
 
+    # Now that implement's red suite named the failing tests, FOCUS the mutation
+    # graph on them (+ target + direct callers, capped by class). The graph arrives
+    # capped by class only; without this Alpha would render every test-assert edge —
+    # ~950 tests / ~30k tokens for a dense target like putValue.
+    failing = {f"{f.classname}.{f.name}" for f in cur.failures}
+    sub = sub.focus(failing_tests=(failing or None),
+                    class_cap=rcfg.subset_class_cap or None)
+    event(f"focused mutation graph on {len(failing)} failing tests → "
+          f"{len(sub.methods())} methods, {len(sub.test_fqns)} tests, "
+          f"{len(sub.test_classes)} classes", "implement")
+
     # ── hand off the red state to the rcc loop (one continuous trace) ──────
     seed = RccSeed(phase_traces=phase_traces, ctrl=ctrl, clock=clock[0],
                    full_runs=full_runs[0], productive=productive[0],

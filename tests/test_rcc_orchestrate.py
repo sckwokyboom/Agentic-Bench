@@ -83,3 +83,38 @@ def test_contract_fallback_still_reaches_rcc():
         memory=FakeMemory(), strip_probes=lambda: 0)
     assert tr.orchestration_outcome == "green"
     assert "fallback" in "\n".join(_events(tr))
+
+
+def test_focus_narrows_graph_to_failing_tests():
+    # A graph with two tests where only one fails: the driver must focus the
+    # mutation graph to the failing test before handing off to run_rcc.
+    from abench.rcc_mutation_graph import MgEdge, MgVertex, MutationGraph
+    from abench.failure_report import TestFailure
+    big = MutationGraph(
+        target_id="method:p.C.put",
+        vertices=[MgVertex(id="method:p.C.put", type="method", fqn="p.C.put",
+                           is_changed=True, source="Cell put(){ return null; }"),
+                  MgVertex(id="test:p.CT.fail", type="test", fqn="p.CT.fail"),
+                  MgVertex(id="test:p.DT.pass", type="test", fqn="p.DT.pass")],
+        edges=[MgEdge(src="test:p.CT.fail", tgt="method:p.C.put", type="TEST_ASSERTS"),
+               MgEdge(src="test:p.DT.pass", tgt="method:p.C.put", type="TEST_ASSERTS")])
+    seen = {}
+
+    class CapturePhase(PrefixPhase):
+        def __call__(self, phase, prompt, tools):
+            if phase == "alpha":
+                seen["alpha"] = prompt
+            return super().__call__(phase, prompt, tools)
+
+    red = SuiteEval(result=SuiteResult(compiled=True, ran=True, executed=2,
+                                       passed=1, failed=1),
+                    failures=[TestFailure(classname="p.CT", name="fail",
+                                          kind="failure")])
+    run_rcc_condition(
+        _OCFG, _RCFG, big, phase_runner=CapturePhase(),
+        suite_runner=_seq_full([_ev(0, 2), red, _ev(100, 0)]),
+        subset_runner=_seq_subset([(_ev(1, 1), ["RCC_PROBE x"]), (_ev(2, 0), [])]),
+        memory=FakeMemory(), strip_probes=lambda: 0)
+    # the failing test is in the alpha prompt; the passing one is filtered out
+    assert "p.CT.fail" in seen["alpha"]
+    assert "p.DT.pass" not in seen["alpha"]
