@@ -1,7 +1,9 @@
 # tests/test_rcc_prompts.py
 import json
 
-from abench.rcc_graph_layers import annotate_status, build_index, build_subgraph, render_slice
+from abench.rcc_graph_layers import (
+    annotate_status, build_index, build_subgraph, render_prompt_slice,
+)
 from abench.rcc_mutation_graph import MgEdge, MgVertex, MutationGraph
 from abench.rcc_prompts import (GAMMA_FORMAT_REMINDER, PROBE_MARKER, PROBE_PREFIX,
                                 alpha_prompt, beta_prompt, beta_repair_prompt,
@@ -28,13 +30,14 @@ def _slice():
     g = annotate_status(_g(), failed_ids=set())
     idx = build_index(g)
     sub = build_subgraph(g)
-    return render_slice(g, sub, idx)
+    return render_prompt_slice(g, sub, idx)
 
 
 def test_alpha_covers_vertices_and_edges():
     a = alpha_prompt(_slice())
-    assert "p.C.put" in a and "return null" in a           # method source shown
-    assert "CALLS" in a and "DATA_DEP" in a                 # edges present
+    assert "p.C.put" in a and "return null" in a           # target source shown
+    assert "p.C.get" in a                                   # direct callee focused
+    assert "CALLS" in a and "DATA_DEP" in a                 # collapsed edge types present
     assert "edge" in a.lower() and "pre" in a               # asks for edge + vertex specs
 
 
@@ -91,34 +94,48 @@ def test_fix_prompt_and_cache_fix_carry_the_delta():
 
 
 _SLICE = {
+    "schema": "rcc.prompt_slice.v2",
     "target": "p.C.put",
     "change_origin": {"kind": "method_level_only", "method_fqn": "p.C.put",
                       "changed_statement_available": False},
-    "source_graph_stats": {"method_count": 90, "test_count": 1406, "distinct_tests": 1406,
-        "chain_count": 1526, "edge_count": 3375,
-        "status_counts": {"failed": 3, "passing": 0, "unknown_reachable": 1403},
+    "source_graph_summary": {
+        "methods": 90, "tests": 1406, "chains": 1526, "edges": 3375,
+        "status": {"failed": 3, "passing": 0, "unknown_reachable": 1403},
+        "reachable_test_classes_top": [{"class": "p.HT", "tests": 1200}],
+        "other_reachable_test_classes": 4,
         "top_callers": [{"method": "p.C.addRowValues", "chains": 1256}]},
-    "methods": [{"fqn": "p.C.put", "role": "target", "signature": "Cell(int,int,Text)",
-                 "source": None, "source_available_from_workdir": True},
-                {"fqn": "p.C.addRowValues", "role": "caller_or_callee",
-                 "signature": "void(Text[])", "source": "void addRowValues(){...}",
-                 "source_available_from_workdir": False}],
-    "edges": [{"from": "method:p.C.addRowValues", "to": "method:p.C.put", "type": "CALLS",
-               "structural_direction": "caller_to_callee",
-               "influence_direction": "callee_to_caller", "path_ids": ["p2"],
-               "test_status": None}],
-    "test_frontier": {"failed": ["p.HT.tPut"], "passing_clusters": [],
-                      "unknown_reachable_clusters": [
-                          {"cluster_id": "unknown_reachable_0", "size": 3,
-                           "medoid_path_id": "p2", "medoid_test": "p.HT.tOther",
-                           "path_shape": "test:p.HT → addRowValues → put",
-                           "status_mix": {"unknown_reachable": 3}}]},
-    "paths": [{"path_id": "p1", "status": "failed", "score": 145,
-               "selection_reason": ["leads_to_failed_test", "direct_caller_path"]}],
-    "dropped_counts": {"unknown_reachable": 1400},
-    "omission_note": ("This is a RANKED SLICE of a larger mutation graph. Omitted "
-                      "tests/paths are NOT necessarily irrelevant — dropped_counts "
-                      "records what was left out. Influence flows method->test."),
+    "selection_summary": {"method": "path_k_medoids_weighted_lcs",
+                          "shown_failed_tests": 1, "shown_unknown_clusters": 1,
+                          "shown_focused_methods": 2,
+                          "dropped": {"unknown_reachable": 1400}},
+    "focused_methods": [
+        {"fqn": "p.C.put", "role": "target", "signature": "Cell(int,int,Text)",
+         "source": None, "source_from_workdir": True},
+        {"fqn": "p.C.addRowValues", "role": "direct_caller",
+         "signature": "void(Text[])", "source": "void addRowValues(){...}",
+         "source_from_workdir": False}],
+    "path_context_methods": ["p.H.synopsis"],
+    "failed_tests": ["p.HT.tPut"],
+    "representative_path_clusters": [
+        {"cluster_id": "unknown_reachable_0", "size": 3,
+         "medoid_test": "p.HT.tOther",
+         "path_shape": "test:p.HT → addRowValues×2 → put",
+         "nearest_examples": [], "sample_member_ids": ["p2"],
+         "omitted_member_ids_count": 2}],
+    "compact_edges": [
+        {"from": "method:p.C.addRowValues", "to": "method:p.C.put",
+         "edge_types": ["CALLS", "DATA_DEP"],
+         "structural_direction": "caller_to_callee",
+         "influence_direction": "callee_to_caller", "path_count": 2,
+         "sample_path_ids": ["p2"], "omitted_path_ids_count": 1}],
+    "omission_note": ("RANKED SLICE of a 90-method / 1406-test / 1526-chain graph. "
+                      "focused_methods are the ONLY contract subjects (target + "
+                      "direct callers/callees); path_context_methods and the path "
+                      "clusters are STRUCTURAL REFERENCE — do NOT write contracts "
+                      "for them. Omitted tests/paths are not necessarily irrelevant. "
+                      "Influence flows method→test (reverse of the call direction)."),
+    "prompt_slice_stats": {"chars": 1200, "approx_tokens": 300, "focused_methods": 2,
+                          "edges": 1, "clusters": 1},
 }
 
 

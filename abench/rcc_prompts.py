@@ -1,8 +1,10 @@
 """RapidCausalCoder prompt builders (Alpha/Beta/Gamma/fix) + Gamma JSON parsing
 + CausalRank. Pure text/data functions — no I/O, no LLM calls (the graph node
-calls phase_runner with these strings). Alpha/Beta/Gamma render the R2
-PromptSlice (a dict from rcc_graph_layers.render_slice) rather than the raw
-MutationGraph."""
+calls phase_runner with these strings). Alpha/Beta/Gamma render the v2
+PromptSlice (a dict from rcc_graph_layers.render_prompt_slice) — a bounded
+MODEL CONTRACT: focused_methods (target + direct callers/callees) are the ONLY
+contract subjects; path_context_methods + representative_path_clusters are
+structural reference, not contract subjects."""
 from __future__ import annotations
 
 import json
@@ -20,47 +22,63 @@ GAMMA_FORMAT_REMINDER = (
     "object described above — no prose, no markdown fences.")
 
 
+def _simple(vid: str) -> str:
+    """A vertex id or fqn ("method:p.C.put" | "p.C.put") -> its simple name ("put")."""
+    fqn = vid.split(":", 1)[-1] if ":" in vid else vid
+    return fqn.rsplit(".", 1)[-1]
+
+
 def _stats_line(sl: dict) -> str:
-    s = sl.get("source_graph_stats", {})
+    s = sl.get("source_graph_summary", {})
     tc = (s.get("top_callers") or [{}])[0]
-    return (f"Full mutation graph: {s.get('method_count','?')} methods, "
-            f"{s.get('distinct_tests','?')} reachable tests, {s.get('chain_count','?')} "
-            f"call chains; status {s.get('status_counts', {})}; "
+    rtc = s.get("reachable_test_classes_top", [])
+    rtc_txt = ", ".join(f"{c.get('class','?')}({c.get('tests','?')})" for c in rtc) or "?"
+    other = s.get("other_reachable_test_classes", 0)
+    if other:
+        rtc_txt += f" (+{other} more classes)"
+    return (f"Full mutation graph: {s.get('methods','?')} methods, "
+            f"{s.get('tests','?')} reachable tests, {s.get('chains','?')} "
+            f"call chains; status {s.get('status', {})}; "
+            f"top reachable test classes: {rtc_txt}; "
             f"top caller: {tc.get('method','?')} ({tc.get('chains','?')} chains).")
 
 
 def _methods_block(sl: dict) -> str:
     parts = []
-    for m in sl.get("methods", []):
-        tag = " [CHANGED/TARGET]" if m.get("role") == "target" else ""
-        src = m.get("source") or ("(target body — read it from the workdir)"
-                                  if m.get("source_available_from_workdir")
-                                  else "(source unavailable — read it yourself)")
+    for m in sl.get("focused_methods", []):
+        tag = f" [{m.get('role', '?').upper()}]"
+        if m.get("source_from_workdir"):
+            src = "(target body — read it from the workdir)"
+        else:
+            src = m.get("source") or "(source unavailable — read it yourself)"
         parts.append(f"### {m['fqn']}{tag}  {m.get('signature') or ''}\n```java\n{src}\n```")
+    pc = sl.get("path_context_methods", [])
+    names = ", ".join(_simple(fqn) for fqn in pc[:20]) or "(none)"
+    parts.append("Path-context methods (structural reference only — do NOT write "
+                 "contracts): " + names)
     return "\n".join(parts)
 
 
 def _edges_block(sl: dict) -> str:
     rows = []
-    for e in sl.get("edges", []):
-        extra = f"  (influence: {e.get('influence_direction')})"
-        st = f" [{e['test_status']}]" if e.get("test_status") else ""
-        rows.append(f"- {e['from']} --{e['type']}--> {e['to']}{st}{extra}")
+    for e in sl.get("compact_edges", []):
+        types = "/".join(e.get("edge_types", []))
+        rows.append(f"- {_simple(e['from'])} --{types}--> {_simple(e['to'])}  "
+                    f"(influence: {e.get('influence_direction')}, "
+                    f"path_count={e.get('path_count')})")
     return "\n".join(rows) or "(no edges in slice)"
 
 
 def _frontier_block(sl: dict) -> str:
-    f = sl.get("test_frontier", {})
-    lines = [f"FAILED ({len(f.get('failed', []))}): " + ", ".join(f.get("failed", []))]
-    cl = f.get("unknown_reachable_clusters", [])
+    failed = sl.get("failed_tests", [])
+    lines = [f"FAILED ({len(failed)}): " + ", ".join(failed)]
+    cl = sl.get("representative_path_clusters", [])
     if cl:
         lines.append("reachable-path CLUSTERS (representative usage scenarios, medoid "
                      "per cluster):")
         for c in cl:
             lines.append(f"  - [{c['size']} paths] {c['path_shape']}  "
                          f"(e.g. {c['medoid_test']})")
-    if f.get("passing_clusters"):
-        lines.append(f"passing clusters: {len(f['passing_clusters'])}")
     return "\n".join(lines)
 
 
@@ -69,10 +87,14 @@ def alpha_prompt(sl: dict) -> str:
         "You are writing CONTRACTS over a MUTATION GRAPH slice (call/dataflow structure "
         f"around the changed method {sl.get('target')}).\n" + _stats_line(sl) + "\n"
         + sl.get("omission_note", "") + "\n\n"
-        "For EACH METHOD vertex: a vertex contract (pre/post/inv).\n"
-        "For EACH CALLS/DATA_DEP EDGE: an interaction contract (what the caller expects "
-        "of the callee; for DATA_DEP the constraint on the flowing variable).\n"
-        "Do NOT edit code.\n\nMETHODS:\n" + _methods_block(sl)
+        "Write contracts ONLY for the focused_methods below — a vertex contract "
+        "(pre/post/inv) for EACH ONE. The path clusters + path-context methods are "
+        "STRUCTURAL REFERENCE (usage/reachability context) — do NOT write contracts "
+        "for them.\n"
+        "For EACH CALLS/DATA_DEP EDGE among the focused methods: an interaction "
+        "contract (what the caller expects of the callee; for DATA_DEP the "
+        "constraint on the flowing variable).\n"
+        "Do NOT edit code.\n\nFOCUSED METHODS:\n" + _methods_block(sl)
         + "\n\nEDGES:\n" + _edges_block(sl)
         + "\n\nTEST FRONTIER:\n" + _frontier_block(sl))
 
@@ -97,7 +119,7 @@ def beta_repair_prompt(sl: dict) -> str:
 def gamma_prompt(sl: dict, specs_text: str, probe_lines: list) -> str:
     logs = "\n".join((probe_lines or [])[:_MAX_LOG_LINES]) \
         or "(no runtime logs — instrumentation was skipped)"
-    mids = "\n".join(f"- method:{m['fqn']}" for m in sl.get("methods", []))
+    mids = "\n".join(f"- method:{m['fqn']}" for m in sl.get("focused_methods", []))
     return (
         "Build a CausalDeltaSubGraph. Compare each method/edge CONTRACT against the "
         "runtime PROBE LOGS; mark violations, the root cause, and the downstream cascade.\n"

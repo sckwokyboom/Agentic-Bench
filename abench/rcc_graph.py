@@ -26,13 +26,11 @@ from .trace_stitch import stitch
 
 
 def _slice_test_classes(slice_: dict) -> list:
-    """Distinct test classes reachable from the PromptSlice's test frontier
-    (failed + each cluster's medoid test) — the subset-run scope in place of the
-    old MutationGraph.test_classes."""
-    f = slice_.get("test_frontier", {})
-    fqns = list(f.get("failed", []))
-    for c in (list(f.get("unknown_reachable_clusters", []))
-             + list(f.get("passing_clusters", []))):
+    """Distinct test classes reachable from the v2 PromptSlice's test frontier
+    (failed_tests + each representative cluster's medoid test) — the subset-run
+    scope in place of the old MutationGraph.test_classes."""
+    fqns = list(slice_.get("failed_tests", []))
+    for c in slice_.get("representative_path_clusters", []):
         fqns.append(c.get("medoid_test", ""))
     return sorted({fqn.rsplit(".", 1)[0] for fqn in fqns if "." in fqn})
 
@@ -79,13 +77,13 @@ class RccState(TypedDict, total=False):
 def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
             phase_runner, suite_runner, subset_runner, memory, strip_probes,
             on_event=None, cancel_event=None, seed: "RccSeed | None" = None) -> Trace:
-    """The rcc loop. `slice_` is the PromptSlice (rcc_graph_layers.render_slice)
-    Alpha/Beta/Gamma render; `methods` is the GraphSubgraph's ranked method-fqn
-    list (target first) CausalRank runs over. `initial` is the RED suite state
-    that triggered rcc (the lead diff's failures). `subset_runner(classes) ->
-    (SuiteEval, probe_lines)`; `suite_runner() -> SuiteEval` (full);
-    `strip_probes() -> int` removes //[probe] lines from the working tree;
-    `memory` is an RccMemory-like."""
+    """The rcc loop. `slice_` is the v2 PromptSlice (rcc_graph_layers.
+    render_prompt_slice) Alpha/Beta/Gamma render; `methods` is the
+    GraphSubgraph's focused-method fqn list (target first) CausalRank runs
+    over. `initial` is the RED suite state that triggered rcc (the lead diff's
+    failures). `subset_runner(classes) -> (SuiteEval, probe_lines)`;
+    `suite_runner() -> SuiteEval` (full); `strip_probes() -> int` removes
+    //[probe] lines from the working tree; `memory` is an RccMemory-like."""
     target_fqn = methods[0]
     test_classes = _slice_test_classes(slice_)
     try:
@@ -164,11 +162,11 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
     # ── nodes ────────────────────────────────────────────────────────────────
     def memory_node(state):
         steps: list = list(seed.ctrl) if seed else []
-        gs = slice_.get("source_graph_stats", {})
+        gs = slice_.get("source_graph_summary", {})
         steps.append(event(
-            f"mutation graph: {gs.get('method_count', '?')} methods, "
-            f"{gs.get('edge_count', '?')} edges, "
-            f"{gs.get('distinct_tests', '?')} tests", "memory"))
+            f"mutation graph: {gs.get('methods', '?')} methods, "
+            f"{gs.get('edges', '?')} edges, "
+            f"{gs.get('tests', '?')} tests", "memory"))
         entry = memory.get(target_fqn)
         steps.append(event(
             f"memory: HIT for {target_fqn} — trying the cached causal insight"

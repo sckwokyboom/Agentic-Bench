@@ -8,7 +8,7 @@ pytest.importorskip("langgraph")   # optional extra — skip cleanly without it
 from abench.orchestrator import PhaseOutcome, SuiteEval
 from abench.rcc_graph import RccConfig, run_rcc
 from abench.rcc_graph_layers import (
-    annotate_status, build_index, build_subgraph, render_slice,
+    annotate_status, build_index, build_subgraph, render_prompt_slice,
 )
 from abench.rcc_mutation_graph import MgEdge, MgVertex, MutationGraph
 from abench.regression_gate import SuiteResult
@@ -17,8 +17,9 @@ from abench.trace_model import StepKind, Trace
 # _SUB stays a MutationGraph — run_rcc_condition (tested in
 # tests/test_rcc_orchestrate.py, which imports it from here) still takes the
 # raw graph and builds the R2 layers itself. run_rcc (tested below) now takes
-# the PromptSlice + ranked method list the layers produce, so _SLICE/_METHODS
-# are built once, here, via the real layer functions to stay faithful.
+# the v2 PromptSlice + focused-method fqn list the layers produce, so
+# _SLICE/_METHODS are built once, here, via the real layer functions to stay
+# faithful.
 _SUB = MutationGraph(
     target_id="method:p.C.put",
     vertices=[MgVertex(id="method:p.C.put", type="method", fqn="p.C.put",
@@ -37,7 +38,9 @@ def _build_slice(failed_ids):
     g = annotate_status(_SUB, failed_ids=set(failed_ids))
     idx = build_index(g)
     subgraph = build_subgraph(g, failed_ids=set(failed_ids))
-    return render_slice(g, subgraph, idx), subgraph["methods"]
+    ps = render_prompt_slice(g, subgraph, idx)
+    methods = [m["fqn"] for m in subgraph["focused_methods"]] or subgraph["methods"]
+    return ps, methods
 
 
 _SLICE, _METHODS = _build_slice({"p.CT.t1", "p.CT.t2"})
