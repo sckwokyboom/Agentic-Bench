@@ -33,6 +33,19 @@ class RccConfig:
     cluster_cap: int = 5
 
 
+@dataclass
+class RccSeed:
+    """Accumulated state from the prefix driver (baseline→understand→implement)
+    so the rcc loop stitches ONE continuous trace: prior phase traces + controller
+    events, the clock to continue from, and the counters so far."""
+    phase_traces: list
+    ctrl: list
+    clock: float
+    full_runs: int
+    productive: int
+    best_failed: "int | None"
+
+
 class RccState(TypedDict, total=False):
     cached: object                 # dict | None — memory entry (fast path)
     specs: str
@@ -40,6 +53,9 @@ class RccState(TypedDict, total=False):
     beta_ok: bool
     graph: object                  # dict | None — parsed Gamma output
     ranks: list                    # [(method_fqn, score)] desc
+    root_rank: object              # int | None — CausalRank position of the target
+    beta_degraded: bool
+    gamma_degraded: bool
     attempt: int
     cur: SuiteEval                 # latest CLEAN suite state (never instrumented)
     best_failed: object
@@ -50,7 +66,7 @@ class RccState(TypedDict, total=False):
 
 def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
             phase_runner, suite_runner, subset_runner, memory, strip_probes,
-            on_event=None, cancel_event=None) -> Trace:
+            on_event=None, cancel_event=None, seed: "RccSeed | None" = None) -> Trace:
     """The rcc loop. `initial` is the RED suite state that triggered rcc (the
     lead diff's failures). `subset_runner(classes) -> (SuiteEval, probe_lines)`;
     `suite_runner() -> SuiteEval` (full); `strip_probes() -> int` removes
@@ -61,9 +77,10 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
         raise RuntimeError("orchestration=rcc requires the optional dep: "
                            "pip install -e '.[langgraph]'") from exc
 
-    clock = [0.0]
-    test_runs = [0]
-    productive = [0]
+    clock = [seed.clock if seed else 0.0]
+    full_runs = [seed.full_runs if seed else 0]
+    subset_runs = [0]
+    productive = [seed.productive if seed else 0]
 
     def emit(payload: dict) -> None:
         if on_event is not None:
@@ -99,7 +116,7 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
                                             passed=0, failed=0))
 
     def run_full(steps: list, phase: str) -> SuiteEval:
-        test_runs[0] += 1
+        full_runs[0] += 1
         try:
             return suite_runner()
         except Exception as exc:
@@ -107,7 +124,7 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
             return _norun()
 
     def run_subset(steps: list, phase: str, classes: list):
-        test_runs[0] += 1
+        subset_runs[0] += 1
         try:
             return subset_runner(classes)
         except Exception as exc:
@@ -129,7 +146,7 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
 
     # ── nodes ────────────────────────────────────────────────────────────────
     def memory_node(state):
-        steps: list = []
+        steps: list = list(seed.ctrl) if seed else []
         steps.append(event(
             f"mutation graph: {len(sub.methods())} methods, {len(sub.edges)} "
             f"edges, {len(sub.test_fqns)} tests", "memory"))
@@ -139,9 +156,13 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
             if entry else
             f"memory: miss for {sub.target_fqn} — full causal pass", "memory"))
         return {"cached": entry, "attempt": 0, "cur": initial,
-                "best_failed": initial.result.failed if initial.result.ran else None,
-                "specs": "", "probe_lines": [], "graph": None,
-                "ranks": [(m, 0.0) for m in sub.methods()], "ctrl": steps}
+                "best_failed": (seed.best_failed if seed else
+                                (initial.result.failed if initial.result.ran else None)),
+                "specs": "", "probe_lines": [], "graph": None, "root_rank": None,
+                "beta_degraded": False, "gamma_degraded": False,
+                "ranks": [(m, 0.0) for m in sub.methods()],
+                "phase_traces": list(seed.phase_traces) if seed else [],
+                "ctrl": steps}
 
     def cache_fix_node(state):
         steps: list = []
@@ -153,19 +174,27 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
         classes = state["cached"].get("test_classes") or sub.test_classes
         ev, _lines = run_subset(steps, "cache-fix", classes)
         cur = ev
+        full_ran = False
         if _green(ev):
             cur = run_full(steps, "cache-fix")
-        if _green(cur):
+            full_ran = True
+        infra = (not ev.result.ran) or (full_ran and not cur.result.ran)
+        if _green(cur) and full_ran:
             steps.append(event("cache-fix: cached insight fixed it — subset + "
                                "full suite green", "cache-fix"))
         elif cancelled():
             steps.append(event("cache-fix: run cancelled — keeping the cached "
                                "entry (staleness was not tested)", "cache-fix"))
+        elif infra:
+            steps.append(event("cache-fix: subset/full run infra failure — keeping "
+                               "the cached entry (staleness was not tested); full "
+                               "causal pass", "cache-fix"))
         else:
             memory.invalidate(sub.target_fqn)
             steps.append(event("cache-fix: cached insight is STALE (tests still "
                                "red) — invalidated; full causal pass", "cache-fix"))
-        bf = _track_best(cur, state["best_failed"], productive)
+        bf = (_track_best(cur, state["best_failed"], productive) if full_ran
+              else state["best_failed"])
         return {"cur": cur, "best_failed": bf,
                 "phase_traces": [("cache-fix", f.trace)], "ctrl": steps}
 
@@ -207,6 +236,7 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
                 "beta: instrumentation failed twice — degrading to a NO-LOGS "
                 f"causal pass; {removed} probe lines stripped", "beta"))
         return {"probe_lines": lines, "beta_ok": beta_ok,
+                "beta_degraded": (not beta_ok),
                 "phase_traces": traces, "ctrl": steps}
 
     def gamma_node(state):
@@ -227,15 +257,16 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
             ranks = [(m, 0.0) for m in sub.methods()]
             steps.append(event("gamma: still unparseable — degraded to "
                                "subgraph-order ranking (target first)", "gamma"))
-        else:
-            ranks = causal_rank(graph, sub.methods())
-            rr = root_rank(ranks, sub.target_fqn)
-            steps.append(event(
-                f"gamma: causal delta graph with {len(graph.get('vertices', []))} "
-                f"vertices / {len(graph.get('edges', []))} edges; CausalRank of "
-                f"target = {rr}/{len(ranks)}", "gamma"))
-        return {"graph": graph, "ranks": ranks, "phase_traces": traces,
-                "ctrl": steps}
+            return {"graph": None, "ranks": ranks, "root_rank": None,
+                    "gamma_degraded": True, "phase_traces": traces, "ctrl": steps}
+        ranks = causal_rank(graph, sub.methods())
+        rr = root_rank(ranks, sub.target_fqn)
+        steps.append(event(
+            f"gamma: causal delta graph with {len(graph.get('vertices', []))} "
+            f"vertices / {len(graph.get('edges', []))} edges; CausalRank of "
+            f"target = {rr}/{len(ranks)}", "gamma"))
+        return {"graph": graph, "ranks": ranks, "root_rank": rr,
+                "gamma_degraded": False, "phase_traces": traces, "ctrl": steps}
 
     def fix_node(state):
         steps: list = []
@@ -257,12 +288,13 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
                 f"fix {attempt}: full suite {cur.result.passed} passed / "
                 f"{cur.result.failed} failed (compiled={cur.result.compiled})",
                 f"fix-{attempt}"))
+            bf = _track_best(cur, state["best_failed"], productive)
         else:
             steps.append(event(
                 f"fix {attempt} (focus {focus}): subset still red — "
                 f"{ev.result.passed} passed / {ev.result.failed} failed",
                 f"fix-{attempt}"))
-        bf = _track_best(cur, state["best_failed"], productive)
+            bf = state["best_failed"]
         return {"attempt": attempt, "cur": cur, "best_failed": bf,
                 "phase_traces": [(f"fix-{attempt}", f.trace)], "ctrl": steps}
 
@@ -324,18 +356,23 @@ def run_rcc(cfg: RccConfig, sub: MutationGraph, initial: SuiteEval, *,
     final = app.invoke({}, config={"recursion_limit": cfg.max_attempts * 2 + 20})
 
     try:
-        return stitch(final.get("phase_traces", []), final.get("ctrl", []),
-                      outcome=final.get("outcome"),
-                      controller_test_runs=test_runs[0],
-                      accepted_rounds=productive[0], reverted_rounds=0,
-                      best_failed_reached=final.get("best_failed"))
+        tr = stitch(final.get("phase_traces", []), final.get("ctrl", []),
+                    outcome=final.get("outcome"),
+                    controller_test_runs=full_runs[0] + subset_runs[0],
+                    accepted_rounds=productive[0], reverted_rounds=0,
+                    best_failed_reached=final.get("best_failed"))
     except Exception as exc:  # pragma: no cover
         emit({"type": "controller", "phase": "finalize",
               "text": f"stitch FAILED ({exc})"})
         tr = Trace(steps=list(final.get("ctrl", [])), finished=True)
         tr.orchestration_outcome = final.get("outcome")
-        tr.controller_test_runs = test_runs[0]
+        tr.controller_test_runs = full_runs[0] + subset_runs[0]
         tr.accepted_rounds = productive[0]
         tr.reverted_rounds = 0
         tr.best_failed_reached = final.get("best_failed")
-        return tr
+    tr.rcc_root_rank = final.get("root_rank")
+    tr.rcc_memory_hit = bool(final.get("cached"))
+    tr.rcc_beta_degraded = bool(final.get("beta_degraded"))
+    tr.rcc_gamma_degraded = bool(final.get("gamma_degraded"))
+    tr.rcc_subset_test_runs = subset_runs[0]
+    return tr

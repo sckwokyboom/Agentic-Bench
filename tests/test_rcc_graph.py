@@ -263,3 +263,85 @@ def test_trace_rcc_fields_roundtrip():
     assert back.rcc_root_rank == 1 and back.rcc_memory_hit is True
     assert back.rcc_beta_degraded is True and back.rcc_gamma_degraded is False
     assert back.rcc_subset_test_runs == 2
+
+
+def test_best_failed_tracks_full_suite_only():
+    # initial full = 2 failed; fix-1 subset red with 1 failed must NOT lower best.
+    phase = FakePhase()
+    subset = [(_ev(1, 1), []), (_ev(1, 1), []), (_ev(1, 1), [])]
+    full = []
+    tr, _ = _run(phase, subset, full)
+    assert tr.orchestration_outcome == "stuck"
+    assert tr.best_failed_reached == 2          # full-suite semantics
+    assert tr.accepted_rounds == 0              # no full-suite improvement
+
+
+def test_cache_fix_infra_failure_keeps_entry():
+    mem = FakeMemory({"p.C.put": {"causal_graph": json.loads(_GAMMA),
+                                  "test_classes": ["p.CT"], "ts": 1.0}})
+    phase = FakePhase()
+    subset = [(_ev(0, 0, ran=False), []),        # cache-fix subset: INFRA failure
+              (_ev(1, 1), ["RCC_PROBE x"]),      # beta
+              (_ev(2, 0), [])]                   # fix-1 subset green
+    full = [_ev(100, 0)]
+    tr, _ = _run(phase, subset, full, memory=mem)
+    assert tr.orchestration_outcome == "green"
+    assert mem.invalidations == []               # infra is NOT staleness
+    assert "infra" in "\n".join(_events(tr))
+
+
+def test_rcc_telemetry_fields_on_green():
+    phase = FakePhase()
+    subset = [(_ev(1, 1), ["RCC_PROBE C.put: ret=null"]), (_ev(2, 0), [])]
+    full = [_ev(100, 0)]
+    tr, _ = _run(phase, subset, full)
+    assert tr.rcc_root_rank == 1
+    assert tr.rcc_memory_hit is False
+    assert tr.rcc_beta_degraded is False
+    assert tr.rcc_gamma_degraded is False
+    assert tr.rcc_subset_test_runs == 2          # beta probe + fix-1 subset
+    assert tr.controller_test_runs == 3          # + fix-1 full
+
+
+def test_rcc_telemetry_flags_on_degrades():
+    phase = FakePhase(gamma_texts=["garbage", "still garbage"])
+    subset = [(_ev(0, 0, compiled=False, ran=False), []),
+              (_ev(0, 0, compiled=False, ran=False), []),
+              (_ev(2, 0), [])]
+    full = [_ev(100, 0)]
+    tr, _ = _run(phase, subset, full)
+    assert tr.rcc_beta_degraded is True
+    assert tr.rcc_gamma_degraded is True
+    assert tr.rcc_root_rank is None              # no causal graph -> no rank
+
+
+def test_memory_hit_sets_flag():
+    mem = FakeMemory({"p.C.put": {"causal_graph": json.loads(_GAMMA),
+                                  "test_classes": ["p.CT"], "ts": 1.0}})
+    subset = [(_ev(2, 0), [])]
+    full = [_ev(100, 0)]
+    tr, _ = _run(FakePhase(), subset, full, memory=mem)
+    assert tr.rcc_memory_hit is True
+
+
+def test_seed_prefixes_trace_and_counters():
+    from abench.rcc_graph import RccSeed
+    from abench.trace_model import Step, StepKind
+    pre = [Step(kind=StepKind.CONTROLLER, ts=1.0, turn=0,
+                text="ran baseline test suite", phase="implement"),
+           Step(kind=StepKind.CONTROLLER, ts=2.0, turn=0,
+                text="implement done", phase="implement")]
+    seed = RccSeed(phase_traces=[("implement", Trace())], ctrl=pre,
+                   clock=2.0, full_runs=2, productive=1, best_failed=2)
+    tr = run_rcc(
+        RccConfig(target_label="p.C.put"), _SUB, initial=_ev(0, 2),
+        phase_runner=FakePhase(),
+        suite_runner=_seq_full([_ev(100, 0)]),
+        subset_runner=_seq_subset([(_ev(1, 1), []), (_ev(2, 0), [])]),
+        memory=FakeMemory(), strip_probes=lambda: 0, seed=seed,
+    )
+    ev = _events(tr)
+    assert ev[0] == "ran baseline test suite"    # prefix events first (ts order)
+    assert tr.controller_test_runs == 2 + 3      # seeded 2 + beta/fix subset/full
+    assert tr.accepted_rounds == 1 + 1           # seeded 1 + green full
+    assert tr.orchestration_outcome == "green"
