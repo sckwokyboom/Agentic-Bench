@@ -99,3 +99,13 @@ def test_persist_writes_four_layers(tmp_path):
         assert (tmp_path / f"{name}.json").is_file()
     raw = _j.loads((tmp_path / "raw.json").read_text())
     assert raw["stats"]["chain_count"] == 3 and "SECRET" not in _j.dumps(raw)
+
+
+def test_subgraph_frontier_dedups_and_honors_failed_ids():
+    from abench.rcc_graph_layers import build_subgraph
+    g = _g()  # NOT annotated — failed_ids param must still yield the failed frontier
+    gs = build_subgraph(g, failed_ids={"T.a"}, k_unknown=5)
+    assert "T.a" in gs["test_frontier"]["failed"]
+    # samples carry no duplicate test fqns
+    us = gs["test_frontier"]["unknown_reachable_sample"]
+    assert len(us) == len(set(us))

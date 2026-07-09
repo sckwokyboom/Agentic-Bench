@@ -75,7 +75,7 @@ def _is_direct_caller(graph, method_id) -> bool:
 def score_chains(graph: MutationGraph) -> list:
     """Deterministic per-chain score + selection_reason. No ML — a simple additive
     weight; the reason list matters more than the exact formula (Phase-3: k-medoid/HGT)."""
-    has_dd = {e.type == "DATA_DEP" and pid for e in graph.edges for pid in e.path_ids}
+    has_dd = {pid for e in graph.edges if e.type == "DATA_DEP" for pid in e.path_ids}
     out = []
     for c in graph.chains:
         reasons, score = [], 0
@@ -132,13 +132,21 @@ def build_subgraph(graph: MutationGraph, *, failed_ids: "set | None" = None,
                 methods.add(v.fqn)
     methods = ([graph.target_fqn]
                + sorted(m for m in methods if m != graph.target_fqn))[:k_methods]
+    # ALL failed ids (from annotated status) UNIONed with any caller-supplied
+    # failed_ids — so a caller that forgot to annotate still gets the failed
+    # frontier rather than silently empty (dead-param footgun).
     all_failed = sorted({v.fqn for v in graph.vertices
-                         if v.type in ("test", "assert") and v.status == "failed"})
+                         if v.type in ("test", "assert") and v.status == "failed"}
+                        | set(failed_ids or ()))
+
+    def _dedup(seq):
+        return list(dict.fromkeys(seq))          # order-preserving unique test fqns
+
     frontier = {
         "failed": all_failed,
-        "passing_sample": [s["test_fqn"] for s in buckets["passing"][:k_passing]],
-        "unknown_reachable_sample": [s["test_fqn"]
-                                     for s in buckets["unknown_reachable"][:k_unknown]]}
+        "passing_sample": _dedup(s["test_fqn"] for s in buckets["passing"])[:k_passing],
+        "unknown_reachable_sample":
+            _dedup(s["test_fqn"] for s in buckets["unknown_reachable"])[:k_unknown]}
     return {"target": graph.target_fqn, "change_origin": graph.change_origin,
             "methods": methods, "test_frontier": frontier, "paths": kept,
             "dropped_counts": dropped}
