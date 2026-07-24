@@ -12,6 +12,36 @@ def _phase_trace(text, ts, tin, tout):
     )
 
 
+def test_controller_logical_clock_rebased_into_wall_domain():
+    # The real-run bug: agent phase steps carry wall-clock ts (epoch-scale) while
+    # the orchestrator's controller steps carry a LOGICAL clock (1,2,3). A raw ts
+    # sort then dumps every controller step to the front and the safe-trace export
+    # renders huge-negative offsets. Stitch must re-time controllers into the agent
+    # domain: baseline (pre-understand) just before t0, the rest just after their
+    # tagged phase's agent work, preserving emission order.
+    base = 1_000_000.0
+    und = _phase_trace("understand-work", base + 20, 10, 5)          # agent ts base+20
+    impl = Trace(started_at=base + 200, ended_at=base + 260,
+                 steps=[Step(kind=StepKind.FILE_EDIT, ts=base + 250, turn=0,
+                             message_id="b0", path="X", patch="+x")])
+    ctrl = [  # logical clock 1,2,3 — a DISJOINT domain from the agent ts
+        Step(kind=StepKind.CONTROLLER, ts=1.0, turn=0, text="baseline", phase="implement"),
+        Step(kind=StepKind.CONTROLLER, ts=2.0, turn=0, text="contract", phase="understand"),
+        Step(kind=StepKind.CONTROLLER, ts=3.0, turn=0, text="implement done", phase="implement"),
+    ]
+    t = stitch([("understand", und), ("implement", impl)], ctrl, outcome="green")
+    started = t.started_at
+    # no controller step is thrown out of the run's wall-clock window (the bug was
+    # ts ≈ -1.7e9); allow a sub-second pre-roll for the pre-understand baseline
+    csteps = [s for s in t.steps if s.kind == StepKind.CONTROLLER]
+    assert all(started - 1.0 <= s.ts <= t.ended_at + 1.0 for s in csteps)
+    # emission order preserved
+    assert [s.text for s in csteps] == ["baseline", "contract", "implement done"]
+    # baseline renders first (before the understand agent step), implement-done last
+    assert t.steps[0].kind == StepKind.CONTROLLER and t.steps[0].text == "baseline"
+    assert t.steps[-1].text == "implement done"
+
+
 def test_stitch_concatenates_tags_and_sums():
     phases = [("understand", _phase_trace("read", 100.0, 10, 1)),
               ("implement", _phase_trace("edit", 200.0, 20, 2))]

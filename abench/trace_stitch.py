@@ -13,6 +13,43 @@ def _sum(values: list[int | float | None]) -> int | float | None:
     return sum(present) if present else None
 
 
+def _rebase_controller_ts(agent_steps: list[Step],
+                          controller_steps: list[Step]) -> None:
+    """Re-time controller steps into the agent phase steps' wall-clock domain,
+    IN PLACE, when the two are in disjoint clock domains.
+
+    The orchestrators stamp controller steps with a per-run LOGICAL clock (0,1,2…)
+    while agent phase steps carry wall-clock ts. A raw ts sort then throws every
+    controller step to the front, and the safe-trace export (t = ts - started_at)
+    renders huge-negative offsets. Anchor each controller step to the phase it is
+    tagged with — just after that phase's agent work — in emission order; the very
+    first controller (the pre-understand baseline suite) is pinned just before t0.
+
+    No-op when there are no agent steps (fake-based tests use empty phase traces)
+    or the controllers are already interleaved (already in the agent domain, e.g.
+    the stitch unit test) — so only genuinely broken real-run traces are touched."""
+    a_ts = [s.ts for s in agent_steps if s.ts is not None]
+    c_ts = [s.ts for s in controller_steps if s.ts is not None]
+    if not a_ts or not c_ts or max(c_ts) >= min(a_ts):
+        return
+    lo = min(a_ts)
+    phase_end: dict = {}
+    for s in agent_steps:
+        if s.ts is not None:
+            phase_end[s.phase] = max(phase_end.get(s.phase, s.ts), s.ts)
+    cursor = lo
+    eps = 0.0
+    for i, c in enumerate(controller_steps):
+        eps += 1e-3
+        if i == 0:                      # the pre-understand baseline suite
+            c.ts = lo - 1e-3
+            continue
+        end = phase_end.get(c.phase)
+        if end is not None and end > cursor:
+            cursor = end
+        c.ts = cursor + eps
+
+
 def stitch(
     phases: list[tuple[str, Trace]],
     controller_steps: list[Step],
@@ -31,6 +68,7 @@ def stitch(
             s.phase = label                 # tag with the phase it came from
             steps.append(s)
         turns.extend(tr.turns)
+    _rebase_controller_ts(steps, controller_steps)   # steps = agent phase steps only
     steps.extend(controller_steps)
     steps.sort(key=lambda s: (s.ts if s.ts is not None else 0.0))
 
