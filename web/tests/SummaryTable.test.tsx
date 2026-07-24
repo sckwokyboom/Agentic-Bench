@@ -64,7 +64,7 @@ const panel: Panel = {
         tokens_in: m(257000, 2.7, [1.6, 4.3]),
         tokens_out: m(319000, 2.9, [1.7, 4.6]),
         n_test_runs: m(25, 2.8, [1.6, 4.5]),
-        n_tests_executed: m(2326, 0.95, [0.93, 0.99]),  // exec, CI < 1 → undercount warn
+        n_tests_executed: m(2326, 0.95, [0.93, 0.99]),  // CI < 1 → fewer tests, cheaper (good)
       },
     }),
   ],
@@ -87,10 +87,10 @@ test("renders transposed columns: baseline reference + each condition with n", (
   expect(screen.getAllByText("n = 5").length).toBe(3);
 });
 
-test("renders the four sections and verdict pills", () => {
+test("renders the three sections and verdict pills", () => {
   render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
   expect(screen.getByText("summary")).toBeInTheDocument();
-  expect(screen.getByText("outcome")).toBeInTheDocument();
+  expect(screen.queryByText("outcome")).toBeNull();
   expect(screen.getByText(/cost · ratio vs baseline/)).toBeInTheDocument();
   expect(screen.getByText(/behavior · share of tool calls/)).toBeInTheDocument();
   expect(screen.getByText("promising")).toBeInTheDocument();
@@ -132,11 +132,12 @@ test("directional color: CI fully above 1 is bad (red), fully below 1 is good (g
   expect(redDom).toBe(false);
 });
 
-test("outcome shows tests passed %, floored not rounded up", () => {
+test("tests executed below baseline is green — fewer executions is cheaper", () => {
   render(<SummaryTable panel={panel} agg="median" onAggChange={noop} />);
-  expect(screen.getByText("tests passed")).toBeInTheDocument();
-  expect(screen.getByText("97.2%")).toBeInTheDocument();
-  expect(screen.getAllByText("100%").length).toBeGreaterThanOrEqual(1);
+  // forced tests executed 0.95× [0.93–0.99] → fewer than baseline → success (green)
+  const good = rgb(screen.getByText("0.95× [0.93–0.99]"));
+  expect(good.g).toBeGreaterThan(good.r);
+  expect(good.g).toBeGreaterThan(good.b);
 });
 
 test("behavior shares render as percentages", () => {

@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Paper, Stack, CircularProgress, Typography, Box } from "@mui/material";
+import { Paper, Stack, CircularProgress, Typography, Box, IconButton, Tooltip } from "@mui/material";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckIcon from "@mui/icons-material/Check";
+import { selectable } from "../theme";
+import { copyText } from "../lib/clipboard";
 import type { StartupStatus as Status } from "../lib/startupStatus";
 
 function fmtElapsed(ms: number): string {
@@ -39,19 +43,36 @@ export default function StartupStatus({ status }: Props) {
       : "";
 
   const isError = status.kind === "model_error";
+
+  const [copied, setCopied] = useState(false);
+  async function onCopy() {
+    if (await copyText(status.message)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
   return (
     <Paper variant="outlined"
            sx={{ p: 1.5, borderColor: isError ? "error.main" : "primary.light" }}>
       <Stack direction="row" alignItems="center" spacing={1.5}>
         {isError ? <ErrorOutlineIcon color="error" /> : <CircularProgress size={20} />}
-        <Box>
-          <Typography variant="body2" color={isError ? "error" : undefined}>
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Typography variant="body2" color={isError ? "error" : undefined}
+                      sx={{ ...selectable, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
             {status.message}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             {fmtElapsed(elapsedMs)} elapsed{retryHint}
           </Typography>
         </Box>
+        {isError && (
+          <Tooltip title={copied ? "Copied" : "Copy"}>
+            <IconButton aria-label="copy error message" size="small" onClick={onCopy}>
+              {copied ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        )}
       </Stack>
     </Paper>
   );

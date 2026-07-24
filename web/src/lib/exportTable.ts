@@ -23,8 +23,14 @@ export function toCsv(headers: string[], rows: string[][]): string {
 
 // ── Aggregate (summary) table ─────────────────────────────────────────────────
 
-const fmtMean = (v: number | null | undefined): string =>
-  v == null ? "—" : v.toFixed(2);
+// Each aggregate cell carries "mean / median" so a skewed metric is visible at a
+// glance — and both statistics land in the export, not just the mean.
+const fmtStat = (
+  m: { mean: number | null; median: number | null } | undefined,
+): string => {
+  const f = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
+  return m == null ? "—" : `${f(m.mean)} / ${f(m.median)}`;
+};
 
 function summaryTable(summary: RunsSummary): { headers: string[]; rows: string[][] } {
   const conditions = summary.conditions;
@@ -52,7 +58,7 @@ function summaryTable(summary: RunsSummary): { headers: string[]; rows: string[]
   rows.push(srRow);
 
   for (const m of SUMMARY_METRICS) {
-    const row = [m.label, ...conditions.map((c) => fmtMean(c.metrics[m.key]?.mean))];
+    const row = [m.label, ...conditions.map((c) => fmtStat(c.metrics[m.key]))];
     if (hasDelta) {
       const d = summary.deltas[m.key];
       row.push(d == null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(1)}%`);
@@ -128,7 +134,7 @@ export function buildResultsMarkdown(
   if (summary && summary.conditions.length > 0) {
     const { headers, rows } = summaryTable(summary);
     parts.push(
-      `\n## Aggregate (mean per condition; valid runs only)\n\n${toMarkdownTable(headers, rows)}`,
+      `\n## Aggregate (mean / median per condition; valid runs only)\n\n${toMarkdownTable(headers, rows)}`,
     );
   }
   if (runs && runs.length > 0) {

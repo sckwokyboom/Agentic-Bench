@@ -14,7 +14,7 @@ export interface ConditionData {
   augmentation_kind: "text" | "file";
   overlay: string | null;
   tools: string[];
-  orchestration: "phased" | "phased_plan" | "phased_graph" | "phased_runtime" | null;
+  orchestration: "phased" | "phased_plan" | "phased_graph" | "phased_runtime" | "rcc" | null;
   engine: "python" | "langgraph";
   system_prompt: string | null;
   temperature: number | null;

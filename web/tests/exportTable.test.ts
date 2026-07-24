@@ -12,14 +12,14 @@ const summary: RunsSummary = {
     {
       name: "baseline", runs: 3, success_rate: 1.0,
       metrics: {
-        n_steps: { mean: 12, median: 12 },
+        n_steps: { mean: 12, median: 11 },
         duration_s: { mean: 100, median: 100 },
       },
     },
     {
       name: "augmented", runs: 3, success_rate: 2 / 3,
       metrics: {
-        n_steps: { mean: 15, median: 15 },
+        n_steps: { mean: 15, median: 14 },
         duration_s: { mean: 90, median: 90 },
       },
     },
@@ -74,7 +74,7 @@ describe("buildResultsMarkdown", () => {
   it("includes the aggregate table with success rate + a delta", () => {
     expect(md).toContain("## Aggregate");
     expect(md).toContain("| success rate | 100% | 67% | -33pp |");
-    expect(md).toContain("| steps | 12.00 | 15.00 | +25.0% |");
+    expect(md).toContain("| steps | 12.00 / 11.00 | 15.00 / 14.00 | +25.0% |");
   });
   it("includes the per-run table (concise: tests % + tokens)", () => {
     expect(md).toContain("## Runs (2)");

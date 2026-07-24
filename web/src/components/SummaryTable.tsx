@@ -20,17 +20,15 @@ interface Props {
 }
 
 // ── Directional tone for cost cells ──────────────────────────────────────────
-// "lower" = cheaper-is-better: a ratio CI entirely below 1 is good (green),
-// entirely above 1 is bad (red), crossing 1 is inconclusive (no fill). "exec"
-// (tests executed): fewer than baseline is the suspicious direction (undercount
-// → warn); more is just effort. At n≈5 most CIs cross 1 — that's expected.
-type Tone = "good" | "bad" | "warn" | "none";
-type CostDir = "lower" | "exec";
+// Cheaper-is-better across every cost row: a ratio CI entirely below 1 is good
+// (green), entirely above 1 is bad (red), crossing 1 is inconclusive (no fill).
+// Tests executed follows the same rule — fewer executions than baseline is the
+// better, greener direction. At n≈5 most CIs cross 1 — that's expected.
+type Tone = "good" | "bad" | "none";
 
-function costTone(dir: CostDir, ci: [number | null, number | null] | null): Tone {
+function costTone(ci: [number | null, number | null] | null): Tone {
   if (!ci || ci[0] == null || ci[1] == null) return "none";
   const [lo, hi] = ci as [number, number];
-  if (dir === "exec") return hi < 1 ? "warn" : "none";
   if (hi < 1) return "good";
   if (lo > 1) return "bad";
   return "none";
@@ -44,8 +42,8 @@ function pointTone(v: number | null, base: number | null, dir: "lower" | "higher
   return lower ? "bad" : "good";
 }
 
-const TONE_TOKEN: Record<Exclude<Tone, "none">, "success" | "error" | "warning"> = {
-  good: "success", bad: "error", warn: "warning",
+const TONE_TOKEN: Record<Exclude<Tone, "none">, "success" | "error"> = {
+  good: "success", bad: "error",
 };
 
 function toneCellSx(tone: Tone) {
@@ -68,10 +66,6 @@ function fmtInt(v: number): string {
 function fmtPct0(v: number): string {
   return `${Math.round(v * 100)}%`;
 }
-// Floored to one decimal so a near-miss (2198/2200) never rounds up to 100%.
-function fmtPct1(v: number): string {
-  return v >= 1 ? "100%" : `${(Math.floor(v * 1000) / 10).toFixed(1)}%`;
-}
 // toFixed keeps the leading zero (0.92, not .92) the spec requires.
 function ratioText(m: PanelMetric | undefined): string {
   if (!m || m.ratio == null) return "";
@@ -83,16 +77,16 @@ function ratioText(m: PanelMetric | undefined): string {
 }
 
 // ── Cost-block rows (absolute on top, ratio [CI] below) ──────────────────────
-const COST_ROWS: { key: string; label: string; unit?: string; dir: CostDir;
+const COST_ROWS: { key: string; label: string; unit?: string;
   fmt: (v: number) => string; help?: string }[] = [
-  { key: "duration_s", label: "duration", unit: "s", dir: "lower", fmt: fmtInt },
-  { key: "n_steps", label: "steps", dir: "lower", fmt: fmtInt },
-  { key: "n_tool_calls", label: "tool calls", dir: "lower", fmt: fmtInt },
-  { key: "tokens_in", label: "tokens read", dir: "lower", fmt: fmtTokens },
-  { key: "tokens_out", label: "tokens generated", dir: "lower", fmt: fmtTokens },
-  { key: "n_test_runs", label: "test runs", dir: "lower", fmt: fmtInt },
-  { key: "n_tests_executed", label: "tests executed", dir: "exec", fmt: fmtInt,
-    help: "Total test-case executions summed over the agent's runs. A ratio whose CI sits below baseline (warn) hints at an undercount — tests that never ran." },
+  { key: "duration_s", label: "duration", unit: "s", fmt: fmtInt },
+  { key: "n_steps", label: "steps", fmt: fmtInt },
+  { key: "n_tool_calls", label: "tool calls", fmt: fmtInt },
+  { key: "tokens_in", label: "tokens read", fmt: fmtTokens },
+  { key: "tokens_out", label: "tokens generated", fmt: fmtTokens },
+  { key: "n_test_runs", label: "test runs", fmt: fmtInt },
+  { key: "n_tests_executed", label: "tests executed", fmt: fmtInt,
+    help: "Total test-case executions summed over the agent's runs — fewer than baseline (a ratio CI below 1) is the cheaper, better direction." },
 ];
 
 const sectionSx = {
@@ -148,13 +142,11 @@ export default function SummaryTable({ panel, agg, onAggChange, busy }: Props) {
   }
 
   const baseRate = base?.pass.rate ?? null;
-  const baseTpr = base?.tests_pass_rate ?? null;
   const baseTpp = base?.cost_per_pass.tokens ?? null;
   const span = 1 + ordered.length;
   const isBase = (c: PanelCondition) => c.name === baseName;
 
   const costRows = COST_ROWS.filter((r) => panel.metric_order.includes(r.key));
-  const anyTpr = ordered.some((c) => c.tests_pass_rate != null);
   const anyBehavior = ordered.some((c) =>
     c.behavior && (c.behavior.read_share != null || c.behavior.bash_share != null
       || c.behavior.edit_share != null || c.behavior.files_edited != null));
@@ -248,28 +240,6 @@ export default function SummaryTable({ panel, agg, onAggChange, busy }: Props) {
               })}
             </TableRow>
 
-            {/* ── outcome ──────────────────────────────────────────────────── */}
-            {anyTpr && (
-              <>
-                <TableRow><TableCell colSpan={span} sx={sectionSx}>outcome</TableCell></TableRow>
-                <TableRow hover>
-                  <TableCell>
-                    <Tooltip title="Share of tests passing at the end across the condition's runs (Σpassed / Σ(passed+failed)). Floored, so a near-miss reads just under 100%.">
-                      <span>tests passed <Box component="span" sx={{ color: "text.disabled", fontSize: 11 }}>% of suite</Box></span>
-                    </Tooltip>
-                  </TableCell>
-                  {ordered.map((c) => {
-                    const tone = isBase(c) ? "none" : pointTone(c.tests_pass_rate, baseTpr, "higher");
-                    return (
-                      <TableCell key={c.name} align="right" sx={{ ...toneCellSx(tone), ...selectable }}>
-                        <Cell abs={c.tests_pass_rate == null ? "—" : fmtPct1(c.tests_pass_rate)} />
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              </>
-            )}
-
             {/* ── cost · ratio vs baseline [95% CI] ────────────────────────── */}
             {costRows.length > 0 && (
               <TableRow><TableCell colSpan={span} sx={sectionSx}>cost · ratio vs baseline [95% CI]</TableCell></TableRow>
@@ -283,7 +253,7 @@ export default function SummaryTable({ panel, agg, onAggChange, busy }: Props) {
                 </TableCell>
                 {ordered.map((c) => {
                   const m = c.metrics[r.key];
-                  const tone = isBase(c) ? "none" : costTone(r.dir, m?.ci ?? null);
+                  const tone = isBase(c) ? "none" : costTone(m?.ci ?? null);
                   return (
                     <TableCell key={c.name} align="right" sx={{ ...toneCellSx(tone), ...selectable }}>
                       <Cell

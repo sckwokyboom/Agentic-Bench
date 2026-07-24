@@ -10,6 +10,7 @@ import SavedExperimentCard from "../components/SavedExperimentCard";
 import RunOptionsDialog from "../components/RunOptionsDialog";
 import { type CustomEndpointInput } from "../components/CustomEndpointDialog";
 import ValidationPanel from "../components/ValidationPanel";
+import CopyableError from "../components/CopyableError";
 import ReachabilityPanel from "../components/ReachabilityPanel";
 import type { ValidateReachabilityResp } from "../api/types";
 import PlanPanel from "../components/PlanPanel";
@@ -130,9 +131,10 @@ export default function ExperimentEdit() {
           />
         )}
         {save.isError && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            Failed to save: {(save.error as Error)?.message ?? "unknown error"}
-          </Alert>
+          <CopyableError
+            sx={{ mb: 2 }}
+            message={`Failed to save: ${(save.error as Error)?.message ?? "unknown error"}`}
+          />
         )}
         {saved ? (
           <SavedExperimentCard

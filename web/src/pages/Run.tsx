@@ -1,11 +1,12 @@
 import { useEffect, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { Stack, Box, Button, Typography, Chip, Alert } from "@mui/material";
+import { Stack, Box, Button, Typography, Chip } from "@mui/material";
 import { useRunSession } from "../ws/useRunSession";
 import ProgressHeader from "../components/ProgressHeader";
 import RunSidebar from "../components/RunSidebar";
 import EventStream from "../components/EventStream";
 import StartupStatus from "../components/StartupStatus";
+import CopyableError from "../components/CopyableError";
 import { useCancelSession, useRuns, useSessionState } from "../api/queries";
 import { deriveStartupStatus } from "../lib/startupStatus";
 import { estimateExperiment } from "../lib/eta";
@@ -155,7 +156,7 @@ export default function Run() {
           onClick={() => sid && cancel.mutateAsync(sid)}
         >{cancel.isPending ? "Cancelling…" : derived.sessionFinished ? "Finished" : "Cancel"}</Button>
       </Stack>
-      {ws.error && <Alert severity="error">{ws.error}</Alert>}
+      {ws.error && <CopyableError message={ws.error} />}
       {startup && <StartupStatus status={startup} />}
       <ProgressHeader
         runIdx={derived.runIdx}
