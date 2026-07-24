@@ -98,6 +98,17 @@ conditions:
     overlay: ./overlays/impact-artifacts
     tools: [impact]
     orchestration: phased_runtime
+  # RapidCausalCoder: same UNDERSTAND→IMPLEMENT prefix as `phased`, but the repair
+  # loop is the causal-debug cycle (mutation graph → contracts → invasive println
+  # probes → CausalDeltaSubGraph → CausalRank → targeted fix). The overlay ships the
+  # precomputed leak-safe GT mutation graph (.impact/mutation-graph.json.gz) so the
+  # builder = artifact (no Joern at run time). Compare `phased` vs `rcc` by trace /
+  # rcc_root_rank. For a FOCUSED run pick just `phased` + `rcc` in the UI Run dialog.
+  - name: rcc
+    augmentation: ./slices/impact-tool-briefing.md
+    overlay: ./overlays/impact-artifacts
+    tools: [impact]
+    orchestration: rcc
 
 target_file: src/main/java/picocli/CommandLine.java
 target_methods: [putValue]
@@ -109,6 +120,9 @@ orchestration:
   max_diagnose_iters: 8
   no_progress_limit: 2
   cluster_cap: 5
+  # For the `rcc` condition: repair-loop attempt budget + subset test-class cap.
+  rcc_max_attempts: 2
+  rcc_subset_class_cap: 15
   # For the `phased-runtime` condition: full binary FQN(s) the probe instruments
   # (note the '$'-nested class). Confirmed by the spike's captured stack frame.
   probe_targets: ["picocli.CommandLine$Help$TextTable.putValue"]
