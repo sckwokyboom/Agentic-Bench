@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Callable
 
@@ -82,13 +81,15 @@ def ensure_image(
         })
     log(f"[abench] building sandbox image {sb.image} from {dockerfile}")
 
-    # The Dockerfile COPYs nothing from the context, so an empty context keeps
-    # the build fast and avoids shipping the repo to the daemon.
-    with tempfile.TemporaryDirectory() as ctx:
-        proc = subprocess.run(
-            [sb.runtime, "build", "-t", sb.image, "-f", str(dockerfile), ctx],
-            capture_output=True, text=True,
-        )
+    # Dockerfile.sandbox COPYs from the repo (docker/extra-ca, docker/*.sh/*.py,
+    # docker/runtime-probe, experiments/.../stripped); the repo-root .dockerignore
+    # trims the context to just those. Build from the repo root so those COPYs
+    # resolve — an empty context makes every COPY fail (first at docker/extra-ca).
+    ctx = str(Path(__file__).resolve().parent.parent)
+    proc = subprocess.run(
+        [sb.runtime, "build", "-t", sb.image, "-f", str(dockerfile), ctx],
+        capture_output=True, text=True,
+    )
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-20:]
         raise SandboxError(
