@@ -660,6 +660,12 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                                 phase_runner=phase_runner, suite_runner=suite_runner,
                                 subset_runner=make_subset_suite_runner(
                                     workdir, suite_cmd, exp.verify.timeout_s),
+                                # Authoritative (--rerun-tasks) runner the prefix
+                                # falls back to when implement's incremental suite
+                                # under-executes (the Gradle up-to-date false green).
+                                full_suite_runner=make_suite_runner(
+                                    workdir, augment_for_authoritative_run(suite_cmd),
+                                    exp.verify.timeout_s),
                                 memory=RccMemory(mem_path),
                                 strip_probes=lambda: strip_probe_lines_repo(workdir),
                                 on_event=_orch_event, cancel_event=cancel_event,

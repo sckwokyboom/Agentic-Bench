@@ -74,6 +74,47 @@ def test_red_implement_hands_off_to_rcc_with_seed():
     assert tr.rcc_root_rank == 1
 
 
+def test_implement_undercount_forces_full_rerun_and_reaches_rcc():
+    # The gradle up-to-date artifact: after the agent ran the suite itself, the
+    # controller's post-implement run under-executes (3 of ~105 baseline) and
+    # reports 0 failed — a FALSE green that would skip rcc. The guard forces one
+    # authoritative full re-run, which reveals real failures, so rcc engages.
+    phase = PrefixPhase()
+    tr = run_rcc_condition(
+        _OCFG, _RCFG, _SUB, phase_runner=phase,
+        # baseline full (105), implement under-executed green (3/0), fix-1 full green
+        suite_runner=_seq_full([_ev(100, 5), _ev(3, 0), _ev(100, 0)]),
+        full_suite_runner=_seq_full([_ev(103, 2)]),   # authoritative: 2 real failures
+        subset_runner=_seq_subset([(_ev(1, 1), ["RCC_PROBE x"]), (_ev(2, 0), [])]),
+        memory=FakeMemory(), strip_probes=lambda: 0)
+    ev = "\n".join(_events(tr))
+    assert "under-executed" in ev and "full re-run" in ev
+    # rcc engaged (NOT skipped) because the authoritative run was red
+    assert [c[0] for c in phase.calls] == ["understand", "implement", "alpha",
+                                           "beta", "gamma", "fix-1"]
+    assert tr.orchestration_outcome == "green"
+
+
+def test_no_undercount_keeps_green_and_skips_rcc():
+    # implement executes ~all of baseline and is green → the guard does NOT fire
+    # (no forced re-run) and rcc stays skipped.
+    phase = PrefixPhase()
+    full_calls = []
+
+    def full_runner():
+        full_calls.append(1)
+        return _ev(105, 0)
+
+    tr = run_rcc_condition(
+        _OCFG, _RCFG, _SUB, phase_runner=phase,
+        suite_runner=_seq_full([_ev(100, 5), _ev(105, 0)]),   # implement full + green
+        full_suite_runner=full_runner,
+        subset_runner=_seq_subset([]), memory=FakeMemory(), strip_probes=lambda: 0)
+    assert tr.orchestration_outcome == "green"
+    assert "rcc not invoked" in "\n".join(_events(tr))
+    assert full_calls == []            # no undercount → no forced authoritative run
+
+
 def test_contract_fallback_still_reaches_rcc():
     phase = FakePhase()                           # understand returns "" -> fallback
     tr = run_rcc_condition(

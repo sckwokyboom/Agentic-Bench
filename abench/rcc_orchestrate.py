@@ -25,6 +25,7 @@ from .rcc_graph_layers import (
 )
 from .rcc_mutation_graph import MutationGraph
 from .regression_gate import SuiteResult
+from .verify import UNDERCOUNT_RATIO
 from .trace_model import Step, StepKind, Trace
 from .trace_stitch import stitch
 
@@ -32,6 +33,7 @@ from .trace_stitch import stitch
 def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
                       sub: MutationGraph, *, phase_runner, suite_runner,
                       subset_runner, memory, strip_probes,
+                      full_suite_runner=None,
                       on_event=None, cancel_event=None,
                       persist_dir=None) -> Trace:
     phase_traces: list = []
@@ -94,6 +96,29 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
 
     im = do_phase("implement", implement_prompt(ocfg, contract, ""), ["read", "edit"])
     cur = run_suite("implement")
+    # Guard against the Gradle up-to-date undercount: after the agent ran the
+    # suite itself, the controller's incremental re-run can report "0 failed"
+    # over a tiny subset (executed << baseline's full count) — a FALSE green that
+    # would skip rcc entirely. When the post-implement run looks green but grossly
+    # under-executes vs the baseline, force ONE authoritative (--rerun-tasks) run
+    # and trust THAT for the green decision. base ran on a fresh workdir, so its
+    # executed count is the reliable full-suite size.
+    base_exec = base.result.executed
+    looks_green = cur.result.compiled and cur.result.ran and cur.result.failed == 0
+    under = (base_exec and cur.result.executed is not None
+             and cur.result.executed < base_exec * UNDERCOUNT_RATIO)
+    if full_suite_runner is not None and looks_green and under and not cancelled():
+        event(f"implement suite under-executed ({cur.result.executed} of ~{base_exec} "
+              f"baseline) — forcing a full re-run before trusting green", "implement")
+        full_runs[0] += 1
+        try:
+            cur = full_suite_runner()
+        except Exception as exc:
+            event(f"authoritative re-run FAILED ({exc}) — keeping incremental result",
+                  "implement")
+        else:
+            event(f"full re-run — {cur.result.passed} passed / {cur.result.failed} "
+                  f"failed (compiled={cur.result.compiled})", "implement")
     best = _track_best(cur, best, productive)
     event(f"implement done — {cur.result.passed} passed / {cur.result.failed} "
           f"failed (compiled={cur.result.compiled})", "implement")
