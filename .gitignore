@@ -37,3 +37,4 @@ docker/extra-ca/*.crt
 
 # machine-local library paths (never commit; per-machine)
 .abench.local.json
+d4j-runs/
