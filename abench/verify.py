@@ -180,6 +180,8 @@ def _system_of(command: str) -> str | None:
         return "gradle"
     if first in ("mvn", "./mvnw"):
         return "maven"
+    if first == "defects4j":
+        return "defects4j"
     return None
 
 
@@ -192,6 +194,8 @@ def _system_for_command(command: str) -> str | None:
             return "gradle"
         if base in ("mvn", "mvnw"):
             return "maven"
+        if base == "defects4j":
+            return "defects4j"
     return None
 
 
@@ -259,6 +263,12 @@ def _clear_results(workdir: Path, system: str) -> None:
     this, an agent that ran the tests green mid-task and then broke compilation
     would leave a stale green report that the fallback would misread as passed."""
     workdir = Path(workdir)
+    if system == "defects4j":
+        # Defects4J writes its verdict to these files at the checkout root; drop
+        # any stale copy so we grade only THIS run.
+        for name in ("failing_tests", "all_tests"):
+            (workdir / name).unlink(missing_ok=True)
+        return
     dirs: list[Path] = []
     if system == "gradle":
         dirs = list(workdir.glob("**/build/test-results"))
@@ -301,6 +311,73 @@ def _tool_missing(output: str, returncode: int, tool: str) -> bool:
         or f"{t}: command not found" in low
         or f"{t}: not found" in low
     )
+
+
+def _parse_defects4j(failing_text: "str | None", all_tests_text: "str | None",
+                     stdout: str) -> "tuple[int | None, int, list[str]]":
+    """Pure grading of a `defects4j test` run → (passed|None, failed, failed_names).
+
+    Defects4J writes `failing_tests` (one '--- <Class>::<method>' header per failure,
+    followed by its stack trace) and, during execution, `all_tests` (one
+    '<Class>::<method>' per executed test) into the checkout root — the authoritative
+    verdict. Falls back to the stdout summary ('Failing tests: N' then '  - <name>'
+    lines) when the files are absent. `passed` is None when the executed total is
+    unknown (all_tests missing), so the caller trusts the process exit code instead."""
+    names: list[str] = []
+    if failing_text is not None:
+        names = [l[3:].strip() for l in failing_text.splitlines()
+                 if l.startswith("---") and l[3:].strip()]
+    else:
+        for l in stdout.splitlines():
+            m = re.match(r"\s*-\s+([\w.$]+(?:::|#)[\w$]+)\s*$", l)
+            if m:
+                names.append(m.group(1))
+    failed = len(names)
+    total = None
+    if all_tests_text is not None:
+        total = sum(1 for l in all_tests_text.splitlines() if l.strip())
+    passed = max(total - failed, 0) if total is not None else None
+    return passed, failed, names
+
+
+def _grade_defects4j(workdir: Path, output: str, rc: int, command: str,
+                     duration: float) -> VerifyResult:
+    """Grade a `defects4j test` run by its authoritative artifacts, bypassing the
+    generic (gradle/maven JUnit-XML) path. failing_tests non-empty → failed;
+    otherwise a clean exit → passed."""
+    def _read(name: str) -> "str | None":
+        p = workdir / name
+        try:
+            return p.read_text(errors="replace") if p.exists() else None
+        except OSError:
+            return None
+    passed, failed, names = _parse_defects4j(_read("failing_tests"),
+                                             _read("all_tests"), output)
+    if failed > 0:
+        total = (passed + failed) if passed is not None else failed
+        return VerifyResult(
+            status="failed", reason="tests_failed",
+            message=f"{failed} of {total} relevant tests failed",
+            command=command, duration_s=duration,
+            passed_count=passed, failed_count=failed, failed_names=names,
+            raw_output=output)
+    if passed == 0:                       # all_tests present but empty → nothing ran
+        return VerifyResult(
+            status="error", reason="no_tests", message="no relevant tests were run",
+            command=command, duration_s=duration, passed_count=0, failed_count=0,
+            raw_output=output)
+    if rc != 0:                           # no failing tests recorded but the run broke
+        return VerifyResult(
+            status="error", reason="build_failed",
+            message=_build_fail_message(output, rc),
+            command=command, duration_s=duration,
+            passed_count=passed, failed_count=0, raw_output=output)
+    return VerifyResult(
+        status="passed", reason="passed",
+        message=(f"{passed} relevant tests passed" if passed is not None
+                 else "all relevant tests passed"),
+        command=command, duration_s=duration,
+        passed_count=passed, failed_count=0, raw_output=output)
 
 
 def run_verify(workdir: Path, command: str, timeout_s: int,
@@ -399,6 +476,11 @@ def run_verify(workdir: Path, command: str, timeout_s: int,
             message=f"{tool} not found on PATH",
             command=command, duration_s=duration, raw_output=output,
         )
+
+    # Defects4J grades by its own artifacts (failing_tests / all_tests), not by
+    # gradle/maven JUnit XML — take the dedicated path with its own verdict.
+    if _system_of(command) == "defects4j":
+        return _grade_defects4j(workdir, output, rc, command, duration)
 
     parser = _parser_for(command)
     parsed: tuple[int, int, list[str]] | None = None

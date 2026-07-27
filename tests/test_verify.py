@@ -544,3 +544,72 @@ def test_augment_for_authoritative_run_forces_full_gradle_rerun():
     assert augment_for_authoritative_run(cmd) == cmd             # idempotent
     # maven doesn't cache test up-to-date like gradle → no --rerun-tasks
     assert "--rerun-tasks" not in (augment_for_authoritative_run("mvn test") or "")
+
+
+# ── Defects4J verify support ─────────────────────────────────────────────────
+from abench.verify import (  # noqa: E402
+    _grade_defects4j, _parse_defects4j, _system_for_command, _system_of,
+)
+
+_FAILING = ("--- org.jfree.chart.axis.junit.LogAxisTests::testFoo\n"
+            "junit.framework.AssertionFailedError: ...\n\tat ...\n"
+            "--- org.jfree.chart.junit.AreaChartTests::testBar\n"
+            "java.lang.NullPointerException\n\tat ...\n")
+_ALL = "\n".join(f"org.jfree.chart.T{i}::t" for i in range(20)) + "\n"
+
+
+def test_system_recognises_defects4j():
+    assert _system_of("defects4j test") == "defects4j"
+    assert _system_for_command("cd /w && defects4j test") == "defects4j"
+    assert _system_of("mvn test") == "maven" and _system_of("./gradlew test") == "gradle"
+
+
+def test_parse_defects4j_from_files():
+    passed, failed, names = _parse_defects4j(_FAILING, _ALL, "")
+    assert failed == 2
+    assert names == ["org.jfree.chart.axis.junit.LogAxisTests::testFoo",
+                     "org.jfree.chart.junit.AreaChartTests::testBar"]
+    assert passed == 18                                    # 20 executed - 2 failing
+
+
+def test_parse_defects4j_stdout_fallback_when_no_files():
+    out = "Running ant ...\nFailing tests: 2\n  - p.ATest::x\n  - p.BTest::y\n"
+    passed, failed, names = _parse_defects4j(None, None, out)
+    assert failed == 2 and names == ["p.ATest::x", "p.BTest::y"]
+    assert passed is None                                  # total unknown → trust exit code
+
+
+def test_grade_defects4j_green(tmp_path):
+    (tmp_path / "failing_tests").write_text("")            # no failures
+    (tmp_path / "all_tests").write_text(_ALL)
+    v = _grade_defects4j(tmp_path, "Failing tests: 0", 0, "defects4j test", 1.0)
+    assert v.status == "passed" and v.failed_count == 0 and v.passed_count == 20
+
+
+def test_grade_defects4j_failed(tmp_path):
+    (tmp_path / "failing_tests").write_text(_FAILING)
+    (tmp_path / "all_tests").write_text(_ALL)
+    v = _grade_defects4j(tmp_path, "Failing tests: 2", 0, "defects4j test", 1.0)
+    assert v.status == "failed" and v.failed_count == 2
+    assert v.passed_count == 18 and len(v.failed_names) == 2
+
+
+def test_grade_defects4j_no_tests_is_error(tmp_path):
+    (tmp_path / "failing_tests").write_text("")
+    (tmp_path / "all_tests").write_text("")                # nothing executed
+    v = _grade_defects4j(tmp_path, "", 0, "defects4j test", 1.0)
+    assert v.status == "error" and v.reason == "no_tests"
+
+
+def test_run_verify_routes_to_defects4j(tmp_path, monkeypatch):
+    # A fake `defects4j` on PATH that writes the artifacts a green run would.
+    bindir = tmp_path / "bin"; bindir.mkdir()
+    (bindir / "defects4j").write_text(
+        "#!/bin/sh\n: > failing_tests\n"
+        "printf 'p.FooTest::t1\\np.FooTest::t2\\n' > all_tests\n"
+        "echo 'Failing tests: 0'\n")
+    (bindir / "defects4j").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{__import__('os').environ['PATH']}")
+    wd = tmp_path / "wd"; wd.mkdir()
+    v = run_verify(wd, "defects4j test", 60)
+    assert v.status == "passed" and v.passed_count == 2 and v.failed_count == 0
