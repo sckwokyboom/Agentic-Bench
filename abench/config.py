@@ -491,6 +491,16 @@ class OrchestrationCfg(BaseModel):
             "via MutationGraph.focus). Dense targets are covered by 40+ classes — "
             "uncapped subsets erase the cycle-time win. The full suite still gates "
             "every accept; 0 disables the cap."))
+    rcc_revert_to_best: bool = Field(
+        default=False, title="rcc revert to best-reached state",
+        description=(
+            "When on, the rcc repair loop keeps the BEST-reached worktree (fewest "
+            "failing tests) instead of whatever the last fix left — a fix attempt "
+            "that makes things worse is rolled back at finalize. Prevents the loop "
+            "from grading a regression (e.g. a good implement turned worse by a bad "
+            "fix). Default off preserves the forward-only behaviour. NOTE for A/B "
+            "validity: this is part of the rcc STRATEGY; for a strict causal-isolation "
+            "comparison, hold the accept policy constant across arms."))
 
 
 class BenchmarkCfg(BaseModel):

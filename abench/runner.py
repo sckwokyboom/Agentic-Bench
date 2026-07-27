@@ -655,7 +655,8 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                                 RccConfig(target_label=ocfg.target_label,
                                           max_attempts=ocfg.rcc_max_attempts,
                                           cluster_cap=ocfg.cluster_cap,
-                                          subset_class_cap=ocfg.rcc_subset_class_cap),
+                                          subset_class_cap=ocfg.rcc_subset_class_cap,
+                                          revert_to_best=ocfg.rcc_revert_to_best),
                                 sub,
                                 phase_runner=phase_runner, suite_runner=suite_runner,
                                 subset_runner=make_subset_suite_runner(
@@ -668,6 +669,10 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                                     exp.verify.timeout_s),
                                 memory=RccMemory(mem_path),
                                 strip_probes=lambda: strip_probe_lines_repo(workdir),
+                                # revert_to_best: keep the best-reached worktree
+                                # (git tree snapshot/restore), gated by config.
+                                snapshot=lambda: _gsnap(workdir),
+                                restore=lambda t: _grestore(workdir, t),
                                 on_event=_orch_event, cancel_event=cancel_event,
                                 persist_dir=rundir / "rcc-graph")
                         result = RunResult(trace=trace)

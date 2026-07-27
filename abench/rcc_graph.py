@@ -41,6 +41,7 @@ class RccConfig:
     max_attempts: int = 2          # top-1 → top-2 → DEFER
     cluster_cap: int = 5
     subset_class_cap: int = 15     # cap on test classes kept by the focus step
+    revert_to_best: bool = False   # keep the best-reached worktree, not the last fix
 
 
 @dataclass
@@ -69,6 +70,7 @@ class RccState(TypedDict, total=False):
     attempt: int
     cur: SuiteEval                 # latest CLEAN suite state (never instrumented)
     best_failed: object
+    best_snapshot: object          # git tree of the best-reached worktree (revert_to_best)
     outcome: object
     phase_traces: Annotated[list, operator.add]
     ctrl: Annotated[list, operator.add]
@@ -76,6 +78,7 @@ class RccState(TypedDict, total=False):
 
 def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
             phase_runner, suite_runner, subset_runner, memory, strip_probes,
+            snapshot=None, restore=None,
             on_event=None, cancel_event=None, seed: "RccSeed | None" = None) -> Trace:
     """The rcc loop. `slice_` is the v2 PromptSlice (rcc_graph_layers.
     render_prompt_slice) Alpha/Beta/Gamma render; `methods` is the
@@ -153,6 +156,27 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
             steps.append(event(f"probe strip FAILED ({exc})", phase))
             return 0
 
+    def snap():
+        """Capture the current worktree as the best-reached state (revert_to_best
+        only). No-op — returns None — when disabled or unavailable, so callers keep
+        the forward-only behaviour untouched."""
+        if not (cfg.revert_to_best and snapshot is not None):
+            return None
+        try:
+            return snapshot()
+        except Exception:
+            return None
+
+    def revert(token, steps: list, phase: str) -> bool:
+        if not (cfg.revert_to_best and restore is not None and token is not None):
+            return False
+        try:
+            restore(token)
+            return True
+        except Exception as exc:
+            steps.append(event(f"revert-to-best FAILED ({exc})", phase))
+            return False
+
     def _green(ev: SuiteEval) -> bool:
         return ev.result.compiled and ev.result.ran and ev.result.failed == 0
 
@@ -175,6 +199,9 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
         return {"cached": entry, "attempt": 0, "cur": initial,
                 "best_failed": (seed.best_failed if seed else
                                 (initial.result.failed if initial.result.ran else None)),
+                # Entry worktree = the implement state (often the best; a bad fix
+                # must be able to roll back TO it). Captured now, before any probe.
+                "best_snapshot": snap(),
                 "specs": "", "probe_lines": [], "graph": None, "root_rank": None,
                 "beta_degraded": False, "gamma_degraded": False,
                 "ranks": [(m, 0.0) for m in methods],
@@ -210,9 +237,12 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
             memory.invalidate(target_fqn)
             steps.append(event("cache-fix: cached insight is STALE (tests still "
                                "red) — invalidated; full causal pass", "cache-fix"))
-        bf = (_track_best(cur, state["best_failed"], productive) if full_ran
-              else state["best_failed"])
-        return {"cur": cur, "best_failed": bf,
+        old_bf = state["best_failed"]
+        bf = (_track_best(cur, old_bf, productive) if full_ran else old_bf)
+        best_snap = state.get("best_snapshot")
+        if full_ran and bf is not None and (old_bf is None or bf < old_bf):
+            best_snap = snap()                       # cache-fix reached a new best
+        return {"cur": cur, "best_failed": bf, "best_snapshot": best_snap,
                 "phase_traces": [("cache-fix", f.trace)], "ctrl": steps}
 
     def alpha_node(state):
@@ -305,20 +335,36 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
                 f"fix {attempt}: full suite {cur.result.passed} passed / "
                 f"{cur.result.failed} failed (compiled={cur.result.compiled})",
                 f"fix-{attempt}"))
-            bf = _track_best(cur, state["best_failed"], productive)
+            old_bf = state["best_failed"]
+            bf = _track_best(cur, old_bf, productive)
+            best_snap = (snap() if bf is not None and (old_bf is None or bf < old_bf)
+                         else state.get("best_snapshot"))   # capture a new best
         else:
             steps.append(event(
                 f"fix {attempt} (focus {focus}): subset still red — "
                 f"{ev.result.passed} passed / {ev.result.failed} failed",
                 f"fix-{attempt}"))
             bf = state["best_failed"]
+            best_snap = state.get("best_snapshot")
         return {"attempt": attempt, "cur": cur, "best_failed": bf,
+                "best_snapshot": best_snap,
                 "phase_traces": [(f"fix-{attempt}", f.trace)], "ctrl": steps}
 
     def finalize_node(state):
+        steps: list = []
         cur = state["cur"]
+        best = state["best_failed"]
+        # revert_to_best: a fix that ended WORSE than the best-reached state is
+        # rolled back, so the graded worktree is the best we achieved rather than
+        # the last regression. No-op unless enabled AND the final state is worse.
+        reverted = False
+        if (not cancelled() and best is not None and cur.result.ran
+                and cur.result.failed > best):
+            reverted = revert(state.get("best_snapshot"), steps, "finalize")
         if cancelled():
             outcome = "cancelled"
+        elif reverted:
+            outcome = "green" if best == 0 else "stuck"   # graded state is now best
         elif _green(cur):
             outcome = "green"
         elif not cur.result.compiled:
@@ -331,10 +377,11 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
         if outcome == "green" and graph_to_save:
             memory.put(target_fqn, graph_to_save, test_classes)
             saved = " — causal insight saved to memory"
-        step = event(f"finalized: {outcome}{saved}: "
-                     f"{cur.result.passed} passed / {cur.result.failed} failed "
-                     f"(best reached: {state['best_failed']} failed)", "finalize")
-        return {"outcome": outcome, "ctrl": [step]}
+        note = " — reverted to best-reached worktree" if reverted else ""
+        steps.append(event(f"finalized: {outcome}{saved}{note}: "
+                     f"last {cur.result.passed} passed / {cur.result.failed} failed "
+                     f"(best reached: {best} failed)", "finalize"))
+        return {"outcome": outcome, "ctrl": steps}
 
     # ── edges ────────────────────────────────────────────────────────────────
     def after_memory(state):

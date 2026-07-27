@@ -384,3 +384,64 @@ def test_metrics_carry_rcc_fields():
     assert m["rcc_root_rank"] == 2 and m["rcc_memory_hit"] is True
     assert m["rcc_beta_degraded"] is True and m["rcc_gamma_degraded"] is False
     assert m["rcc_subset_test_runs"] == 4
+
+
+# ── revert_to_best (keep the best-reached worktree, not the last regression) ──
+
+def test_revert_to_best_rolls_back_a_worse_fix():
+    # fix-1 improves (2->1 failed) and is snapshotted as best; fix-2 regresses
+    # (->3 failed). With revert_to_best on, finalize restores the fix-1 worktree.
+    phase = FakePhase()
+    snaps = iter(["T0", "T1", "T2", "T3"])
+    restored = []
+    tr = run_rcc(
+        RccConfig(target_label="p.C.put", revert_to_best=True),
+        _SLICE, _METHODS, initial=_ev(0, 2),
+        phase_runner=phase,
+        # beta subset (red w/ probe), fix-1 subset green, fix-2 subset green
+        subset_runner=_seq_subset([(_ev(1, 1), ["RCC_PROBE"]),
+                                   (_ev(2, 0), []), (_ev(2, 0), [])]),
+        suite_runner=_seq_full([_ev(100, 1), _ev(50, 3)]),   # fix-1 full=1, fix-2 full=3
+        memory=FakeMemory(), strip_probes=lambda: 0,
+        snapshot=lambda: next(snaps), restore=lambda t: restored.append(t),
+    )
+    assert restored == ["T1"]                       # rolled back to the best (fix-1) tree
+    assert tr.orchestration_outcome == "stuck"      # best was 1 failed, not green
+    assert "reverted to best" in "\n".join(_events(tr))
+
+
+def test_no_revert_when_disabled_is_forward_only():
+    # Same regression, revert_to_best OFF (default): forward-only, no snapshot/restore.
+    phase = FakePhase()
+    restored = []
+    called = []
+    tr = run_rcc(
+        RccConfig(target_label="p.C.put"),           # revert_to_best default False
+        _SLICE, _METHODS, initial=_ev(0, 2),
+        phase_runner=phase,
+        subset_runner=_seq_subset([(_ev(1, 1), ["RCC_PROBE"]),
+                                   (_ev(2, 0), []), (_ev(2, 0), [])]),
+        suite_runner=_seq_full([_ev(100, 1), _ev(50, 3)]),
+        memory=FakeMemory(), strip_probes=lambda: 0,
+        snapshot=lambda: called.append(1) or "S",    # guarded off → never called
+        restore=lambda t: restored.append(t),
+    )
+    assert called == [] and restored == []           # forward-only: nothing snapshotted/reverted
+    assert tr.orchestration_outcome == "stuck"       # graded at last state (3 failed)
+
+
+def test_no_revert_when_final_state_is_best():
+    # fix-1 goes green on the first attempt: it IS the best — nothing to roll back.
+    phase = FakePhase()
+    restored = []
+    tr = run_rcc(
+        RccConfig(target_label="p.C.put", revert_to_best=True),
+        _SLICE, _METHODS, initial=_ev(0, 2),
+        phase_runner=phase,
+        subset_runner=_seq_subset([(_ev(1, 1), ["RCC_PROBE"]), (_ev(2, 0), [])]),
+        suite_runner=_seq_full([_ev(100, 0)]),       # fix-1 full green
+        memory=FakeMemory(), strip_probes=lambda: 0,
+        snapshot=lambda: "S", restore=lambda t: restored.append(t),
+    )
+    assert restored == []                            # final == best, no rollback
+    assert tr.orchestration_outcome == "green"

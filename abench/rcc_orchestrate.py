@@ -33,7 +33,7 @@ from .trace_stitch import stitch
 def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
                       sub: MutationGraph, *, phase_runner, suite_runner,
                       subset_runner, memory, strip_probes,
-                      full_suite_runner=None,
+                      full_suite_runner=None, snapshot=None, restore=None,
                       on_event=None, cancel_event=None,
                       persist_dir=None) -> Trace:
     phase_traces: list = []
@@ -164,4 +164,5 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
     return run_rcc(rcfg, prompt_slice, methods, cur, phase_runner=phase_runner,
                    suite_runner=suite_runner, subset_runner=subset_runner,
                    memory=memory, strip_probes=strip_probes,
+                   snapshot=snapshot, restore=restore,
                    on_event=on_event, cancel_event=cancel_event, seed=seed)
