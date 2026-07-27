@@ -80,10 +80,22 @@ def main() -> int:
     (root / "system.md").write_text(SYSTEM)
     rows = [r for r in csv.DictReader(gems.open())
             if only is None or r["tier"] in only]
-    lines = ["#!/usr/bin/env bash", "set -uo pipefail",
-             "# Prereqs: defects4j on PATH + `defects4j init` done; DEEPSEEK_API_KEY set;",
-             "# opencode 1.15.x with deepseek auth; JDK matching each project.",
-             'ROOT="$(cd "$(dirname "$0")" && pwd)"', ""]
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -uo pipefail",
+        "# Prereqs: `defects4j` on PATH (the framework needs JAVA 11 to RUN);",
+        "# `defects4j init` done; DEEPSEEK_API_KEY set; opencode 1.15.x with deepseek auth.",
+        'ROOT="$(cd "$(dirname "$0")" && pwd)"',
+        "",
+        "# Preflight: the Defects4J framework itself requires Java 11 (not 8).",
+        'if defects4j info -p Lang -b 1 2>&1 | grep -q "Java 11 is required"; then',
+        '  echo "!! Defects4J needs Java 11 to run. Point JAVA_HOME/PATH at a JDK 11:"',
+        '  echo "   sudo apt install -y openjdk-11-jdk   # Debian/Ubuntu/WSL"',
+        r'  echo "   export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64; export PATH=\$JAVA_HOME/bin:\$PATH"',
+        "  exit 1",
+        "fi",
+        "",
+    ]
     for r in rows:
         P, bug = r["project"], r["bug"]
         d = root / f"{P}-{bug}"
@@ -95,9 +107,14 @@ def main() -> int:
         lines += [
             f'echo "=== {P}-{bug} ({r["triggers"]} triggers, {r["tier"]}) ==="',
             f'D="$ROOT/{P}-{bug}"',
-            f'defects4j checkout -p {P} -v {bug}b -w "$D/checkout"',
-            f'defects4j checkout -p {P} -v {bug}f -w "$D/reference"',
-            f'( cd "$D" && abench run experiment.yaml )',
+            # Only run abench if the buggy checkout actually materialised — a failed
+            # checkout must NOT cascade into abench's fixture-not-found error.
+            f'if defects4j checkout -p {P} -v {bug}b -w "$D/checkout" && [ -d "$D/checkout" ]; then',
+            f'  defects4j checkout -p {P} -v {bug}f -w "$D/reference" || true',
+            f'  ( cd "$D" && abench run experiment.yaml ) || echo "  !! abench run failed: {P}-{bug}"',
+            "else",
+            f'  echo "  SKIP {P}-{bug}: defects4j checkout failed (see errors above)"',
+            "fi",
             "",
         ]
     (root / "run_baseline.sh").write_text("\n".join(lines))

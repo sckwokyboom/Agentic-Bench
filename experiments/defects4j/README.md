@@ -24,8 +24,15 @@ baseline, keep the failures, then run `phased` vs `rcc` on those.
    git clone https://github.com/rjust/defects4j && (cd defects4j && ./init.sh)
    export PATH="$PWD/defects4j/framework/bin:$PATH"     # `defects4j` on PATH
    ```
-2. **JDK 8** — Defects4J projects (Chart/Lang/Math/Closure/…) build under Java 8.
-   `export JAVA_HOME=<jdk8>` for the agent + verify.
+2. **Java 11** — the Defects4J *framework* itself requires Java 11 to run (its perl
+   driver aborts with "Java 11 is required!" otherwise). It compiles/tests the
+   patched projects under 11 too. Point JAVA_HOME/PATH at a JDK 11:
+   ```bash
+   sudo apt install -y openjdk-11-jdk               # Debian/Ubuntu/WSL
+   export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+   export PATH="$JAVA_HOME/bin:$PATH"
+   defects4j info -p Lang -b 1                       # sanity: must NOT say "Java 11 is required"
+   ```
 3. **Agentic-bench**: `pip install -e '.[langgraph]'`.
 4. **opencode 1.15.x** with a DeepSeek key: `export DEEPSEEK_API_KEY=…` (or auth.json).
 
