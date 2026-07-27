@@ -123,6 +123,7 @@ orchestration:
   # For the `rcc` condition: repair-loop attempt budget + subset test-class cap.
   rcc_max_attempts: 2
   rcc_subset_class_cap: 15
+  rcc_revert_to_best: true   # demo: keep the best-reached worktree (rcc strategy)
   # For the `phased-runtime` condition: full binary FQN(s) the probe instruments
   # (note the '$'-nested class). Confirmed by the spike's captured stack frame.
   probe_targets: ["picocli.CommandLine$Help$TextTable.putValue"]

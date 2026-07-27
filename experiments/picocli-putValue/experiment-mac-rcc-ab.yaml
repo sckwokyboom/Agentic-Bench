@@ -31,6 +31,7 @@ orchestration:
   cluster_cap: 5
   rcc_max_attempts: 2
   rcc_subset_class_cap: 15
+  rcc_revert_to_best: true   # demo: keep the best-reached worktree (rcc strategy)
 
 conditions:
   - name: phased
