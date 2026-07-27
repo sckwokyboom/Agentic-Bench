@@ -71,3 +71,26 @@ def test_diff_workdir_empty_when_only_opencode_artifacts(tmp_path):
     assert patch.strip() == ""
     assert fx.made_source_changes(workdir) is False
     fx.cleanup(workdir)
+
+
+def test_diff_workdir_survives_binary_and_latin1_and_excludes_build(tmp_path):
+    # Regression: an agent that runs mvn/gradle fills target/ with binary .class
+    # files and latin-1 resources. A strict-UTF-8 decode of the diff crashed the
+    # run AFTER the agent had already produced a fix (seen on Defects4J Time-14).
+    src = tmp_path / "proj"
+    (src / "src").mkdir(parents=True)
+    (src / "src" / "A.java").write_text("class A {}\n")
+    workdir, _ = fx.create_workdir(src, parent=tmp_path)
+
+    # Agent edits real source (must appear in the diff)…
+    (workdir / "src" / "A.java").write_text("class A { int x; }\n")
+    # …and a build produces target/ with a binary class + a latin-1 resource.
+    (workdir / "target" / "classes").mkdir(parents=True)
+    (workdir / "target" / "classes" / "A.class").write_bytes(bytes(range(256)))
+    (workdir / "target" / "messages_es.properties").write_bytes(
+        "a\xf1o=year\n".encode("latin-1"))          # 0xf1 is invalid UTF-8
+
+    diff = fx.diff_workdir(workdir)                  # must NOT raise
+    assert "src/A.java" in diff                      # real source change kept
+    assert "target/" not in diff and ".class" not in diff  # build output excluded
+    fx.cleanup(workdir)

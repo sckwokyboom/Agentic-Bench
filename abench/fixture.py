@@ -107,8 +107,12 @@ def create_workdir(fixture_path: Path, parent: Path | None = None,
 def diff_workdir(workdir: Path) -> str:
     workdir = Path(workdir)
     subprocess.run(["git", "add", "-A"], cwd=workdir, check=True)
-    # Exclude opencode's own artifacts via pathspecs (each its own argv element)
-    # so the returned diff is ONLY real source changes the agent made.
+    # Exclude opencode's own artifacts AND build output via pathspecs (each its
+    # own argv element) so the returned diff is ONLY real source changes the agent
+    # made. Build dirs (target/, build/) matter here for two reasons: they are not
+    # a "source change", and when the agent runs mvn/gradle they fill with binary
+    # .class files and latin-1 resources whose bytes break a strict-UTF-8 decode of
+    # the diff (a run that otherwise SUCCEEDED then crashes on patch capture).
     result = subprocess.run(
         ["git", "diff", "--cached", "HEAD", "--",
          ".",
@@ -116,8 +120,16 @@ def diff_workdir(workdir: Path) -> str:
          ":(exclude).opencode",
          ":(exclude).opencode/**",
          ":(exclude).impact",
-         ":(exclude).impact/**"],
-        cwd=workdir, capture_output=True, text=True, check=True,
+         ":(exclude).impact/**",
+         ":(exclude)target",
+         ":(exclude)target/**",
+         ":(exclude)build",
+         ":(exclude)build/**",
+         ":(exclude)**/*.class"],
+        cwd=workdir, capture_output=True,
+        # errors="replace": a diff is metadata (diffstat, patch record); a stray
+        # non-UTF-8 byte from a binary/legacy-encoded file must never abort the run.
+        encoding="utf-8", errors="replace", check=True,
     )
     return result.stdout
 

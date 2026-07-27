@@ -12,7 +12,10 @@ from pathlib import Path
 
 
 def _git(repo: Path, *args: str) -> str:
-    proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
+    # errors="replace": git output (porcelain status, tree SHAs) is parsed as text;
+    # a non-UTF-8 byte in a filename must degrade gracefully, not crash the run.
+    proc = subprocess.run(["git", *args], cwd=repo, capture_output=True,
+                          encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         # Surface git's stderr in the message — a bare CalledProcessError hides
         # WHY it failed (permission denied, locked file, nested repo, …), which
@@ -119,6 +122,38 @@ def strip_probe_lines_repo(repo: Path, marker: str = "//[probe]") -> int:
         if path.endswith(".java"):
             total += strip_marked_lines(repo, path, marker=marker)
     return total
+
+
+def probe_markers_remaining(repo: Path, marker: str = "//[probe]") -> list[str]:
+    """Changed .java files (tracked or untracked) that STILL contain ``marker``.
+
+    Grade gate for the rcc / forced-instrument conditions: if the probe strip
+    failed (EACCES on a container-owned worktree) or was skipped, leftover
+    //[probe] println lines survive into verify and corrupt every stdout-capture
+    test. The caller invalidates the MEASUREMENT (not the agent's code) when this
+    returns non-empty. Read-only — it never writes, so it still reports correctly
+    on the very tree whose un-writability defeated the strip. Best-effort: a git
+    or read failure yields no false positive (returns [] / skips the file)."""
+    try:
+        out = _git(repo, "status", "--porcelain")
+    except Exception:
+        return []
+    hits: list[str] = []
+    for ln in out.splitlines():
+        if not ln.strip():
+            continue
+        path = ln[3:].strip()
+        if " -> " in path:                      # rename: check the destination
+            path = path.split(" -> ", 1)[1]
+        if not path.endswith(".java"):
+            continue
+        try:
+            text = (repo / path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if marker in text:
+            hits.append(path)
+    return hits
 
 
 def forbidden_changes(repo: Path, allowed_prefixes: list[str]) -> list[str]:

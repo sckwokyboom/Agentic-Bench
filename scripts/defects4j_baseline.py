@@ -39,11 +39,12 @@ opencode:
       models: [deepseek-v4-flash, deepseek-chat, deepseek-reasoner]
       api_key_env: DEEPSEEK_API_KEY
   sandbox:
-    mode: none                     # host mode for the sieve (no docker); JDK per project
+    mode: none                     # host mode for the sieve (no docker); Java 11
 conditions:
   - {{name: baseline, augmentation: null, tools: []}}   # pure agent, NO augmentation
-target_file: {target_file}
-target_methods: [{method}]         # from metadata; baseline ignores, rcc/phased use later
+# NOTE: no target_file here — the baseline sieve doesn't need it, and Defects4J
+# source layouts vary per project ({cls} lives at a project-specific path). The
+# rcc/phased arm sets the correct target_file per bug from the GT precompute.
 verify:
   command: "defects4j test"        # Defects4J relevant-test grading (VALIDATE first)
   timeout_s: 1800
@@ -64,11 +65,6 @@ You are a senior Java engineer fixing a real bug in an existing project. Read th
 code and the failing tests, localize the root cause, and make a minimal source fix.
 Do not modify test files.
 """
-
-
-def _class_to_path(fqn: str) -> str:
-    # best-effort src path; the agent/verify don't depend on it (rcc/phased do).
-    return "src/main/java/" + fqn.replace(".", "/") + ".java" if fqn else ""
 
 
 def main() -> int:
@@ -92,6 +88,7 @@ def main() -> int:
         '  echo "!! defects4j is not runnable. Fix its setup, then re-run:"',
         r'  echo "   Java 11:   sudo apt install -y openjdk-11-jdk; export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64; export PATH=\$JAVA_HOME/bin:\$PATH"',
         '  echo "   Perl deps: sudo apt install -y cpanminus build-essential; sudo cpanm String::Interpolate DBI DBD::CSV JSON URI Text::CSV"',
+        '  echo "   svn+git:   sudo apt install -y subversion git   # Chart & some projects are SVN-backed"',
         '  echo "   init:      (cd defects4j && ./init.sh)"',
         '  echo "   verify:    defects4j info -p Lang -b 1   # must print bug info"',
         "  exit 1",
@@ -104,15 +101,16 @@ def main() -> int:
         d.mkdir(exist_ok=True)
         (d / "experiment.yaml").write_text(EXPERIMENT.format(
             proj=P, bug=bug, triggers=r["triggers"], cls=r["modified_class"],
-            model=MODEL, target_file=_class_to_path(r["modified_class"]),
-            method=r["modified_class"].split(".")[-1]))  # class as target hint
+            model=MODEL))
         lines += [
             f'echo "=== {P}-{bug} ({r["triggers"]} triggers, {r["tier"]}) ==="',
             f'D="$ROOT/{P}-{bug}"',
-            # Only run abench if the buggy checkout actually materialised — a failed
-            # checkout must NOT cascade into abench's fixture-not-found error.
-            f'if defects4j checkout -p {P} -v {bug}b -w "$D/checkout" && [ -d "$D/checkout" ]; then',
-            f'  defects4j checkout -p {P} -v {bug}f -w "$D/reference" || true',
+            # Run abench only if BOTH checkouts materialised — abench needs the buggy
+            # fixture AND the fixed reference (target_similarity metric + _validate).
+            # A failed checkout (e.g. missing svn) must not cascade into abench errors.
+            f'if defects4j checkout -p {P} -v {bug}b -w "$D/checkout" \\',
+            f'   && defects4j checkout -p {P} -v {bug}f -w "$D/reference" \\',
+            '   && [ -d "$D/checkout" ] && [ -d "$D/reference" ]; then',
             f'  ( cd "$D" && abench run experiment.yaml ) || echo "  !! abench run failed: {P}-{bug}"',
             "else",
             f'  echo "  SKIP {P}-{bug}: defects4j checkout failed (see errors above)"',
