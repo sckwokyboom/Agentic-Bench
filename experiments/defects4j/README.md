@@ -21,8 +21,13 @@ baseline, keep the failures, then run `phased` vs `rcc` on those.
 ## Prerequisites (remote box)
 1. **Defects4J** (metadata + checkout tooling):
    ```bash
-   git clone https://github.com/rjust/defects4j && (cd defects4j && ./init.sh)
+   git clone https://github.com/rjust/defects4j
+   # Perl deps — init.sh does NOT install these; defects4j aborts without them:
+   sudo apt install -y cpanminus build-essential
+   sudo cpanm String::Interpolate DBI DBD::CSV JSON URI Text::CSV
+   (cd defects4j && ./init.sh)                          # downloads project repos + tools
    export PATH="$PWD/defects4j/framework/bin:$PATH"     # `defects4j` on PATH
+   defects4j info -p Lang -b 1                          # sanity: must print bug info
    ```
 2. **Java 11** — the Defects4J *framework* itself requires Java 11 to run (its perl
    driver aborts with "Java 11 is required!" otherwise). It compiles/tests the
