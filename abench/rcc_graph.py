@@ -16,9 +16,9 @@ from typing import Annotated, TypedDict
 from .failure_report import cluster_failures, select_clusters
 from .orchestrator import PhaseOutcome, SuiteEval, _track_best
 from .rcc_prompts import (
-    GAMMA_FORMAT_REMINDER, alpha_prompt, beta_prompt, beta_repair_prompt,
-    cache_fix_prompt, causal_rank, fix_prompt, gamma_prompt, parse_causal_delta,
-    root_rank,
+    GAMMA_FORMAT_REMINDER, alpha_enrich_prompt, alpha_prompt, beta_prompt,
+    beta_repair_prompt, cache_fix_prompt, causal_rank, fix_prompt,
+    gamma_extend_prompt, gamma_prompt, parse_causal_delta, root_rank,
 )
 from .regression_gate import SuiteResult
 from .trace_model import Step, StepKind, Trace
@@ -71,6 +71,7 @@ class RccState(TypedDict, total=False):
     cur: SuiteEval                 # latest CLEAN suite state (never instrumented)
     best_failed: object
     best_snapshot: object          # git tree of the best-reached worktree (revert_to_best)
+    triggered_classes: object      # Phase IV: still-failing test classes (None in pass 1)
     outcome: object
     phase_traces: Annotated[list, operator.add]
     ctrl: Annotated[list, operator.add]
@@ -247,41 +248,55 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
 
     def alpha_node(state):
         steps: list = []
-        a = do_phase("alpha", alpha_prompt(slice_), ["read"], steps)
-        specs = (a.text or "").strip()
+        trig = state.get("triggered_classes")
+        if trig:                                     # Phase IV: refine, don't restart
+            failed_names = sorted({f"{f.classname}.{f.name}"
+                                   for f in state["cur"].failures})
+            prompt = alpha_enrich_prompt(slice_, state.get("specs", ""), failed_names)
+            label = "alpha-2"
+        else:
+            prompt = alpha_prompt(slice_)
+            label = "alpha"
+        a = do_phase(label, prompt, ["read"], steps)
+        new = (a.text or "").strip()
+        specs = new or (state.get("specs", "") if trig else "")  # keep prior on empty
         steps.append(event(
-            f"alpha: contracts for {len(methods)} methods ({len(specs)} chars)"
-            if specs else "alpha: EMPTY contracts — continuing without", "alpha"))
-        return {"specs": specs, "phase_traces": [("alpha", a.trace)],
+            f"{label}: contracts for {len(methods)} methods ({len(specs)} chars)"
+            if specs else f"{label}: EMPTY contracts — continuing without", label))
+        return {"specs": specs, "phase_traces": [(label, a.trace)],
                 "ctrl": steps}
 
     def beta_node(state):
         steps: list = []
         traces: list = []
-        b = do_phase("beta", beta_prompt(slice_, state["specs"]), ["read", "edit"],
+        # Phase IV narrows instrumentation + the probe run to the STILL-failing
+        # classes; pass 1 uses the full failing-test frontier.
+        classes = state.get("triggered_classes") or test_classes
+        label = "beta-2" if state.get("triggered_classes") else "beta"
+        b = do_phase(label, beta_prompt(slice_, state["specs"]), ["read", "edit"],
                      steps)
-        traces.append(("beta", b.trace))
-        ev, lines = run_subset(steps, "beta", test_classes)
+        traces.append((label, b.trace))
+        ev, lines = run_subset(steps, label, classes)
         beta_ok = ev.result.compiled and ev.result.ran
         if not beta_ok and not cancelled():
-            steps.append(event("beta: instrumented build broke — one repair "
-                               "attempt", "beta"))
-            r = do_phase("beta-repair", beta_repair_prompt(slice_), ["read", "edit"],
-                         steps)
-            traces.append(("beta-repair", r.trace))
-            ev, lines = run_subset(steps, "beta", test_classes)
+            steps.append(event(f"{label}: instrumented build broke — one repair "
+                               "attempt", label))
+            r = do_phase(f"{label}-repair", beta_repair_prompt(slice_),
+                         ["read", "edit"], steps)
+            traces.append((f"{label}-repair", r.trace))
+            ev, lines = run_subset(steps, label, classes)
             beta_ok = ev.result.compiled and ev.result.ran
-        removed = safe_strip(steps, "beta")
+        removed = safe_strip(steps, label)
         if beta_ok:
             steps.append(event(
-                f"beta: probes ran — {len(lines)} probe lines from the subset "
+                f"{label}: probes ran — {len(lines)} probe lines from the subset "
                 f"({ev.result.passed} passed / {ev.result.failed} failed, "
-                f"instrumented); {removed} probe lines stripped", "beta"))
+                f"instrumented); {removed} probe lines stripped", label))
         else:
             lines = []
             steps.append(event(
-                "beta: instrumentation failed twice — degrading to a NO-LOGS "
-                f"causal pass; {removed} probe lines stripped", "beta"))
+                f"{label}: instrumentation failed twice — degrading to a NO-LOGS "
+                f"causal pass; {removed} probe lines stripped", label))
         return {"probe_lines": lines, "beta_ok": beta_ok,
                 "beta_degraded": (not beta_ok),
                 "phase_traces": traces, "ctrl": steps}
@@ -289,29 +304,41 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
     def gamma_node(state):
         steps: list = []
         traces: list = []
-        prompt = gamma_prompt(slice_, state["specs"], state["probe_lines"])
-        g1 = do_phase("gamma", prompt, ["read"], steps)
-        traces.append(("gamma", g1.trace))
+        trig = state.get("triggered_classes")
+        prior = state.get("graph")
+        if trig and prior:                           # Phase IV: EXTEND, don't rebuild
+            prompt = gamma_extend_prompt(slice_, state["specs"],
+                                         state["probe_lines"], prior)
+            label = "gamma-2"
+        else:
+            prompt = gamma_prompt(slice_, state["specs"], state["probe_lines"])
+            label = "gamma"
+        g1 = do_phase(label, prompt, ["read"], steps)
+        traces.append((label, g1.trace))
         graph = parse_causal_delta(g1.text)
         if graph is None and not cancelled():
-            steps.append(event("gamma: unparseable causal graph — one "
-                               "format-reminded retry", "gamma"))
-            g2 = do_phase("gamma-retry", prompt + GAMMA_FORMAT_REMINDER,
+            steps.append(event(f"{label}: unparseable causal graph — one "
+                               "format-reminded retry", label))
+            g2 = do_phase(f"{label}-retry", prompt + GAMMA_FORMAT_REMINDER,
                           ["read"], steps)
-            traces.append(("gamma-retry", g2.trace))
+            traces.append((f"{label}-retry", g2.trace))
             graph = parse_causal_delta(g2.text)
         if graph is None:
+            if trig and prior:                       # keep the first-pass graph/ranks
+                steps.append(event(f"{label}: extend unparseable — keeping the prior "
+                                   "causal graph + ranking", label))
+                return {"gamma_degraded": True, "phase_traces": traces, "ctrl": steps}
             ranks = [(m, 0.0) for m in methods]
-            steps.append(event("gamma: still unparseable — degraded to "
-                               "subgraph-order ranking (target first)", "gamma"))
+            steps.append(event(f"{label}: still unparseable — degraded to "
+                               "subgraph-order ranking (target first)", label))
             return {"graph": None, "ranks": ranks, "root_rank": None,
                     "gamma_degraded": True, "phase_traces": traces, "ctrl": steps}
         ranks = causal_rank(graph, methods)
         rr = root_rank(ranks, target_fqn)
         steps.append(event(
-            f"gamma: causal delta graph with {len(graph.get('vertices', []))} "
+            f"{label}: causal delta graph with {len(graph.get('vertices', []))} "
             f"vertices / {len(graph.get('edges', []))} edges; CausalRank of "
-            f"target = {rr}/{len(ranks)}", "gamma"))
+            f"target = {rr}/{len(ranks)}", label))
         return {"graph": graph, "ranks": ranks, "root_rank": rr,
                 "gamma_degraded": False, "phase_traces": traces, "ctrl": steps}
 
@@ -319,13 +346,17 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
         steps: list = []
         attempt = state["attempt"] + 1
         ranks = state["ranks"]
-        focus = ranks[min(attempt - 1, len(ranks) - 1)][0]
+        # Fix the ROOT of the CURRENT causal graph. Each pass (fast, then Phase IV's
+        # extended graph) re-ranks, so the top rank is the live root — not a stale
+        # top-2 index. Phase IV also narrows the subset to the still-failing classes.
+        focus = ranks[0][0] if ranks else target_fqn
+        classes = state.get("triggered_classes") or test_classes
         f = do_phase(f"fix-{attempt}",
                      fix_prompt(cfg.target_label, target_fqn, state["graph"],
                                 state["specs"], clusters_of(state["cur"]),
                                 focus, attempt),
                      ["read", "edit"], steps)
-        ev, _lines = run_subset(steps, f"fix-{attempt}", test_classes)
+        ev, _lines = run_subset(steps, f"fix-{attempt}", classes)
         cur = ev
         if _green(ev):
             steps.append(event(f"fix {attempt} (focus {focus}): subset GREEN — "
@@ -349,6 +380,21 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
         return {"attempt": attempt, "cur": cur, "best_failed": bf,
                 "best_snapshot": best_snap,
                 "phase_traces": [(f"fix-{attempt}", f.trace)], "ctrl": steps}
+
+    def triggered_node(state):
+        """Phase IV entry (step 10): the fast pass left tests failing. Narrow the
+        deep pass to the STILL-failing test classes and flag the loop so alpha/beta/
+        gamma REFINE + EXTEND the prior causal graph (rather than restart from
+        scratch). alpha/beta/gamma/fix key off `triggered_classes` being set."""
+        steps: list = []
+        failed = state["cur"].failures
+        classes = sorted({f.classname for f in failed}) or test_classes
+        names = sorted({f"{f.classname}.{f.name}" for f in failed})
+        steps.append(event(
+            f"Phase IV (deep pass): {len(names)} test(s) still failing across "
+            f"{len(classes)} class(es) — narrowing + extending the causal graph",
+            "triggered"))
+        return {"triggered_classes": classes, "ctrl": steps}
 
     def finalize_node(state):
         steps: list = []
@@ -391,10 +437,12 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
         return "finalize" if (_green(state["cur"]) or cancelled()) else "alpha"
 
     def after_fix(state):
+        # green / cancel / budget exhausted → done. Otherwise trigger the Phase IV
+        # deep pass (narrow → enrich → extend graph → re-fix), not a same-graph retry.
         if _green(state["cur"]) or cancelled() \
                 or state["attempt"] >= cfg.max_attempts:
             return "finalize"
-        return "fix"
+        return "triggered"
 
     g = StateGraph(RccState)
     g.add_node("memory", memory_node)
@@ -403,6 +451,7 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
     g.add_node("beta", beta_node)
     g.add_node("gamma", gamma_node)
     g.add_node("fix", fix_node)
+    g.add_node("triggered", triggered_node)
     g.add_node("finalize", finalize_node)
     g.add_edge(START, "memory")
     g.add_conditional_edges("memory", after_memory,
@@ -413,11 +462,14 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
     g.add_edge("beta", "gamma")
     g.add_edge("gamma", "fix")
     g.add_conditional_edges("fix", after_fix,
-                            {"fix": "fix", "finalize": "finalize"})
+                            {"triggered": "triggered", "finalize": "finalize"})
+    g.add_edge("triggered", "alpha")   # Phase IV deep pass re-enters alpha/beta/gamma/fix
     g.add_edge("finalize", END)
     app = g.compile()
 
-    final = app.invoke({}, config={"recursion_limit": cfg.max_attempts * 2 + 20})
+    # Each pass is ~5 node-steps (alpha→beta→gamma→fix→triggered); Phase IV loops
+    # up to max_attempts passes. Budget generously so a deep run never trips the limit.
+    final = app.invoke({}, config={"recursion_limit": cfg.max_attempts * 6 + 20})
 
     try:
         tr = stitch(final.get("phase_traces", []), final.get("ctrl", []),

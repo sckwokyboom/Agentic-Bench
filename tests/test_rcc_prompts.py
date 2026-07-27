@@ -159,3 +159,27 @@ def test_gamma_over_slice_has_frontier_and_influence():
 def test_beta_carries_failed_test_grounding():
     b = beta_prompt(_slice(), "SPECS")
     assert "FAILED-TEST GROUNDING" in b and "probe what these failing tests observe" in b
+
+
+# ── Phase IV prompts (enrich contracts + extend causal graph) ────────────────
+
+def test_alpha_enrich_prompt_grounds_in_still_failing_tests():
+    from abench.rcc_prompts import alpha_enrich_prompt
+    p = alpha_enrich_prompt(_SLICE, "PRIOR CONTRACT TEXT",
+                            ["picocli.HelpTest.testWrap", "picocli.TextTableTest.addRowValues"])
+    assert "SECOND PASS" in p and "STILL" in p                 # deep-pass framing
+    assert "picocli.HelpTest.testWrap" in p                    # the still-failing tests
+    assert "PRIOR CONTRACT TEXT" in p                          # refines, not restarts
+    assert "Do NOT edit code" in p
+
+
+def test_gamma_extend_prompt_carries_prior_graph_and_schema():
+    from abench.rcc_prompts import gamma_extend_prompt
+    prior = {"vertices": [{"id": "cd1", "mutation_vertex": "method:p.C.put",
+                           "is_root_cause": True}], "edges": []}
+    p = gamma_extend_prompt(_SLICE, "REFINED SPECS", ["RCC_PROBE put: ret=null"], prior)
+    assert "EXTEND" in p and "do NOT discard" in p             # extend, not replace
+    assert "PRIOR CAUSAL GRAPH" in p and "cd1" in p            # prior graph embedded
+    assert "root_cause|downstream_effect" in p                 # same CDG JSON schema
+    assert "RCC_PROBE put: ret=null" in p                      # new probe logs
+    assert "(no prior graph)" in gamma_extend_prompt(_SLICE, "S", [], None)

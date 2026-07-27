@@ -73,7 +73,7 @@ class FakePhase:
     def __call__(self, phase, prompt, tools):
         self.calls.append((phase, prompt, tuple(tools)))
         text = ""
-        if phase == "alpha":
+        if phase.startswith("alpha"):
             text = self.alpha_text
         elif phase.startswith("gamma"):
             text = self.gamma_texts.pop(0) if self.gamma_texts else ""
@@ -152,38 +152,48 @@ def test_green_on_top1():
     assert tr.controller_test_runs == 3   # beta probe + fix-1 subset + fix-1 full
 
 
-def test_top2_rescue():
-    phase = FakePhase()
+def test_phase4_deep_pass_rescues():
+    # fix-1 (fast pass) leaves tests red → Phase IV deep pass: alpha-2 (enrich) →
+    # beta-2 (narrowed instrument) → gamma-2 (extend graph) → fix-2 goes green.
+    phase = FakePhase(gamma_texts=(_GAMMA, _GAMMA))
     subset = [(_ev(1, 1), ["RCC_PROBE x"]),    # beta probe run
-              (_ev(1, 1), []),                 # fix-1 subset red
+              (_ev(1, 1), []),                 # fix-1 subset red → trigger Phase IV
+              (_ev(1, 1), ["RCC_PROBE y"]),    # beta-2 probe run (deep)
               (_ev(2, 0), [])]                 # fix-2 subset green
-    full = [_ev(100, 0)]                       # fix-2 full
+    full = [_ev(100, 0)]                       # fix-2 full green
     tr, _ = _run(phase, subset, full)
     assert tr.orchestration_outcome == "green"
-    assert _phases_called(phase) == ["alpha", "beta", "gamma", "fix-1", "fix-2"]
+    assert _phases_called(phase) == ["alpha", "beta", "gamma", "fix-1",
+                                     "alpha-2", "beta-2", "gamma-2", "fix-2"]
+    assert "Phase IV" in "\n".join(_events(tr))
 
 
-def test_defer_after_max_attempts():
+def test_defer_after_both_passes_fail():
+    # Fast fix AND the Phase IV deep pass both stay red → DEFER (stuck), nothing cached.
     phase = FakePhase()
-    subset = [(_ev(1, 1), []), (_ev(1, 1), []), (_ev(1, 1), [])]
-    full = []                                  # full suite never reached
+    subset = [(_ev(1, 1), []), (_ev(1, 1), []),   # beta, fix-1 (red)
+              (_ev(1, 1), []), (_ev(1, 1), [])]   # beta-2, fix-2 (still red)
+    full = []                                  # full suite never reached (no green subset)
     mem = FakeMemory()
     tr, _ = _run(phase, subset, full, memory=mem)
     assert tr.orchestration_outcome == "stuck"
     assert mem.puts == []                      # nothing saved on DEFER
     assert "finalized: stuck" in "\n".join(_events(tr))
-    assert tr.controller_test_runs == 3   # beta probe + 2 red fix subsets; full never ran
+    assert tr.controller_test_runs == 4   # beta + fix-1 + beta-2 + fix-2 subsets; no full
 
 
-def test_full_suite_red_consumes_attempt():
-    phase = FakePhase()
+def test_full_suite_red_triggers_phase4():
+    # fix-1 subset green but the FULL suite is red → consumes the fast pass and
+    # triggers the Phase IV deep pass, which then goes green.
+    phase = FakePhase(gamma_texts=(_GAMMA, _GAMMA))
     subset = [(_ev(1, 1), []),                 # beta
               (_ev(2, 0), []),                 # fix-1 subset green
+              (_ev(1, 1), []),                 # beta-2 (deep)
               (_ev(2, 0), [])]                 # fix-2 subset green
     full = [_ev(90, 10), _ev(100, 0)]          # fix-1 full red -> fix-2 full green
     tr, _ = _run(phase, subset, full)
     assert tr.orchestration_outcome == "green"
-    assert _phases_called(phase)[-2:] == ["fix-1", "fix-2"]
+    assert _phases_called(phase)[-4:] == ["alpha-2", "beta-2", "gamma-2", "fix-2"]
 
 
 def test_memory_hit_fast_path_skips_analysis():
@@ -398,9 +408,9 @@ def test_revert_to_best_rolls_back_a_worse_fix():
         RccConfig(target_label="p.C.put", revert_to_best=True),
         _SLICE, _METHODS, initial=_ev(0, 2),
         phase_runner=phase,
-        # beta subset (red w/ probe), fix-1 subset green, fix-2 subset green
-        subset_runner=_seq_subset([(_ev(1, 1), ["RCC_PROBE"]),
-                                   (_ev(2, 0), []), (_ev(2, 0), [])]),
+        # beta (red probe), fix-1 subset green, beta-2 (deep probe), fix-2 subset green
+        subset_runner=_seq_subset([(_ev(1, 1), ["RCC_PROBE"]), (_ev(2, 0), []),
+                                   (_ev(1, 1), ["RCC_PROBE"]), (_ev(2, 0), [])]),
         suite_runner=_seq_full([_ev(100, 1), _ev(50, 3)]),   # fix-1 full=1, fix-2 full=3
         memory=FakeMemory(), strip_probes=lambda: 0,
         snapshot=lambda: next(snaps), restore=lambda t: restored.append(t),

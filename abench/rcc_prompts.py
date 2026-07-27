@@ -158,6 +158,57 @@ def gamma_prompt(sl: dict, specs_text: str, probe_lines: list) -> str:
         + "\n\nPROBE LOGS:\n" + logs)
 
 
+def _gamma_json_schema(mids: str) -> str:
+    """The CausalDeltaSubGraph JSON contract, shared by the first-pass and the
+    Phase-IV extend prompts so both produce the identical schema."""
+    return (
+        "Return ONLY JSON: " '{"vertices": [{"id","mutation_vertex","type":'
+        '"root_cause|downstream_effect|spec_violation|unaffected","spec_text","spec_level":'
+        '"L1|L2|L3","runtime_value","violated","is_root_cause","confidence"}], '
+        '"edges": [{"from","to","type":"CAUSES|CONTRIBUTES_TO|DATA_FLOWS_INTO|'
+        'CONTRACT_REFINES","path","reasoning"}]}.\n'
+        "Exactly one vertex is_root_cause=true. mutation_vertex MUST be one of:\n" + mids)
+
+
+def alpha_enrich_prompt(sl: dict, prior_specs: str, failed_names: list) -> str:
+    """Phase IV step 11 — refine the contracts for the tests that STILL fail after
+    the first fix, grounding them in what those tests expect vs. what the code did."""
+    still = "\n".join(f"  - {n}" for n in (failed_names or [])[:40]) or "  (unknown)"
+    return (
+        "SECOND PASS (deep). Your first fix did NOT resolve these tests — they STILL "
+        f"FAIL:\n{still}\n\n"
+        "REFINE the contracts for the focused_methods below, sharpening the ones the "
+        "still-failing tests exercise (what they expect vs. what the code produced). "
+        "Keep the contracts that already held. Do NOT edit code.\n\n"
+        "PRIOR CONTRACTS:\n" + _cap(prior_specs, _MAX_SPECS_CHARS)
+        + "\n\nFOCUSED METHODS:\n" + _methods_block(sl)
+        + "\n\nFAILED-TEST GROUNDING:\n" + _failed_links_block(sl))
+
+
+def gamma_extend_prompt(sl: dict, specs_text: str, probe_lines: list,
+                        prior_graph) -> str:
+    """Phase IV step 13 — EXTEND (do not replace) the first-pass CausalDeltaSubGraph:
+    the fix built from it was insufficient, so add/revise vertices+edges from the
+    refined contracts + NEW probe logs and re-mark the single true root cause."""
+    logs = "\n".join((probe_lines or [])[:_MAX_LOG_LINES]) \
+        or "(no runtime logs — instrumentation was skipped)"
+    mids = "\n".join(f"- method:{m['fqn']}" for m in sl.get("focused_methods", []))
+    prior = _cap(json.dumps(prior_graph, indent=1), _MAX_GRAPH_CHARS) if prior_graph \
+        else "(no prior graph)"
+    return (
+        "EXTEND the existing CausalDeltaSubGraph — do NOT discard it. The first fix "
+        "based on it was insufficient (some tests still fail). Using the refined "
+        "contracts and the NEW probe logs, ADD or REVISE vertices and edges to explain "
+        "the remaining failures, and re-mark the single true root cause.\n"
+        "IMPORTANT: influence flows method→test (the REVERSE of the call direction).\n"
+        + _stats_line(sl) + "\n" + sl.get("omission_note", "") + "\n"
+        + _gamma_json_schema(mids)
+        + "\n\nPRIOR CAUSAL GRAPH (extend this):\n" + prior
+        + "\n\nTEST FRONTIER:\n" + _frontier_block(sl)
+        + "\n\nREFINED CONTRACTS:\n" + _cap(specs_text, _MAX_SPECS_CHARS)
+        + "\n\nNEW PROBE LOGS:\n" + logs)
+
+
 def _cdg_txt(graph) -> str:
     return (_cap(json.dumps(graph, indent=1), _MAX_GRAPH_CHARS) if graph
             else "(no causal graph — analysis degraded; rely on failures + contracts)")
