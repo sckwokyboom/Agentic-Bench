@@ -280,14 +280,17 @@ class OpenCodeCfg(BaseModel):
         ),
     )
     idle_timeout_s: int | None = Field(
-        default=600,
+        default=900,
         title="Idle (no-progress) timeout (s)",
         description=(
             "Kill a run that produces NO MODEL OUTPUT for this long — a hung "
             "request/connection (a slow-but-streaming model keeps resetting it, "
             "since token events count as progress; opencode's stderr log noise "
             "does NOT). So an unattended experiment never wedges forever on one "
-            "stalled request. Independent of the overall run timeout; empty/0 "
+            "stalled request. Set above the longest LEGITIMATE gap between model "
+            "events (a long reasoning turn, or one long tool call e.g. a full "
+            "test suite) so a busy run is never mistaken for a hang — 15 min is a "
+            "safe default. Independent of the overall run timeout; empty/0 "
             "disables it. A stalled run is dropped and retried up to stall_retries "
             "times."
         ),
