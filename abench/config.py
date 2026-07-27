@@ -281,12 +281,26 @@ class OpenCodeCfg(BaseModel):
     )
     idle_timeout_s: int | None = Field(
         default=600,
-        title="Idle (no-output) timeout (s)",
+        title="Idle (no-progress) timeout (s)",
         description=(
-            "Kill a run that produces NO output for this long — a likely hang "
-            "(stalled model/connection), so an unattended experiment never "
-            "wedges forever on one run. Independent of the overall run timeout; "
-            "empty/0 disables it."
+            "Kill a run that produces NO MODEL OUTPUT for this long — a hung "
+            "request/connection (a slow-but-streaming model keeps resetting it, "
+            "since token events count as progress; opencode's stderr log noise "
+            "does NOT). So an unattended experiment never wedges forever on one "
+            "stalled request. Independent of the overall run timeout; empty/0 "
+            "disables it. A stalled run is dropped and retried up to stall_retries "
+            "times."
+        ),
+    )
+    stall_retries: int = Field(
+        default=2,
+        title="Stall retries",
+        description=(
+            "When a run is dropped for stalling (idle_timeout_s with no model "
+            "output — a hung request/connection), relaunch it from scratch this "
+            "many times before giving up. A stalled transport is usually "
+            "transient, so a retry recovers it without wedging the experiment. "
+            "0 disables retrying (drop once, then degrade)."
         ),
     )
     repeat_limit: int = Field(

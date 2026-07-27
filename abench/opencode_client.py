@@ -423,6 +423,160 @@ class RealOpenCodeClient:
         self._session_keys = session_keys
         self._isolated = isolated
 
+    def _run_attempt(
+        self, *, workdir, model, user_message, config_data, timeout_s,
+        idle_timeout_s, on_event, readable, firehose, cancel_event,
+    ):
+        """One opencode launch + poll loop. Returns (raw_events, interrupted_reason,
+        returncode). The stall watchdog keys off MODEL PROGRESS (a parsed stdout
+        event) — NOT stderr log noise and NOT unparseable preamble — so a request
+        that hangs with no tokens is caught even while opencode keeps logging to
+        stderr (--print-logs INFO)."""
+        import uuid
+        started_at = time.time()
+        container_name = (f"abench-oc-{uuid.uuid4().hex[:12]}"
+                          if self._cfg.sandbox.mode == "container" else None)
+        cmd = build_run_command(
+            self._cfg, workdir=workdir, model=model, user_message=user_message,
+            config_data=config_data, container_name=container_name,
+        )
+        if self._cfg.sandbox.mode == "container":
+            readable(f"[abench] $ {self._cfg.sandbox.runtime} run --rm "
+                     f"-v {workdir}:{self._cfg.sandbox.workdir_mount} … "
+                     f"{self._cfg.sandbox.image} opencode run …")
+        else:
+            readable(f"[abench] $ {' '.join(cmd[:6])} … (cwd={workdir})")
+
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=workdir,
+            env=credentials.run_env(self._cfg.providers, self._session_keys,
+                                    isolated=self._isolated),
+        )
+
+        def _kill_proc() -> None:
+            """Stop the run promptly. In container mode, SIGKILL to the `docker run`
+            client does NOT stop the container — kill the named container first."""
+            if container_name is not None:
+                try:
+                    subprocess.run([self._cfg.sandbox.runtime, "kill", container_name],
+                                   capture_output=True, timeout=15)
+                except Exception:
+                    pass
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+        raw_events: list[dict] = []
+        interrupted_reason: str | None = None
+        # Last PARSED model event (= real progress). Updated ONLY on a stdout JSONL
+        # event — never on stderr log noise or unparseable preamble — so the idle
+        # watchdog measures "no MODEL output" (a hung request), not "opencode went
+        # quiet on stdout while still chattering to stderr".
+        last_activity = [started_at]
+        repeat_limit = self._cfg.repeat_limit
+        recent_sigs: "deque[str]" = deque(maxlen=max(_MAX_LOOP_CYCLE * repeat_limit, 1))
+        loop_flag = [False]
+
+        def _read_stdout() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                text = line.decode("utf-8", errors="replace").rstrip()
+                if not text:
+                    continue
+                try:
+                    event = json.loads(text)
+                except json.JSONDecodeError:
+                    continue  # forwards-compat: skip unparseable lines
+                raw_events.append(event)
+                last_activity[0] = time.time()   # a real model event = progress
+                if repeat_limit > 0:
+                    sig = _step_signature(event)
+                    if sig is not None:
+                        recent_sigs.append(sig)
+                        if _is_looping(recent_sigs, repeat_limit):
+                            loop_flag[0] = True
+                summary = _summarize_event(event)
+                if summary is not None:
+                    readable(summary)
+                on_event(event)
+
+        def _drain_stderr() -> None:
+            """Forward opencode's stderr to debug.log; promote model-error lines to
+            run.log. Does NOT touch last_activity: opencode keeps logging here even
+            while a request hangs, so counting it as activity would mask the very
+            stall we want to catch."""
+            if proc.stderr is None:
+                return
+            try:
+                for raw in proc.stderr:
+                    text = raw.decode("utf-8", errors="replace").rstrip()
+                    if not text:
+                        continue
+                    firehose(f"  [opencode] {text}")
+                    if _MODEL_ERROR_RE.search(text):
+                        readable(f"  [opencode] ⚠ {text}")
+            except Exception:
+                pass
+
+        reader = threading.Thread(target=_read_stdout, daemon=True)
+        reader.start()
+        stderr_drainer = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_drainer.start()
+
+        # Poll every ≤0.5s so a cancel kills the subprocess promptly. Deadline None
+        # = no overall limit, but the idle watchdog still kills a run that produces
+        # no MODEL output for idle_timeout_s (a hung request).
+        deadline = _run_deadline(started_at, timeout_s)
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                _kill_proc()
+                interrupted_reason = "cancelled"
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+            if _is_stalled(last_activity[0], idle_timeout_s, time.time()):
+                idle = time.time() - last_activity[0]
+                readable(f"[abench] no model output for {idle:.0f}s — treating the "
+                         f"run as stalled (hung request/connection) and stopping it")
+                _kill_proc()
+                interrupted_reason = "stalled"
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+            if loop_flag[0]:
+                readable(f"[abench] agent repeated the same step >= {repeat_limit}x "
+                         f"with no progress — treating as a loop and stopping the run")
+                _kill_proc()
+                interrupted_reason = "looping"
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+            if deadline is not None and time.time() >= deadline:
+                _kill_proc()
+                interrupted_reason = "timeout"
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+            poll = 0.5 if deadline is None else min(0.5, deadline - time.time())
+            try:
+                proc.wait(timeout=max(0.05, poll))
+                break  # finished naturally
+            except subprocess.TimeoutExpired:
+                continue
+
+        reader.join(timeout=10)
+        stderr_drainer.join(timeout=10)
+        return raw_events, interrupted_reason, proc.returncode
+
     def run_task(
         self,
         *,
@@ -468,173 +622,33 @@ class RealOpenCodeClient:
             json.dumps(config_data, indent=2), encoding="utf-8"
         )
 
-        # ── Spawn subprocess (optionally wrapped in a sandbox container) ───
-        started_at = time.time()
-        import uuid
-        container_name = (f"abench-oc-{uuid.uuid4().hex[:12]}"
-                          if self._cfg.sandbox.mode == "container" else None)
-        cmd = build_run_command(
-            self._cfg,
-            workdir=workdir,
-            model=model,
-            user_message=user_message,
-            config_data=config_data,
-            container_name=container_name,
-        )
-        if self._cfg.sandbox.mode == "container":
-            readable(f"[abench] $ {self._cfg.sandbox.runtime} run --rm "
-                     f"-v {workdir}:{self._cfg.sandbox.workdir_mount} … "
-                     f"{self._cfg.sandbox.image} opencode run …")
-        else:
-            readable(f"[abench] $ {' '.join(cmd[:6])} … (cwd={workdir})")
-
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=workdir,
-            env=credentials.run_env(self._cfg.providers, self._session_keys,
-                                    isolated=self._isolated),
-        )
-
-        def _kill_proc() -> None:
-            """Stop the run promptly. In container mode, SIGKILL to the `docker run`
-            client does NOT stop the container — so kill the named container first,
-            then the client. Best-effort; never raises."""
-            if container_name is not None:
-                try:
-                    subprocess.run([self._cfg.sandbox.runtime, "kill", container_name],
-                                   capture_output=True, timeout=15)
-                except Exception:
-                    pass
-            try:
-                proc.kill()
-            except Exception:
-                pass
-
-        raw_events: list[dict] = []
-        interrupted_reason: str | None = None
-        # Last time the subprocess produced ANY output (stdout event or stderr
-        # line). A one-element list so the reader threads can update it under the
-        # GIL without nonlocal. Drives the idle (no-progress) watchdog below.
-        last_activity = [started_at]
-        # Loop watchdog: a looping agent keeps producing output (so the idle
-        # watchdog never fires) but repeats the same step. The reader thread is
-        # the SOLE writer of recent_sigs + loop_flag; the poll loop only reads
-        # the flag (atomic, like last_activity) — no cross-thread deque race.
-        repeat_limit = self._cfg.repeat_limit
-        recent_sigs: "deque[str]" = deque(maxlen=max(_MAX_LOOP_CYCLE * repeat_limit, 1))
-        loop_flag = [False]
-
-        def _read_stdout() -> None:
-            """Read stdout line by line; parse JSONL; call on_event live and
-            print a one-line summary so the operator can see progress."""
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                last_activity[0] = time.time()
-                text = line.decode("utf-8", errors="replace").rstrip()
-                if not text:
-                    continue
-                try:
-                    event = json.loads(text)
-                except json.JSONDecodeError:
-                    continue  # forwards-compat: skip unparseable lines
-                raw_events.append(event)
-                if repeat_limit > 0:
-                    sig = _step_signature(event)
-                    if sig is not None:
-                        recent_sigs.append(sig)
-                        if _is_looping(recent_sigs, repeat_limit):
-                            loop_flag[0] = True
-                summary = _summarize_event(event)
-                if summary is not None:
-                    readable(summary)
-                on_event(event)
-
-        def _drain_stderr() -> None:
-            """Forward opencode's stderr (``--print-logs INFO`` is verbose,
-            but it's the surest signal that the subprocess is alive). Reading
-            line-by-line both keeps the OS pipe from filling and lets the user
-            see progress in real time. Lines that look like a model/endpoint
-            failure are ALSO promoted from debug.log to the readable run.log, so
-            an unreachable endpoint or a bad key is visible live instead of the
-            run silently sitting at 'waiting for first response'."""
-            if proc.stderr is None:
-                return
-            try:
-                for raw in proc.stderr:
-                    last_activity[0] = time.time()
-                    text = raw.decode("utf-8", errors="replace").rstrip()
-                    if not text:
-                        continue
-                    firehose(f"  [opencode] {text}")
-                    if _MODEL_ERROR_RE.search(text):
-                        readable(f"  [opencode] ⚠ {text}")
-            except Exception:
-                pass
-
-        reader = threading.Thread(target=_read_stdout, daemon=True)
-        reader.start()
-        stderr_drainer = threading.Thread(target=_drain_stderr, daemon=True)
-        stderr_drainer.start()
-
-        # Wait for the process to finish, polling every ≤0.5s so a cancel_event
-        # kills the subprocess promptly (cooperative cancel). A deadline of None
-        # means no overall time limit — but the idle watchdog still kills a run
-        # that goes silent for idle_timeout_s (a likely hang), so an unattended
-        # experiment never wedges forever on one stalled run.
-        deadline = _run_deadline(started_at, timeout_s)
+        # ── Run opencode, dropping + retrying a STALLED attempt ────────────
+        # A run that produces NO model output for idle_timeout_s is a hung
+        # request/connection (a slow-but-streaming model keeps resetting the
+        # watchdog via token events; stderr log noise does not). Drop it and
+        # relaunch from scratch up to stall_retries times — a stalled transport is
+        # usually transient. Non-stall exits (done / cancel / loop / timeout /
+        # error) never retry. run_started_at anchors the trace's wall-clock start.
+        run_started_at = time.time()
         idle_timeout_s = self._cfg.idle_timeout_s
+        stall_retries = max(0, self._cfg.stall_retries or 0)
+        attempt = 0
         while True:
-            if cancel_event is not None and cancel_event.is_set():
-                _kill_proc()
-                interrupted_reason = "cancelled"
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    pass
-                break
-            if _is_stalled(last_activity[0], idle_timeout_s, time.time()):
-                idle = time.time() - last_activity[0]
-                readable(f"[abench] no output for {idle:.0f}s — treating the run "
-                         f"as stalled and stopping it")
-                _kill_proc()
-                interrupted_reason = "stalled"
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    pass
-                break
-            if loop_flag[0]:
-                readable(f"[abench] agent repeated the same step >= {repeat_limit}x "
-                         f"with no progress — treating as a loop and stopping the run")
-                _kill_proc()
-                interrupted_reason = "looping"
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    pass
-                break
-            if deadline is not None and time.time() >= deadline:
-                _kill_proc()
-                interrupted_reason = "timeout"
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    pass
-                break
-            poll = 0.5 if deadline is None else min(0.5, deadline - time.time())
-            try:
-                proc.wait(timeout=max(0.05, poll))
-                break  # finished naturally
-            except subprocess.TimeoutExpired:
+            attempt += 1
+            raw_events, interrupted_reason, returncode = self._run_attempt(
+                workdir=workdir, model=model, user_message=user_message,
+                config_data=config_data, timeout_s=timeout_s,
+                idle_timeout_s=idle_timeout_s, on_event=on_event,
+                readable=readable, firehose=firehose, cancel_event=cancel_event,
+            )
+            if interrupted_reason == "stalled" and attempt <= stall_retries:
+                readable(f"[abench] dropped a hung request (stalled: no model output "
+                         f"for {idle_timeout_s}s) — retrying "
+                         f"(attempt {attempt + 1}/{stall_retries + 1})")
                 continue
-
-        reader.join(timeout=10)
-        stderr_drainer.join(timeout=10)
+            break
 
         ended_at = time.time()
-        returncode = proc.returncode
 
         # ── Count service/proxy errors (rate limits, 5xx, etc.) ───────────
         n_service_errors, n_rate_limits, service_error_messages = (
@@ -711,7 +725,7 @@ class RealOpenCodeClient:
         if not trace.model:
             trace.model = model
         trace.temperature = temperature
-        trace.started_at = started_at
+        trace.started_at = run_started_at
         trace.ended_at = ended_at
         trace.finished = interrupted_reason is None
         trace.interrupted_reason = interrupted_reason
