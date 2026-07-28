@@ -23,6 +23,7 @@ from pathlib import Path
 
 MAX_FAILED_NAMES = 6       # per bug, in the detail block
 MAX_TOOLS = 8              # tool-histogram entries
+MAX_FILES = 6              # changed-file entries (largest edits first)
 CLAIM_CHARS = 400          # tail of the agent's final message
 
 
@@ -53,6 +54,48 @@ def _tool_hist(trace: dict | None) -> Counter:
         if st.get("kind") == "tool" and st.get("tool_name"):
             c[st["tool_name"]] += 1
     return c
+
+
+#: Build/generated output that is NOT a source change. A "fix" whose diff is
+#: mostly these is a polluted measurement, not a 500-file edit.
+_BUILD_HINTS = ("build/", "target/", "dist/", "out/", "bin/", "classes/",
+                ".class", ".jar", ".war", "/all_tests", "/failing_tests",
+                "all_tests", "failing_tests", ".defects4j.config")
+
+
+def _bucket(path: str) -> str:
+    """Classify a changed path. 'test' is the validity-critical one: the task
+    forbids editing tests, and a green verdict reached by weakening a test is a
+    false pass, not a fix."""
+    p = path.replace("\\", "/")
+    low = p.lower()
+    if any(h in low for h in _BUILD_HINTS):
+        return "build"
+    if "src/test" in low or "/test/" in low or low.startswith("test/"):
+        return "test"
+    if p.rsplit("/", 1)[-1].startswith("Test") or p.endswith(("Test.java", "Tests.java")):
+        return "test"
+    if p.endswith(".java"):
+        return "src"
+    return "other"
+
+
+def _changed_files(trace: dict | None, rundir: Path) -> list[tuple[str, int, int]]:
+    """[(path, added, removed)] — from the trace's final_diff_summary, falling
+    back to parsing changes.patch headers when the summary is absent."""
+    fds = ((trace or {}).get("final_diff_summary") or {}).get("files") or []
+    out = [(f.get("path", ""), f.get("added") or 0, f.get("removed") or 0)
+           for f in fds if f.get("path")]
+    if out:
+        return out
+    patch = rundir / "changes.patch"
+    if patch.is_file():
+        for ln in patch.read_text(encoding="utf-8", errors="replace").splitlines():
+            if ln.startswith("diff --git "):
+                seg = ln[len("diff --git "):].split(" b/")
+                if len(seg) == 2:
+                    out.append((seg[1].strip().strip('"'), 0, 0))
+    return out
 
 
 def _final_claim(trace: dict | None) -> str:
@@ -86,8 +129,14 @@ def collect(root: Path, gems: dict[str, dict]) -> list[dict]:
 
         rundir = _latest_run(bugdir)
         if rundir is None:
-            # No run at all: checkout failed / skipped by run_baseline.sh.
-            row["state"] = "SKIPPED (no run — checkout failed?)"
+            # No run at all. Distinguish "never attempted" (the generator made the
+            # dir but this batch never ran the bug — e.g. a tier filter) from
+            # "checkout produced a tree but abench never ran it": conflating them
+            # invents a checkout failure that may not have happened.
+            if (bugdir / "checkout").is_dir():
+                row["state"] = "NOT RUN (checkout present, no abench run)"
+            else:
+                row["state"] = "NOT ATTEMPTED (no checkout — filtered out or checkout failed)"
             rows.append(row)
             continue
 
@@ -109,6 +158,9 @@ def collect(root: Path, gems: dict[str, dict]) -> list[dict]:
             tokens_in=m.get("tokens_in"),
             tokens_out=m.get("tokens_out"),
             similarity=(m.get("cheating") or {}).get("target_similarity"),
+            cheat_verdict=(m.get("cheating") or {}).get("verdict"),
+            cheat_signals=[s.get("type") for s in
+                           ((m.get("cheating") or {}).get("signals") or [])],
             changed=m.get("made_source_changes"),
             finished=m.get("finished"),
             interrupted=m.get("interrupted_reason"),
@@ -116,6 +168,27 @@ def collect(root: Path, gems: dict[str, dict]) -> list[dict]:
             tools=_tool_hist(t),
             claim=_final_claim(t),
         )
+        files = _changed_files(t, rundir)
+        buckets: Counter = Counter()
+        for path, add, rem in files:
+            buckets[_bucket(path)] += 1
+        row["files"] = files
+        row["buckets"] = buckets
+        # Validity flags — reasons a row must not be trusted at face value.
+        flags = []
+        if buckets.get("test"):
+            flags.append(f"EDITED {buckets['test']} TEST FILE(S) — verdict may be a false pass")
+        if buckets.get("build"):
+            flags.append(f"{buckets['build']} build/generated path(s) in the diff "
+                         "(measurement pollution, not a fix)")
+        if row.get("similarity") is None:
+            flags.append("no target_similarity (target_file not set) — that anti-cheat "
+                         "signal is OFF")
+        if row.get("cheat_verdict") == "suspicious":
+            flags.append(f"anti-cheat: {', '.join(row['cheat_signals']) or 'suspicious'}")
+        if row.get("verify") == "passed" and not row.get("changed"):
+            flags.append("verdict passed but made_source_changes=False — nothing was fixed")
+        row["flags"] = flags
         # State is the honest one-word verdict. Crash and non-reproducing come
         # FIRST: a crashed run has no grade, and a green verdict on a bug whose
         # buggy tree already passed grades nothing — neither may be read as a
@@ -142,15 +215,17 @@ def render(rows: list[dict], detail_all: bool) -> str:
     cand = [r for r in rows if r["state"].startswith("FAILED")]
     solved = [r for r in rows if r["state"].startswith("passed")]
     crashed = [r for r in rows if r["state"].startswith("CRASHED")]
-    skipped = [r for r in rows if r["state"].startswith("SKIPPED")]
+    norun = [r for r in rows if r["state"].startswith(("NOT RUN", "NOT ATTEMPTED"))]
     invalid = [r for r in rows if r["state"].startswith("INVALID")]
-    other = [r for r in rows if r not in cand + solved + crashed + skipped + invalid]
-    o += [f"bugs: **{n}** | RCC candidates (baseline failed): **{len(cand)}** | "
-          f"agent solved: {len(solved)} | crashed: {len(crashed)} | "
-          f"skipped: {len(skipped)} | no-repro: {len(invalid)} | other: {len(other)}", ""]
+    other = [r for r in rows if r not in cand + solved + crashed + norun + invalid]
+    flagged = [r for r in solved if r.get("flags")]
+    o += [f"bugs: **{n}** | ran: **{n - len(norun)}** | RCC candidates (baseline failed): "
+          f"**{len(cand)}** | agent solved: {len(solved)} "
+          f"(**{len(flagged)} with validity flags**) | crashed: {len(crashed)} | "
+          f"not run: {len(norun)} | no-repro: {len(invalid)} | other: {len(other)}", ""]
 
     o += ["## Verdicts", "",
-          "| bug | tier | trig | repro | state | fail/pass | steps | edits | +/- | sim | dur_s |",
+          "| bug | tier | trig | repro | state | fail/pass | steps | src/test/build | +/- | sim | dur_s |",
           "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         repro = {True: "yes", False: "NO", None: "?"}[r.get("repro")]
@@ -160,10 +235,22 @@ def render(rows: list[dict], detail_all: bool) -> str:
               if r.get("added") is not None else "—")
         sim = f"{r['similarity']:.2f}" if isinstance(r.get("similarity"), float) else "—"
         dur = f"{r['duration']:.0f}" if isinstance(r.get("duration"), float) else "—"
+        b = r.get("buckets") or Counter()
+        mix = (f"{b.get('src',0)}/{b.get('test',0)}/{b.get('build',0)}"
+               + (f"+{b['other']}?" if b.get("other") else "")) if b else "—"
+        if b.get("test"):
+            mix = "**" + mix + "**"          # test edits: the row to distrust
         o.append(f"| {r['bug']} | {r.get('tier','')} | {r.get('triggers','')} | {repro} "
-                 f"| {r['state']} | {fp} | {r.get('steps','—')} | {r.get('edits','—')} "
+                 f"| {r['state']} | {fp} | {r.get('steps','—')} | {mix} "
                  f"| {pm} | {sim} | {dur} |")
-    o.append("")
+    o += ["", "`src/test/build` = changed files by kind. **test>0 means the agent edited "
+          "tests** — the task forbids it and a green verdict may be a false pass.", ""]
+
+    if flagged:
+        o += ["## Validity flags on 'solved' rows (verify before trusting these)", ""]
+        for r in flagged:
+            o.append(f"- **{r['bug']}**: " + "; ".join(r["flags"]))
+        o.append("")
 
     if cand:
         o += ["## RCC demo set (baseline FAILED — the sieve's output)", ""]
@@ -172,7 +259,7 @@ def render(rows: list[dict], detail_all: bool) -> str:
               for r in cand]
         o.append("")
 
-    bad = crashed + skipped + invalid + other
+    bad = crashed + norun + invalid + other
     seen, uniq = set(), []
     for r in bad:
         if r["bug"] not in seen:
@@ -188,8 +275,11 @@ def render(rows: list[dict], detail_all: bool) -> str:
             o.append(f"- **{r['bug']}**: {why}")
         o.append("")
 
-    show = rows if detail_all else [r for r in rows if r.get("rundir")
-                                    and not r["state"].startswith("passed")]
+    # Detail the non-passing rows AND any 'solved' row carrying a validity flag —
+    # an unexamined flagged pass is exactly what would corrupt the demo set.
+    show = rows if detail_all else [
+        r for r in rows if r.get("rundir")
+        and (not r["state"].startswith("passed") or r.get("flags"))]
     if show:
         o += ["## Per-bug detail", ""]
         for r in show:
@@ -200,6 +290,17 @@ def render(rows: list[dict], detail_all: bool) -> str:
                 names = list(r["failed_names"])[:MAX_FAILED_NAMES]
                 o.append(f"- failing ({len(r['failed_names'])} listed): "
                          + ", ".join(f"`{x}`" for x in names))
+            if r.get("flags"):
+                o.append("- ⚠ " + "; ".join(r["flags"]))
+            files = r.get("files") or []
+            if files:
+                # Rank by MEANING, not size: a test edit is the finding, and a real
+                # source edit must not be buried under hundreds of build artifacts.
+                order = {"test": 0, "src": 1, "other": 2, "build": 3}
+                top = sorted(files, key=lambda f: (order[_bucket(f[0])],
+                                                   -(f[1] + f[2])))[:MAX_FILES]
+                o.append(f"- changed files ({len(files)}): " + ", ".join(
+                    f"`{p}` (+{a}/-{d}, {_bucket(p)})" for p, a, d in top))
             if r.get("tools"):
                 top = ", ".join(f"{k}×{v}" for k, v in r["tools"].most_common(MAX_TOOLS))
                 o.append(f"- tools: {top}")
