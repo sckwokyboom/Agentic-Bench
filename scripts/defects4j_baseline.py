@@ -105,15 +105,25 @@ def main() -> int:
         lines += [
             f'echo "=== {P}-{bug} ({r["triggers"]} triggers, {r["tier"]}) ==="',
             f'D="$ROOT/{P}-{bug}"',
-            # Run abench only if BOTH checkouts materialised — abench needs the buggy
-            # fixture AND the fixed reference (target_similarity metric + _validate).
-            # A failed checkout (e.g. missing svn) must not cascade into abench errors.
-            f'if defects4j checkout -p {P} -v {bug}b -w "$D/checkout" \\',
-            f'   && defects4j checkout -p {P} -v {bug}f -w "$D/reference" \\',
-            '   && [ -d "$D/checkout" ] && [ -d "$D/reference" ]; then',
-            f'  ( cd "$D" && abench run experiment.yaml ) || echo "  !! abench run failed: {P}-{bug}"',
+            # RESUMABLE: a bug that already produced a graded run is skipped, so the
+            # batch can be stopped (Ctrl-C) and restarted without redoing hours of
+            # completed work. metrics.json is written only when a run finishes, so
+            # its presence is the honest "this bug is done" marker.
+            'if ls "$D"/runs/*/*/*/rep_*/metrics.json >/dev/null 2>&1; then',
+            f'  echo "  SKIP {P}-{bug}: already has a graded run (rm -rf $D/runs to redo)"',
             "else",
-            f'  echo "  SKIP {P}-{bug}: defects4j checkout failed (see errors above)"',
+            # Check out only what is missing: re-running 'defects4j checkout' over an
+            # existing tree fails, which used to strand a bug whose checkout survived
+            # an interrupted batch. abench needs BOTH the buggy fixture and the fixed
+            # reference, and a failed checkout must not cascade into abench errors.
+            "  ok=1",
+            f'  [ -d "$D/checkout" ]  || defects4j checkout -p {P} -v {bug}b -w "$D/checkout"  || ok=0',
+            f'  [ -d "$D/reference" ] || defects4j checkout -p {P} -v {bug}f -w "$D/reference" || ok=0',
+            '  if [ "$ok" = 1 ] && [ -d "$D/checkout" ] && [ -d "$D/reference" ]; then',
+            f'    ( cd "$D" && abench run experiment.yaml ) || echo "  !! abench run failed: {P}-{bug}"',
+            "  else",
+            f'    echo "  SKIP {P}-{bug}: defects4j checkout failed (see errors above)"',
+            "  fi",
             "fi",
             "",
         ]
