@@ -74,12 +74,22 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
-def replay(bugdir: Path, timeout: int) -> dict:
+def all_runs(bugdir: Path, subdir: str) -> list[Path]:
+    """Every graded rep under bugdir/<subdir> — the A/B writes one per condition
+    per repetition, so replaying only the newest would silently grade one arm."""
+    return sorted(p.parent for p in bugdir.glob(f"{subdir}/*/*/*/rep_*/metrics.json"))
+
+
+def replay(bugdir: Path, timeout: int, rundir: Path | None = None) -> dict:
     """Apply the run's source patch to a pristine copy and re-grade it."""
     r: dict = {"bug": bugdir.name}
-    rundir = _latest_run(bugdir)
+    if rundir is None:
+        rundir = _latest_run(bugdir)
     if rundir is None:
         return {**r, "status": "no run"}
+    # rep dir is <…>/<condition>/rep_N — label the row so arms stay distinguishable.
+    r["arm"] = rundir.parent.name
+    r["rep"] = rundir.name
     m = _load(rundir / "metrics.json") or {}
     r["recorded"] = m.get("verify_status")
     r["recorded_failed"] = m.get("verify_failed_count")
@@ -137,8 +147,8 @@ def render(rows: list[dict]) -> str:
          "Each row re-grades the run's SOURCE-only patch on a pristine checkout, so "
          "any damage the agent did to its own workdir (dependency stubs, pom edits, "
          "deleted tests, build junk) cannot influence the verdict.", "",
-         "| bug | recorded | replay | agree? | replay fail/pass | src files | dropped |",
-         "|---|---|---|---|---|---|---|"]
+         "| bug | arm | rep | recorded | replay | agree? | replay fail/pass | src files | dropped |",
+         "|---|---|---|---|---|---|---|---|---|"]
     disagree = []
     for r in rows:
         rec, rep = r.get("recorded"), r.get("status")
@@ -148,13 +158,14 @@ def render(rows: list[dict]) -> str:
             disagree.append(r)
         fp = (f"{r.get('replay_failed')}/{r.get('replay_passed')}"
               if r.get("replay_failed") is not None else "—")
-        o.append(f"| {r['bug']} | {rec or '—'} | {rep} | {agree} | {fp} "
+        o.append(f"| {r['bug']} | {r.get('arm', '—')} | {r.get('rep', '—')} "
+                 f"| {rec or '—'} | {rep} | {agree} | {fp} "
                  f"| {len(r.get('kept') or [])} | {r.get('dropped', '—')} |")
     o.append("")
     if disagree:
         o += ["## Disagreements — the recorded verdict was about the ENVIRONMENT, not the fix", ""]
         for r in disagree:
-            o.append(f"- **{r['bug']}**: recorded `{r['recorded']}` "
+            o.append(f"- **{r['bug']}** [{r.get('arm', '—')}/{r.get('rep', '—')}]: recorded `{r['recorded']}` "
                      f"({r.get('recorded_failed')} failing) but the same patch replays as "
                      f"`{r['status']}` ({r.get('replay_failed')} failing). "
                      f"Source files: {', '.join(r.get('kept') or []) or '—'}")
@@ -175,6 +186,9 @@ def main() -> int:
     ap.add_argument("bugs", nargs="*", help="bug dirs to replay (default: the FAILED runs)")
     ap.add_argument("--root", default="d4j-runs", type=Path)
     ap.add_argument("--all", action="store_true", help="replay every graded run")
+    ap.add_argument("--ab", action="store_true",
+                    help="replay the A/B tree (runs-ab/): EVERY arm and rep, not just "
+                         "the newest — grading one arm only would be worthless")
     ap.add_argument("--timeout", type=int, default=2400, help="per-bug test timeout (s)")
     ap.add_argument("--out", type=Path, help="also write the report here")
     a = ap.parse_args()
@@ -186,7 +200,26 @@ def main() -> int:
     if a.bugs:
         want = set(a.bugs)
         dirs = [p for p in dirs if p.name in want]
-    elif not a.all:
+
+    if a.ab:
+        # Every arm x rep, so rcc and phased are graded by the same yardstick.
+        jobs = [(d, rd) for d in dirs for rd in all_runs(d, "runs-ab")]
+        if not jobs:
+            print("no A/B runs found (expected d4j-runs/<bug>/runs-ab/…) — run run_ab.sh first")
+            return 0
+        rows = []
+        for i, (d, rd) in enumerate(jobs, 1):
+            print(f"[{i}/{len(jobs)}] replaying {d.name} {rd.parent.name}/{rd.name} …",
+                  flush=True)
+            rows.append(replay(d, a.timeout, rundir=rd))
+        text = render(rows)
+        print("\n" + text)
+        if a.out:
+            a.out.write_text(text, encoding="utf-8")
+            print(f"\n[written to {a.out}]")
+        return 0
+
+    if not a.bugs and not a.all:
         # Default: only the sieve's OUTPUT (failed runs) — a full replay is one
         # test suite per bug, i.e. hours. --all when you want the passes checked
         # for the opposite error (a green verdict the patch cannot reproduce).
