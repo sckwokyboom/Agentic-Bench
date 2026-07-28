@@ -7,14 +7,19 @@ DID expose is how expensive some solves are: Closure-116 took 135 steps, 236k to
 and 26 minutes. This A/B measures that cost, where 45 solved bugs give far more
 statistical power than one hard bug.
 
-Per bug it emits an experiment with three arms over the SAME fixture, which abench
+Per bug it emits an experiment whose arms all run over the SAME fixture, which abench
 interleaves and nonce-isolates within one run:
-  baseline — plain agent, no orchestration (context; it gets no target info)
-  phased   — forced UNDERSTAND→IMPLEMENT→DIAGNOSE controller
+  baseline — plain agent, no orchestration
+  phased   — forced UNDERSTAND→IMPLEMENT→DIAGNOSE controller (optional)
   rcc      — the same prefix, then the causal loop (MutationGraph/Alpha/Beta/Gamma)
 
-The headline comparison is **rcc vs phased**: both receive identical target info, so
-the only difference is the causal loop. baseline is context, not a fair third point.
+Default arms are **baseline,rcc** — the product comparison ("our system vs a plain
+agent"). Mind what that measures: the orchestrated arms are handed the target method
+(target_label/target_file) and baseline is not, so an rcc-vs-baseline gap contains
+both the causal loop AND the target hint. `--arms baseline,phased,rcc` adds the
+control that isolates the loop alone (phased gets the same target info as rcc), and
+`--tell-baseline-target` instead hands the same hint to baseline so the arms differ
+only by machinery.
 
 TARGET RESOLUTION: rcc needs the target method to seed its mutation graph, and
 gems.csv's method_hint is a class declaration, not a method. The method is derived
@@ -62,7 +67,7 @@ EXPERIMENT = """\
 name: d4j-{proj}-{bug}-ab
 fixture_path: ./checkout           # buggy tree
 reference_path: ./reference        # fixed tree (target_similarity)
-task_prompt: ../task.md
+task_prompt: {task}
 system_prompt: ../system.md
 model: {model}
 repetitions: {reps}
@@ -86,9 +91,7 @@ orchestration:
   rcc_subset_class_cap: 15
   rcc_revert_to_best: true         # part of the rcc STRATEGY (see config docs)
 conditions:
-  - {{name: baseline, augmentation: null, tools: []}}   # context arm: no target info
-  - {{name: phased, orchestration: phased}}             # control
-  - {{name: rcc, orchestration: rcc}}                   # treatment: + causal loop
+{conditions}
 # rcc builds its MutationGraph with the LLM builder here (no precomputed GT artifact
 # is shipped for Defects4J) — runner falls back to 'llm' when .impact is absent.
 target_file: {target_file}
@@ -143,7 +146,25 @@ def main() -> int:
     ap.add_argument("--bugs", help="comma-separated bug ids (default: the expensive set)")
     ap.add_argument("--reps", type=int, default=1,
                     help="repetitions per condition; 2+ recommended (agents are high-variance)")
+    ap.add_argument("--arms", default="baseline,rcc",
+                    help="comma-separated arms: baseline, phased, rcc "
+                         "(add phased to isolate the causal loop from the target hint)")
+    ap.add_argument("--tell-baseline-target", action="store_true",
+                    help="append the target method to the task prompt for ALL arms, so "
+                         "baseline gets the same hint as rcc and the arms differ only "
+                         "by machinery")
     a = ap.parse_args()
+
+    arms = [s.strip() for s in a.arms.split(",") if s.strip()]
+    unknown = [x for x in arms if x not in ("baseline", "phased", "rcc")]
+    if unknown:
+        print(f"unknown arm(s): {unknown}; choose from baseline, phased, rcc")
+        return 2
+    _ARM_YAML = {
+        "baseline": "  - {name: baseline, augmentation: null, tools: []}",
+        "phased": "  - {name: phased, orchestration: phased}       # control",
+        "rcc": "  - {name: rcc, orchestration: rcc}             # treatment",
+    }
 
     want = [s.strip() for s in a.bugs.split(",")] if a.bugs else DEFAULT_SET
     gems = {f"{r['project']}-{r['bug']}": r for r in csv.DictReader(a.gems.open())}
@@ -172,15 +193,25 @@ def main() -> int:
             skipped.append(f"{key}: could not resolve the target method from the GT diff")
             continue
         cls_short = r["modified_class"].rsplit(".", 1)[-1]
+        task = "../task.md"
+        if a.tell_baseline_target:
+            # A per-bug prompt carrying the same hint the orchestrated arms get, so
+            # baseline is not handicapped by having to locate the method first.
+            (d / "task-ab.md").write_text(
+                (a.root / "task.md").read_text(encoding="utf-8")
+                + f"\nThe defect is in {r['modified_class']}#{methods[0]}. "
+                  "Fix it there; do not edit the tests.\n", encoding="utf-8")
+            task = "./task-ab.md"
         (d / "experiment-ab.yaml").write_text(EXPERIMENT.format(
             proj=r["project"], bug=r["bug"], triggers=r["triggers"],
-            cls=r["modified_class"], model=MODEL, reps=a.reps,
+            cls=r["modified_class"], model=MODEL, reps=a.reps, task=task,
             label=f"the {cls_short}.{methods[0]} method",
+            conditions="\n".join(_ARM_YAML[x] for x in arms),
             target_file=str(src.relative_to(d / "checkout")),
             methods=", ".join(methods[:4])))
         made.append((key, str(src.relative_to(d / "checkout")), methods[:4]))
         lines += [
-            f'echo "=== {key} (A/B: baseline|phased|rcc) ==="',
+            f'echo "=== {key} (A/B: {"|".join(arms)}) ==="',
             f'D="$ROOT/{key}"',
             'if ls "$D"/runs-ab/*/*/*/rep_*/metrics.json >/dev/null 2>&1; then',
             f'  echo "  SKIP {key}: already has A/B runs (rm -rf $D/runs-ab to redo)"',
@@ -200,8 +231,10 @@ def main() -> int:
         print("\nSKIPPED:")
         for s in skipped:
             print(f"  {s}")
-    print(f"\nRuns: {len(made)} bugs x 3 arms x {a.reps} rep(s) = "
-          f"{len(made) * 3 * a.reps} agent sessions.")
+    print(f"\nArms: {arms}"
+          + ("  [baseline also told the target]" if a.tell_baseline_target else ""))
+    print(f"Runs: {len(made)} bugs x {len(arms)} arms x {a.reps} rep(s) = "
+          f"{len(made) * len(arms) * a.reps} agent sessions.")
     print("After the batch, re-grade every arm environment-independently:")
     print("  python3 scripts/d4j_replay.py --ab --out replay-ab.md")
     return 0
