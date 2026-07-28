@@ -104,28 +104,41 @@ def create_workdir(fixture_path: Path, parent: Path | None = None,
         raise
 
 
+#: Directories that hold tool/build output, never agent source edits. An agent
+#: that runs mvn/gradle fills these with hundreds of files (one real run reported
+#: a 545-file, +8303-line "fix" that was 99% gradle cache), which corrupts the
+#: diffstat metrics and, for binary/latin-1 entries, used to crash patch capture.
+_EXCLUDED_DIRS = ("opencode.json", ".opencode", ".impact",
+                  "target", "build", ".gradle", ".gradle_local_home")
+#: Files that are a tool's OUTPUT, not a change: Defects4J writes its own verdict
+#: (all_tests/failing_tests) and ant writes its test report into the workdir.
+_EXCLUDED_FILES = ("all_tests", "failing_tests", "TESTS-TestSuites.xml",
+                   "*.class", "*.jar")
+
+
+def _exclude_pathspecs() -> list[str]:
+    """':(exclude)…' pathspecs matching each name at the repo root AND nested.
+
+    Both forms are required: a bare 'target/**' anchors at the root (so a
+    multi-module 'gson/target/**' leaked 187 surefire reports into one run's
+    diff), while '**/target/**' does NOT match a root-level '.gradle/…' because
+    the leading '**/' will not collapse to zero directories.
+    """
+    specs = []
+    for d in _EXCLUDED_DIRS:
+        specs += [f":(exclude){d}", f":(exclude){d}/**", f":(exclude)**/{d}/**"]
+    for f in _EXCLUDED_FILES:
+        specs += [f":(exclude){f}", f":(exclude)**/{f}"]
+    return specs
+
+
 def diff_workdir(workdir: Path) -> str:
     workdir = Path(workdir)
     subprocess.run(["git", "add", "-A"], cwd=workdir, check=True)
-    # Exclude opencode's own artifacts AND build output via pathspecs (each its
-    # own argv element) so the returned diff is ONLY real source changes the agent
-    # made. Build dirs (target/, build/) matter here for two reasons: they are not
-    # a "source change", and when the agent runs mvn/gradle they fill with binary
-    # .class files and latin-1 resources whose bytes break a strict-UTF-8 decode of
-    # the diff (a run that otherwise SUCCEEDED then crashes on patch capture).
+    # Exclude opencode's own artifacts and build/tool output (each pathspec its
+    # own argv element) so the returned diff is ONLY real source changes.
     result = subprocess.run(
-        ["git", "diff", "--cached", "HEAD", "--",
-         ".",
-         ":(exclude)opencode.json",
-         ":(exclude).opencode",
-         ":(exclude).opencode/**",
-         ":(exclude).impact",
-         ":(exclude).impact/**",
-         ":(exclude)target",
-         ":(exclude)target/**",
-         ":(exclude)build",
-         ":(exclude)build/**",
-         ":(exclude)**/*.class"],
+        ["git", "diff", "--cached", "HEAD", "--", ".", *_exclude_pathspecs()],
         cwd=workdir, capture_output=True,
         # errors="replace": a diff is metadata (diffstat, patch record); a stray
         # non-UTF-8 byte from a binary/legacy-encoded file must never abort the run.

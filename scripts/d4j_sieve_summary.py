@@ -24,6 +24,7 @@ from pathlib import Path
 MAX_FAILED_NAMES = 6       # per bug, in the detail block
 MAX_TOOLS = 8              # tool-histogram entries
 MAX_FILES = 6              # changed-file entries (largest edits first)
+MAX_EVIDENCE = 6           # anti-cheat evidence snippets per bug
 CLAIM_CHARS = 400          # tail of the agent's final message
 
 
@@ -161,6 +162,14 @@ def collect(root: Path, gems: dict[str, dict]) -> list[dict]:
             cheat_verdict=(m.get("cheating") or {}).get("verdict"),
             cheat_signals=[s.get("type") for s in
                            ((m.get("cheating") or {}).get("signals") or [])],
+            # Evidence, not just the label: 'outside_workdir' is fatal if the path
+            # is the reference tree (the FIXED source sits next to the checkout)
+            # and harmless if it is a JDK source file. Same for vcs_history — the
+            # workdir's git is re-inited with one commit, but a Defects4J checkout
+            # carries pre-fix/post-fix TAGS, so which repo was queried decides it.
+            cheat_evidence=[(s.get("type"), e)
+                            for s in ((m.get("cheating") or {}).get("signals") or [])
+                            for e in (s.get("evidence") or [])],
             changed=m.get("made_source_changes"),
             finished=m.get("finished"),
             interrupted=m.get("interrupted_reason"),
@@ -181,9 +190,9 @@ def collect(root: Path, gems: dict[str, dict]) -> list[dict]:
         if buckets.get("build"):
             flags.append(f"{buckets['build']} build/generated path(s) in the diff "
                          "(measurement pollution, not a fix)")
-        if row.get("similarity") is None:
-            flags.append("no target_similarity (target_file not set) — that anti-cheat "
-                         "signal is OFF")
+        # NOTE: a missing target_similarity is a run-wide CONFIG fact (the baseline
+        # yaml sets no target_file), not a per-bug finding — flagging every row with
+        # it buries the real signals. Reported once, globally, in render().
         if row.get("cheat_verdict") == "suspicious":
             flags.append(f"anti-cheat: {', '.join(row['cheat_signals']) or 'suspicious'}")
         if row.get("verify") == "passed" and not row.get("changed"):
@@ -246,6 +255,12 @@ def render(rows: list[dict], detail_all: bool) -> str:
     o += ["", "`src/test/build` = changed files by kind. **test>0 means the agent edited "
           "tests** — the task forbids it and a green verdict may be a false pass.", ""]
 
+    ran = [r for r in rows if r.get("rundir")]
+    if ran and all(r.get("similarity") is None for r in ran):
+        o += ["> **Run-wide:** no `target_similarity` on any row — the baseline yaml "
+              "sets no `target_file`, so the `output_matches_original` anti-cheat "
+              "signal was OFF for the whole batch.", ""]
+
     if flagged:
         o += ["## Validity flags on 'solved' rows (verify before trusting these)", ""]
         for r in flagged:
@@ -292,6 +307,8 @@ def render(rows: list[dict], detail_all: bool) -> str:
                          + ", ".join(f"`{x}`" for x in names))
             if r.get("flags"):
                 o.append("- ⚠ " + "; ".join(r["flags"]))
+            for kind, snippet in (r.get("cheat_evidence") or [])[:MAX_EVIDENCE]:
+                o.append(f"  - evidence[{kind}]: `{snippet}`")
             files = r.get("files") or []
             if files:
                 # Rank by MEANING, not size: a test edit is the finding, and a real

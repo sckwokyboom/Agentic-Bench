@@ -94,3 +94,30 @@ def test_diff_workdir_survives_binary_and_latin1_and_excludes_build(tmp_path):
     assert "src/A.java" in diff                      # real source change kept
     assert "target/" not in diff and ".class" not in diff  # build output excluded
     fx.cleanup(workdir)
+
+
+def test_diff_workdir_excludes_tool_output_at_root_and_nested(tmp_path):
+    # Regression from the first Defects4J sieve: the diffstat metric reported a
+    # 545-file "+8303-line fix" that was gradle cache, and 187 surefire reports in
+    # another. Root-anchored and nested forms BOTH matter — 'target/**' misses a
+    # multi-module 'gson/target/**', while '**/.gradle/**' misses a root '.gradle/'.
+    src = tmp_path / "proj"
+    (src / "gson" / "src").mkdir(parents=True)
+    (src / "gson" / "src" / "T.java").write_text("class T {}\n")
+    wd, _ = fx.create_workdir(src, parent=tmp_path)
+    (wd / "gson" / "src" / "T.java").write_text("class T { int x; }\n")
+    for rel in ("gson/target/surefire-reports/T.xml",   # nested maven output
+                ".gradle_local_home/caches/junit.pom",  # root gradle cache
+                ".gradle/buildOutputCleanup/c.properties",
+                "buildSrc/.gradle/c.properties",        # nested gradle
+                "target/classes/A.class",
+                "lib/x.jar",
+                "all_tests", "failing_tests",           # Defects4J's own verdict
+                "TESTS-TestSuites.xml"):                # ant test report
+        p = wd / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("noise\n")
+    paths = {ln.split(" b/")[-1] for ln in fx.diff_workdir(wd).splitlines()
+             if ln.startswith("diff --git ")}
+    assert paths == {"gson/src/T.java"}, f"tool output leaked into the diff: {paths}"
+    fx.cleanup(wd)
