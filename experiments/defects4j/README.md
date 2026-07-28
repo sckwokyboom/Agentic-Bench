@@ -67,6 +67,20 @@ abench run experiment.yaml
 If it diverges, the `defects4j test` grader (abench/verify.py `_grade_defects4j`)
 needs adjusting for that project's layout — fix there, not per-bug.
 
+## Collect the results
+Raw traces are far too large to read or share (one trace is tens of thousands of
+lines). Aggregate the whole batch into one paste-able markdown digest:
+```bash
+python3 scripts/d4j_sieve_summary.py --out sieve.md
+```
+It walks `d4j-runs/*/runs/.../rep_*/` and reports, per bug: whether the bug even
+reproduces (`.verify-baseline.json`: reference green + buggy tree red), the
+`defects4j test` verdict, failing tests, edits/diffstat, tool-call shape, tokens,
+similarity to the reference fix, and the agent's own closing claim — plus the
+**RCC demo set** (bugs the baseline FAILED) and an **anomalies** section for rows
+that are not valid results (harness crash, bug that doesn't reproduce, skipped
+checkout). For a single bug's deep dive: `abench report <that bug's run dir>`.
+
 ## After the sieve
 - Keep the bugs where **baseline FAILED** — those are the demo set (agent can't solve
   them plainly, so RCC has room to help). Memorization note: Defects4J is old; a bug
