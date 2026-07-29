@@ -40,10 +40,10 @@ def _degraded(rundir: Path, metrics: dict) -> bool:
     return any(m in text for m in _DEGRADE_MARKS)
 
 
-def collect(root: Path) -> list[dict]:
+def collect(root: Path, runs_dir: str = "runs-ab") -> list[dict]:
     rows = []
     for bugdir in sorted(p for p in root.iterdir() if p.is_dir() and "-" in p.name):
-        for mfile in sorted(bugdir.glob("runs-ab/*/*/*/rep_*/metrics.json")):
+        for mfile in sorted(bugdir.glob(f"{runs_dir}/*/*/*/rep_*/metrics.json")):
             rd = mfile.parent
             m = _load(mfile) or {}
             t = _load(rd / "trace.json")
@@ -218,14 +218,17 @@ def render(rows: list[dict]) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root", nargs="?", default="d4j-runs", type=Path)
+    ap.add_argument("--runs-dir", default="runs-ab",
+                    help="per-instance runs subdir: 'runs-ab' for the Defects4J A/B, "
+                         "'runs' for the SWE-bench fixtures built by swe_fixtures.py")
     ap.add_argument("--out", type=Path, help="also write the digest here")
     a = ap.parse_args()
     if not a.root.is_dir():
         print(f"no such run root: {a.root}")
         return 2
-    rows = collect(a.root)
+    rows = collect(a.root, a.runs_dir)
     if not rows:
-        print("no A/B runs found (expected d4j-runs/<bug>/runs-ab/…)")
+        print(f"no A/B runs found (expected {a.root}/<instance>/{a.runs_dir}/…)")
         return 0
     text = render(rows)
     print(text)

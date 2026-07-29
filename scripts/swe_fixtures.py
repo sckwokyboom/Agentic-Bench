@@ -135,6 +135,27 @@ def _patch_paths(patch: str) -> list[str]:
             if ln.startswith("diff --git ") and " b/" in ln]
 
 
+def primary_source_file(patch: str) -> str | None:
+    """The JAVA source file the gold fix changes most.
+
+    Real SWE-bench fixes carry non-code companions — jackson's fix_patch leads with
+    `release-notes/VERSION-2.x`, which is neither a test nor code, and taking the
+    first path made a changelog the rcc target. Restrict to .java non-test files and
+    rank by how many lines the fix actually changes there.
+    """
+    weights: dict[str, int] = {}
+    path: str | None = None
+    for line in patch.splitlines():
+        if line.startswith("diff --git ") and " b/" in line:
+            p = line.split(" b/", 1)[1].strip().strip('"')
+            path = p if (p.endswith(".java") and not _is_test_path(p)) else None
+            if path:
+                weights.setdefault(path, 0)
+        elif path and line[:1] in "+-" and not line.startswith(("+++", "---")):
+            weights[path] += 1
+    return max(weights, key=lambda k: weights[k]) if weights else None
+
+
 def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | None:
     org, repo, num = rec["org"], rec["repo"], rec["number"]
     iid, slug = f"{org}/{repo}:pr-{num}", f"{org}_{repo}_pr{num}"
@@ -160,12 +181,11 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
         for p in patches:
             _apply(p, tree)
 
-    # Target = the source file the GOLD fix touches (largest first when several).
-    src_paths = [p for p in _patch_paths(fix_patch) if not _is_test_path(p)]
-    if not src_paths:
-        print(f"  ! {iid}: fix_patch touches no source file — skipped")
+    # Target = the JAVA source file the GOLD fix changes most.
+    target = primary_source_file(fix_patch)
+    if target is None:
+        print(f"  ! {iid}: fix_patch changes no .java source file — skipped")
         return None
-    target = src_paths[0]
     methods = methods_from_gt_diff(d / "checkout" / target, d / "reference" / target)
     if not methods:
         # rcc would seed its graph with an empty target and silently run weakened.
