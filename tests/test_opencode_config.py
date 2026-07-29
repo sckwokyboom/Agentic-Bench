@@ -101,10 +101,12 @@ def test_sandbox_defaults_to_none():
     assert OpenCodeCfg().sandbox.mode == "none"
 
 
-def test_idle_timeout_default_is_ten_minutes():
-    # The no-output watchdog: kills a hung run after 10 min of silence so an
-    # unattended experiment never wedges forever (even with no overall timeout).
-    assert OpenCodeCfg().idle_timeout_s == 600
+def test_idle_timeout_default_is_fifteen_minutes():
+    # The no-output watchdog: kills a hung run after this long with NO model output
+    # so an unattended experiment never wedges forever (even with no overall timeout).
+    # Raised 600 -> 900 when the watchdog was re-keyed to model progress only: it must
+    # exceed the longest legitimate gap between tokens, or it drops healthy runs.
+    assert OpenCodeCfg().idle_timeout_s == 900
 
 
 def test_build_run_command_none_is_direct_host_invocation():

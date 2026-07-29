@@ -158,6 +158,12 @@ class Trace:
     rcc_beta_degraded: bool = False
     rcc_gamma_degraded: bool = False
     rcc_subset_test_runs: int = 0
+    #: True when the rep ran plain PHASED because no MutationGraph could be built —
+    #: the rcc treatment did NOT happen. Recorded (not just logged) so every consumer
+    #: — metrics, reports, the UI, an A/B aggregate — can exclude the run instead of
+    #: counting control behaviour as the treatment.
+    rcc_degraded: bool = False
+    rcc_degrade_reason: str | None = None
 
     # v2 timing breakdown — placeholder fields, populated in Phase 2
     llm_latency_s: float | None = None

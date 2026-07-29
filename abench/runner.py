@@ -31,6 +31,7 @@ from .verify import (
     augment_for_authoritative_run,
     augment_for_full_run,
     detect_command as _detect_verify,
+    probe_contamination_override,
     run_verify,
     undercount_override,
     write_verify_log,
@@ -616,9 +617,11 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         bkw = ({"artifact_path": art} if builder == "artifact"
                                else {"phase_runner": phase_runner} if builder == "llm"
                                else {"gt_home": os.environ.get("GRAPH_TIPPER_HOME", "")})
-                        # Build+focus is best-effort: ANY failure (builder exception,
-                        # unparseable graph) degrades to plain phased — never aborts the
-                        # rep (mirrors phased_graph's degrade contract).
+                        # A failed build (builder exception, unparseable graph) means
+                        # the treatment cannot run. Under rcc_strict (default) that
+                        # fails the rep with the reason; otherwise it degrades to plain
+                        # phased and the rep is MARKED rcc_degraded.
+                        degrade_reason: str | None = None
                         try:
                             mg = build_mutation_graph(
                                 workdir, (exp.target_methods or [""])[0],
@@ -630,12 +633,25 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                             # ~950 test-assert edges. Pass the full graph.
                             sub = mg
                         except Exception as exc:
-                            _log(f"[abench] rcc: graph build failed ({exc!r}) — "
-                                 "degrading to plain phased")
                             sub = None
+                            degrade_reason = f"graph build failed: {exc!r}"
+                        if sub is None and degrade_reason is None:
+                            degrade_reason = "graph builder returned no usable graph"
                         if sub is None:
-                            _log("[abench] rcc: no usable mutation graph — "
-                                 "degrading to plain phased")
+                            # Without a graph there is no rcc to run. Running plain
+                            # PHASED here and still labelling the rep 'rcc' would put
+                            # CONTROL behaviour in the TREATMENT arm — biasing the
+                            # measured effect toward zero while hiding the pipeline
+                            # failure that caused it. Fail loudly by default; the
+                            # crash-safety net records the reason and the batch moves on.
+                            if ocfg.rcc_strict:
+                                raise RuntimeError(
+                                    f"rcc: {degrade_reason} (builder={builder}). "
+                                    "Refusing to run plain phased under the 'rcc' label "
+                                    "— diagnose the graph build, or set "
+                                    "orchestration.rcc_strict=false to allow degrading.")
+                            _log(f"[abench] rcc: {degrade_reason} — degrading to plain "
+                                 "phased (rcc_strict=false); rep marked rcc_degraded")
                             trace = _orchestrate(
                                 build_orchestrator_config(exp.orchestration, "phased"),
                                 phase_runner=phase_runner, suite_runner=suite_runner,
@@ -643,6 +659,10 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                                 restore=lambda t: _grestore(workdir, t),
                                 on_event=_orch_event, in_blast_radius=None,
                                 read_evidence=None, cancel_event=cancel_event)
+                            # Mark the TRACE, not just the log: metrics/report/UI and
+                            # any A/B aggregate must be able to exclude this rep.
+                            trace.rcc_degraded = True
+                            trace.rcc_degrade_reason = degrade_reason
                         else:
                             mem_path = (os.environ.get("ABENCH_RCC_MEMORY")
                                         or str(rundir / "rcc-memory.json"))
@@ -825,6 +845,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
             # for analysis; this only affects what verify runs against. No-op for
             # conditions whose agent never edits outside target_file (baseline),
             # so it adds no A/B confound.
+            cleanup_failed = False
             if (getattr(cond, "restore_non_target_before_verify", False)
                     and exp.target_file and workdir is not None):
                 try:
@@ -840,6 +861,7 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                          f"(test instrumentation stripped; {n_probes} //[probe] "
                          "line(s) stripped from target)")
                 except Exception as exc:
+                    cleanup_failed = True
                     _log(f"[abench] WARN restore_except/strip failed: {exc!r}")
             # Authoritative grading run: force a FULL re-execution (--rerun-tasks for
             # gradle) so a prior incremental run can't leave modules up-to-date and
@@ -892,6 +914,29 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                         result.trace.verify_expected_total = baseline["passed_count"]
                 except Exception:
                     pass
+
+            # Contamination gate: leftover //[probe] debug lines (the strip failed
+            # on a container-owned tree, or the condition never ran one) — or a
+            # cleanup step that raised — mean verify's pass/fail reflects probe
+            # stdout corrupting capture tests, not the agent's code. Invalidate the
+            # MEASUREMENT, same as the undercount guard below. Runs FIRST so its
+            # (more actionable) reason wins when both triggers fire. The check is
+            # read-only, so it still fires on the very tree whose un-writability
+            # defeated the strip in the first place.
+            contaminated: list[str] = []
+            if (result.trace.verify_status in ("passed", "failed")
+                    and workdir is not None):
+                try:
+                    from .git_snapshot import probe_markers_remaining
+                    contaminated = probe_markers_remaining(workdir)
+                except Exception:
+                    contaminated = []
+            _cov = probe_contamination_override(
+                result.trace.verify_status, contaminated, cleanup_failed)
+            if _cov is not None:
+                (result.trace.verify_status, result.trace.verify_reason,
+                 result.trace.verify_message) = _cov
+                note(f"[abench] {result.trace.verify_message}")
 
             # Undercount guard: a compiled run that executed far fewer tests than
             # the reference expects is a gradle up-to-date measurement artifact, not

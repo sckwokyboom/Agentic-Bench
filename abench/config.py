@@ -491,6 +491,18 @@ class OrchestrationCfg(BaseModel):
             "via MutationGraph.focus). Dense targets are covered by 40+ classes — "
             "uncapped subsets erase the cycle-time win. The full suite still gates "
             "every accept; 0 disables the cap."))
+    rcc_strict: bool = Field(
+        default=True, title="rcc strict: fail instead of degrading to phased",
+        description=(
+            "When the MutationGraph cannot be built, 'rcc' has nothing to run. The "
+            "old behaviour silently executed plain PHASED under the 'rcc' label, "
+            "which in an A/B contaminates the treatment arm with the control and "
+            "biases the measured effect toward zero — while hiding the pipeline "
+            "failure that caused it. Strict (default) fails the rep with the reason "
+            "instead, so the run is recorded as errored and visible. Set false only "
+            "when you want production-style resilience over measurement validity; "
+            "the degraded run is then marked rcc_degraded in trace + metrics."),
+    )
     rcc_revert_to_best: bool = Field(
         default=False, title="rcc revert to best-reached state",
         description=(

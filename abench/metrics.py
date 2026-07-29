@@ -214,4 +214,6 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "rcc_beta_degraded": trace.rcc_beta_degraded,
         "rcc_gamma_degraded": trace.rcc_gamma_degraded,
         "rcc_subset_test_runs": trace.rcc_subset_test_runs,
+        "rcc_degraded": trace.rcc_degraded,
+        "rcc_degrade_reason": trace.rcc_degrade_reason,
     }

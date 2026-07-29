@@ -24,11 +24,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from d4j_sieve_summary import _bucket, _changed_files, _load  # noqa: E402
 
-#: The runner logs this when rcc cannot build/focus a graph and falls back to phased.
+#: Fallback only — runs recorded BEFORE rcc_degraded existed carry the fact solely in
+#: the log. New runs report it in metrics.json (and under rcc_strict they fail loudly
+#: instead of degrading at all).
 _DEGRADE_MARKS = ("degrading to plain phased", "no usable mutation graph")
 
 
-def _degraded(rundir: Path) -> bool:
+def _degraded(rundir: Path, metrics: dict) -> bool:
+    if metrics.get("rcc_degraded") is not None:
+        return bool(metrics["rcc_degraded"])
     log = rundir / "run.log"
     if not log.is_file():
         return False
@@ -64,7 +68,8 @@ def collect(root: Path) -> list[dict]:
                 "rcc_root_rank": m.get("rcc_root_rank"),
                 "rcc_beta_deg": m.get("rcc_beta_degraded"),
                 "rcc_gamma_deg": m.get("rcc_gamma_degraded"),
-                "degraded": _degraded(rd),
+                "degraded": _degraded(rd, m),
+                "degrade_reason": m.get("rcc_degrade_reason"),
                 "test_edits": buckets.get("test", 0),
                 "cheat": [s.get("type") for s in
                           ((m.get("cheating") or {}).get("signals") or [])],
@@ -100,7 +105,18 @@ def render(rows: list[dict]) -> str:
               + (" A degraded run is NOT evidence that rcc didn't help — the treatment "
                  "never ran." if deg else ""), ""]
         if deg:
-            o += ["Degraded runs: " + ", ".join(f"`{r['bug']}/{r['rep']}`" for r in deg), ""]
+            o += ["Degraded runs (diagnose these — the rcc pipeline failed, it is not "
+                  "a result):", ""]
+            o += [f"- `{r['bug']}/{r['rep']}`"
+                  + (f" — {r['degrade_reason']}" if r.get("degrade_reason") else "")
+                  for r in deg]
+            o.append("")
+        err = [r for r in rcc if r["error"]]
+        if err:
+            o += ["rcc runs that FAILED outright (rcc_strict refuses to run phased under "
+                  "the rcc label — the reason is the pipeline bug to fix):", ""]
+            o += [f"- `{r['bug']}/{r['rep']}` — {str(r['error'])[:200]}" for r in err]
+            o.append("")
 
     # ── per-bug, per-arm cost (mean over reps) ────────────────────────────────
     o += ["## Cost per bug (mean over reps)", "",
