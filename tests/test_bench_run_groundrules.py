@@ -34,3 +34,21 @@ def test_benchmark_system_prompt_has_grounding_guard(tmp_path):
     assert "BASE SYSTEM PROMPT" in sp
     # the grounding guard is present (forbid_external_sources defaults True).
     assert "# Ground rules (do not violate)" in sp
+
+
+def test_benchmark_mode_refuses_orchestrated_conditions():
+    # bench/run.py calls the agent directly — no orchestration dispatch. Accepting
+    # `orchestration: rcc` here would run BASELINE and label it 'rcc', the same silent
+    # treatment-substitution rcc_strict exists to prevent. Refuse at load time.
+    import pytest
+    from abench.config import BenchmarkCfg, Condition, Experiment, _validate
+    from pathlib import Path
+    exp = Experiment(
+        name="x", benchmark=BenchmarkCfg(adapter="smoke"), task_prompt="t",
+        system_prompt="s", model="m", output_dir=Path("/tmp/o"),
+        conditions=[Condition(name="baseline"), Condition(name="rcc", orchestration="rcc")])
+    with pytest.raises(ValueError, match="does not support orchestration"):
+        _validate(exp)
+    # A plain benchmark experiment still loads.
+    exp.conditions = [Condition(name="baseline")]
+    _validate(exp)

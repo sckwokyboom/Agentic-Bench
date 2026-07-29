@@ -1,0 +1,44 @@
+# SWE-bench-java pilot, deepseek on Linux/WSL — jackson-core (native Multi-SWE-bench).
+# Benchmark mode: the `swebench-java` adapter supplies per-instance workdirs AND the
+# grading (official multi-swe-bench evaluator + abench's own methodology).
+# fixture_path/reference_path are NOT used.
+#
+# BASELINE ONLY. Benchmark mode runs the plain agent — it has no orchestration
+# dispatch yet, so `orchestration: rcc` here is REJECTED by config validation rather
+# than silently executed as baseline. Wiring rcc into bench/run.py is the next step.
+name: swebench-java-jackson-deepseek
+
+benchmark:
+  adapter: swebench-java
+  # Set these to YOUR paths (see RUNBOOK.md "Linux / WSL" section).
+  dataset: ../../../msb-data/jackson-one.jsonl     # start with ONE instance
+  subset:
+    repo: fasterxml/jackson-core
+    # On Linux the filesystem is case-sensitive already — the macOS case-sensitive
+    # volume workaround in the runbook does NOT apply here.
+    msb_root: /home/sckwo/multi-swe-bench
+    msb_python: /home/sckwo/multi-swe-bench/.venv/bin/python
+
+# Required by the schema but unused in benchmark mode: the adapter builds the
+# per-instance issue prompt itself from the native record.
+task_prompt: "(unused in benchmark mode)"
+system_prompt: ./system.md
+
+model: deepseek/deepseek-v4-flash
+opencode:
+  agent: abench
+  providers:
+    - id: deepseek
+      name: DeepSeek API
+      base_url: https://api.deepseek.com/v1
+      models: [deepseek-v4-flash, deepseek-chat, deepseek-reasoner]
+      api_key_env: DEEPSEEK_API_KEY
+  sandbox:
+    mode: none
+
+repetitions: 1
+output_dir: ./runs
+timeout_s: null      # SWE issues take a while; cancel a wedged run manually.
+
+conditions:
+  - {name: baseline, augmentation: null, tools: []}

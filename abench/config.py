@@ -756,6 +756,19 @@ def _validate(exp: Experiment) -> None:
             )
         if exp.benchmark.dataset is not None and not exp.benchmark.dataset.exists():
             raise ValueError(f"benchmark dataset not found: {exp.benchmark.dataset}")
+        # Benchmark mode runs the plain agent (bench/run.py calls client.run_task
+        # directly); it has no orchestration dispatch yet. Accepting an orchestrated
+        # condition here would run BASELINE and label it 'rcc'/'phased' — the same
+        # silent treatment-substitution that rcc_strict exists to prevent. Refuse.
+        orchestrated = [c.name for c in exp.conditions if c.orchestration]
+        if orchestrated:
+            raise ValueError(
+                f"benchmark mode does not support orchestration yet, but condition(s) "
+                f"{', '.join(orchestrated)} set it. Those runs would execute the plain "
+                "agent under an orchestrated label — refusing rather than mis-labelling. "
+                "Drop `orchestration:` from the condition, or wire orchestration into "
+                "abench/bench/run.py first."
+            )
 
     if not exp.conditions:
         raise ValueError("at least one condition required")

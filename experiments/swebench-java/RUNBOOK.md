@@ -5,6 +5,46 @@ the host prerequisites (Docker + a model + the official image) needed for the fi
 real run. Ground truth: the official harness is
 `github.com/multi-swe-bench/multi-swe-bench` **pinned @ `24f493f8` (v1.1.0)**.
 
+## Linux / WSL (the box the pilot actually runs on) — start here
+The macOS case-sensitivity blocker below **does not apply**: ext4 is case-sensitive, so
+the harness clones and imports normally. Use [`experiment-deepseek.yaml`](./experiment-deepseek.yaml).
+
+```bash
+# 1. Docker (WSL2: Docker Desktop with WSL integration, or dockerd inside the distro)
+docker version                      # Server section must be present
+
+# 2. Harness, pinned, in its OWN python env (deps must not land in abench's venv)
+git clone https://github.com/multi-swe-bench/multi-swe-bench.git ~/multi-swe-bench
+cd ~/multi-swe-bench && git checkout 24f493f8a103e72312ded4f6b9c89f081d69cb09
+python3.11 -m venv .venv && .venv/bin/python -m pip install -e .
+.venv/bin/python -c "import multi_swe_bench.harness.run_evaluation; print('ok')"   # must print ok
+
+# 3. Dataset (native ByteDance Multi-SWE-bench records — NOT the flat HF schema)
+mkdir -p ~/msb-data      # put jackson-core.jsonl here, then trim to one instance:
+head -1 ~/msb-data/jackson-core.jsonl > ~/msb-data/jackson-one.jsonl
+
+# 4. Pre-pull the images for the instance you run (the harness does NOT auto-pull;
+#    absent images are rebuilt from scratch, which is very slow)
+python3 -c "import json,sys; r=json.loads(open('$HOME/msb-data/jackson-one.jsonl').readline()); \
+print(f\"mswebench/{r['org']}_m_{r['repo']}:pr-{r['number']}\")"    # exact tag to pull
+docker pull mswebench/fasterxml_m_jackson-core:base
+docker pull mswebench/nix_swe:v1.0
+
+# 5. Point experiment-deepseek.yaml's msb_root/msb_python/dataset at your paths, then
+export DEEPSEEK_API_KEY=…
+cd experiments/swebench-java && abench run experiment-deepseek.yaml
+```
+
+**Validate the grade path FIRST, without a model** (runbook step 7 below): feed the
+dataset's own `fix_patch` as the candidate diff — `official.resolved` MUST be `true`.
+If that fails, nothing downstream is trustworthy and no agent run is worth its cost.
+
+**Orchestration (rcc) is NOT available in benchmark mode yet.** bench/run.py calls the
+agent directly, so an orchestrated condition would run baseline under an `rcc` label;
+config validation now REFUSES that instead of mis-labelling it. Wiring orchestration
+into benchmark mode (it needs a per-instance suite runner — maven/gradle per repo) is
+the prerequisite for any rcc-vs-baseline A/B here.
+
 ## ⚠️ macOS blocker found during prep — case-sensitive FS required for the harness
 The harness ships two dirs differing only in case (`multi_swe_bench/harness/repos/python/Qiskit/`
 and `.../qiskit/`). On a default **case-INSENSITIVE** macOS APFS they collide, git merges them,
