@@ -161,6 +161,11 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
     org, repo, num = rec["org"], rec["repo"], rec["number"]
     iid, slug = f"{org}/{repo}:pr-{num}", f"{org}_{repo}_pr{num}"
     d = root / slug
+    if (d / "EXCLUDED").is_file():
+        # Set by swe_doctor --prune. Honoured here so a rebuild cannot resurrect a
+        # fixture that was proven un-buildable.
+        print(f"  - {iid}: EXCLUDED ({(d / 'EXCLUDED').read_text().strip()[:60]})")
+        return None
     if (d / "experiment.yaml").is_file() and not force:
         # Still repair the poms: a fixture built before the snapshot-parent workaround
         # cannot build at all, and re-cloning it just to fix two lines is wasteful.
@@ -168,7 +173,9 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
         print(f"  = {iid}: already built" +
               (f" — repaired snapshot parent in {', '.join(fixed)}" if fixed
                else " (use --force to rebuild)"))
-        return None
+        # Return it: an already-built fixture still belongs in the run script. Skipping
+        # it here silently dropped every previously-built instance from the batch.
+        return slug, iid
     sha = (rec.get("base") or {}).get("sha") or ""
     test_patch, fix_patch = rec.get("test_patch") or "", rec.get("fix_patch") or ""
     if not (sha and test_patch and fix_patch):
@@ -322,7 +329,11 @@ def main() -> int:
         lines += [
             f'echo "=== {iid} (baseline|rcc) ==="',
             f'D="$ROOT/{slug}"',
-            'if ls "$D"/runs/*/*/*/rep_*/metrics.json >/dev/null 2>&1; then',
+            # doctor --prune renames experiment.yaml when a fixture cannot build;
+            # running it anyway would only produce build failures.
+            'if [ ! -f "$D/experiment.yaml" ]; then',
+            f'  echo "  SKIP {iid}: excluded (see experiment.yaml.excluded)"',
+            'elif ls "$D"/runs/*/*/*/rep_*/metrics.json >/dev/null 2>&1; then',
             f'  echo "  SKIP {iid}: already has runs (rm -rf $D/runs to redo)"',
             "else",
             f'  ( cd "$D" && abench run experiment.yaml ) || echo "  !! failed: {iid}"',

@@ -104,6 +104,22 @@ def _build_error(txt: str) -> list[str]:
     return keep[:8] or [ln.rstrip() for ln in txt.strip().splitlines()[-6:]]
 
 
+def _tests_need_the_fix(txt: str) -> bool:
+    """True when the compile errors are TEST files missing symbols the fix adds.
+
+    A whole class of SWE-bench instances is 'add this API': the fix introduces new
+    methods and the new tests call them, so base+test_patch cannot compile. That is
+    a property of the instance, not of the host, and no JDK or repository setting
+    changes it — so it must not be reported as a toolchain problem.
+    """
+    hits = [ln for ln in txt.splitlines()
+            if ("cannot find symbol" in ln
+                or "does not override or implement a method" in ln)]
+    return bool(hits) and all(("/src/test/" in ln or "/src/it/" in ln
+                               or "Test.java" in ln or "Tests.java" in ln)
+                              for ln in hits if "/" in ln)
+
+
 def _build_hints(txt: str) -> list[str]:
     """Named remedies for the failure modes these old Java repos actually hit."""
     hints = []
@@ -149,6 +165,15 @@ def check_fixture(fixture: Path, compile_only: bool, timeout: int) -> list[str]:
              else ["mvn", "-B", "-q", "test-compile"])
     rc, txt = _run(build, cwd=co, timeout=timeout)
     if rc != 0:
+        if _tests_need_the_fix(txt):
+            # Not a toolchain fault and not fixable by configuration: the instance's
+            # fix ADDS API that its new tests call, so base+test_patch cannot compile
+            # until the fix exists. Unusable as a fixture — the agent would have to
+            # invent the exact signature before any test could even run.
+            return [f"{BAD} {fixture.name}: UNUSABLE INSTANCE — the new tests call API "
+                    "that only the fix introduces, so the buggy tree cannot compile.",
+                    *(f"      {ln}" for ln in _build_error(txt)[:4]),
+                    "      Exclude it:  python3 scripts/swe_doctor.py --all <root> --prune"]
         return [f"{BAD} {fixture.name}: the BUGGY tree does not compile (rc={rc}). "
                 "This is a toolchain problem, not the agent's:",
                 *(f"      {ln}" for ln in _build_error(txt)),
@@ -173,6 +198,9 @@ def main() -> int:
                     help="compile-check every fixture under ROOT (e.g. swe-runs)")
     ap.add_argument("--compile-only", action="store_true",
                     help="skip the (slow) test run that proves the bug reproduces")
+    ap.add_argument("--prune", action="store_true",
+                    help="with --all: mark fixtures that do not compile as excluded "
+                         "(experiment.yaml -> .excluded) so the batch skips them")
     ap.add_argument("--timeout", type=int, default=1800)
     a = ap.parse_args()
 
@@ -193,11 +221,29 @@ def main() -> int:
         fixtures = sorted(p for p in a.all.iterdir()
                           if p.is_dir() and (p / "experiment.yaml").is_file())
         print(f"\n── {len(fixtures)} fixture(s) under {a.all} ──")
+        pruned = []
         for f in fixtures:
             lines = check_fixture(f, True, a.timeout)   # compile only: keep it bearable
-            bad_fixtures += any(ln.startswith(BAD) for ln in lines)
+            failed = any(ln.startswith(BAD) for ln in lines)
+            bad_fixtures += failed
             for line in lines:
                 print(" " + line)
+            if failed and a.prune:
+                # A sticky marker: renaming the yaml alone is undone by the next
+                # `build`, which would regenerate it and silently re-include the
+                # fixture. The generator honours EXCLUDED.
+                (f / "EXCLUDED").write_text(
+                    "excluded by swe_doctor --prune: the buggy tree does not compile\n")
+                y = f / "experiment.yaml"
+                if y.is_file():
+                    y.rename(f / "experiment.yaml.excluded")
+                pruned.append(f.name)
+        if pruned:
+            # Regenerating the run script is the caller's job (swe.sh build); the
+            # generated script skips a fixture whose experiment.yaml is absent.
+            print(f"\n excluded {len(pruned)}: {', '.join(pruned)}")
+            print(" re-run  ./scripts/swe.sh build  to refresh the run script, then run.")
+            bad_fixtures = 0
 
     # A green env summary printed under a screen of failing fixtures is worse than
     # useless — the batch would burn hours producing nothing but build errors.
