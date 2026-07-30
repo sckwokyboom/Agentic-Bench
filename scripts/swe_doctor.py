@@ -42,18 +42,34 @@ def check_env() -> list[tuple[str, str, str]]:
         if not shutil.which(tool):
             out.append((BAD if tool in ("git", "java") else WARN, tool, "not on PATH"))
             continue
-        _, txt = _run([tool, *args], timeout=60)
+        rc, txt = _run([tool, *args], timeout=60)
         first = next((ln for ln in txt.splitlines() if ln.strip()), "")
-        out.append((OK, tool, first.strip()[:70]))
+        # Present-but-broken is not OK: a mvn that cannot start (bad JAVA_HOME) would
+        # otherwise be reported as a healthy version line that is really an error.
+        out.append((OK if rc == 0 else BAD, tool,
+                    first.strip()[:70] + ("" if rc == 0 else f"  [exit {rc} — broken]")))
 
     # Gradle projects ship ./gradlew, so a system gradle is optional.
     out.append((OK if shutil.which("gradle") else WARN, "gradle",
                 "on PATH" if shutil.which("gradle") else
                 "absent (fine — Gradle repos use their own ./gradlew)"))
 
+    # A JAVA_HOME pointing at a different JDK than the java on PATH makes Maven and
+    # javac disagree — the build then fails for reasons no source change can fix.
     java_home = os.environ.get("JAVA_HOME")
-    out.append((OK if java_home else WARN, "JAVA_HOME",
-                java_home or "unset (Maven usually still works; set it if builds fail)"))
+    if not java_home:
+        out.append((WARN, "JAVA_HOME", "unset (Maven usually still works; set it if builds fail)"))
+    else:
+        _, ver = _run(["java", "-version"], timeout=60)
+        on_path = re.search(r'"(\d+)[.\"]', ver)
+        in_home = re.search(r"(?:java-|jdk-?)(\d+)", java_home)
+        if on_path and in_home and on_path.group(1) != in_home.group(1):
+            out.append((WARN, "JAVA_HOME",
+                        f"{java_home} looks like JDK {in_home.group(1)} but `java` on "
+                        f"PATH is {on_path.group(1)} — Maven uses JAVA_HOME, so builds "
+                        "may fail in ways the agent cannot fix"))
+        else:
+            out.append((OK, "JAVA_HOME", java_home))
 
     key = os.environ.get("DEEPSEEK_API_KEY")
     out.append((OK if key else BAD, "DEEPSEEK_API_KEY",
@@ -70,6 +86,42 @@ def check_env() -> list[tuple[str, str, str]]:
 
 
 _VERIFY_RE = re.compile(r'command:\s*"([^"]+)"')
+
+#: Maven/Gradle print the CAUSE first and then a wall of generic help; the tail is
+#: exactly the useless part. Keep the lines that name a real problem.
+_NOISE = ("To see the full stack trace", "Re-run Maven", "For more information",
+          "[Help 1]", "[Help 2]", "http://cwiki.apache.org", "BUILD FAILURE",
+          "----------", "Try:", "Run with --stacktrace", "* Get more help",
+          "Deprecated Gradle features", "BUILD FAILED in")
+
+
+def _build_error(txt: str) -> list[str]:
+    """The lines that actually say what went wrong (first, not last)."""
+    keep = [ln.rstrip() for ln in txt.splitlines()
+            if ln.strip() and any(k in ln for k in ("[ERROR]", "error:", "FAILURE",
+                                                    "Caused by", "Could not", "Cannot"))
+            and not any(n in ln for n in _NOISE)]
+    return keep[:8] or [ln.rstrip() for ln in txt.strip().splitlines()[-6:]]
+
+
+def _build_hints(txt: str) -> list[str]:
+    """Named remedies for the failure modes these old Java repos actually hit."""
+    hints = []
+    if "maven-default-http-blocker" in txt or "blocked mirror" in txt:
+        hints.append("Maven 3.8+ blocks plain-HTTP repositories, and these old poms "
+                     "still reference them. Add an https mirror to ~/.m2/settings.xml, "
+                     "or use Maven 3.6.x for these fixtures.")
+    if "UnresolvableModelException" in txt or "Non-resolvable parent POM" in txt:
+        hints.append("Maven cannot fetch the PARENT pom — usually no route to Maven "
+                     "Central (proxy/offline) or the http-blocker above. Test with: "
+                     "mvn -B -q dependency:resolve  in the checkout.")
+    if "invalid target release" in txt or "release version" in txt:
+        hints.append("JDK too new/old for this project's source level — point JAVA_HOME "
+                     "at the JDK the project expects (jackson-core builds under 8/11).")
+    if "JAVA_HOME" in txt:
+        hints.append("JAVA_HOME is referenced in the error — check it matches the java "
+                     "on PATH (a mismatch makes Maven and javac disagree).")
+    return hints
 
 
 def _verify_cmd(fixture: Path) -> str | None:
@@ -97,9 +149,10 @@ def check_fixture(fixture: Path, compile_only: bool, timeout: int) -> list[str]:
              else ["mvn", "-B", "-q", "test-compile"])
     rc, txt = _run(build, cwd=co, timeout=timeout)
     if rc != 0:
-        tail = "\n      ".join(txt.strip().splitlines()[-6:])
-        return [f"{BAD} {fixture.name}: the BUGGY tree does not compile (rc={rc}).",
-                f"      This is a toolchain/JDK problem, not the agent's:\n      {tail}"]
+        return [f"{BAD} {fixture.name}: the BUGGY tree does not compile (rc={rc}). "
+                "This is a toolchain problem, not the agent's:",
+                *(f"      {ln}" for ln in _build_error(txt)),
+                *(f"      HINT: {h}" for h in _build_hints(txt))]
     notes.append(f"{OK} {fixture.name}: compiles")
     if compile_only:
         return notes
@@ -129,20 +182,33 @@ def main() -> int:
         print(f" {st} {name:18} {detail}")
     blocking = [n for st, n, _ in rows if st == BAD]
 
+    bad_fixtures = 0
     if a.fixture:
         print("\n── fixture ──")
-        for line in check_fixture(a.fixture, a.compile_only, a.timeout):
+        lines = check_fixture(a.fixture, a.compile_only, a.timeout)
+        bad_fixtures += any(ln.startswith(BAD) for ln in lines)
+        for line in lines:
             print(" " + line)
     elif a.all:
         fixtures = sorted(p for p in a.all.iterdir()
                           if p.is_dir() and (p / "experiment.yaml").is_file())
         print(f"\n── {len(fixtures)} fixture(s) under {a.all} ──")
         for f in fixtures:
-            for line in check_fixture(f, True, a.timeout):   # compile only: keep it bearable
+            lines = check_fixture(f, True, a.timeout)   # compile only: keep it bearable
+            bad_fixtures += any(ln.startswith(BAD) for ln in lines)
+            for line in lines:
                 print(" " + line)
 
-    if blocking:
-        print(f"\n{BAD} blocking: {', '.join(blocking)} — fix these before running the batch")
+    # A green env summary printed under a screen of failing fixtures is worse than
+    # useless — the batch would burn hours producing nothing but build errors.
+    if blocking or bad_fixtures:
+        print("")
+        if blocking:
+            print(f"{BAD} blocking: {', '.join(blocking)}")
+        if bad_fixtures:
+            print(f"{BAD} {bad_fixtures} fixture(s) do not build — running the batch now "
+                  "would only produce build failures, not agent results.")
+        print("Fix the above before running the batch.")
         return 1
     print(f"\n{OK} environment looks runnable"
           + ("" if (a.fixture or a.all) else
