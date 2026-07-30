@@ -5,6 +5,7 @@
 #   ./scripts/swe.sh build  [--limit N]  clone@base.sha + patches -> fixtures + run script
 #   ./scripts/swe.sh doctor [dir]        check toolchain; with a fixture dir, prove it builds
 #   ./scripts/swe.sh run                 run the batch (resumable — Ctrl-C is safe)
+#   ./scripts/swe.sh status              progress of a running batch (safe anytime)
 #   ./scripts/swe.sh report              digest to swe-ab.md
 #   ./scripts/swe.sh all                 fetch + build + doctor + run + report
 #
@@ -56,7 +57,24 @@ case "$cmd" in
   run)
     [ -x "$SWE_ROOT/run_swe.sh" ] || { echo "no $SWE_ROOT/run_swe.sh — run build first"; exit 2; }
     [ -n "${DEEPSEEK_API_KEY:-}" ] || { echo "DEEPSEEK_API_KEY is unset"; exit 2; }
-    bash "$SWE_ROOT/run_swe.sh" 2>&1 | tee -a "$SWE_ROOT/swe.log"
+    # A generated script with ZERO fixtures is just a header: it exits 0 in silence,
+    # which looks exactly like a hang. Count first and say so.
+    n=$(find "$SWE_ROOT" -maxdepth 2 -name experiment.yaml | wc -l | tr -d ' ')
+    if [ "$n" -eq 0 ]; then
+      echo "no fixtures under $SWE_ROOT — nothing to run."
+      echo "  build them first:  ./scripts/swe.sh build"
+      echo "  (if build reported '0 fixture(s)', its output says why each instance was skipped)"
+      exit 2
+    fi
+    echo "running $n fixture(s) from $SWE_ROOT — log: $SWE_ROOT/swe.log"
+    echo "monitor from another terminal:  ./scripts/swe.sh status   (or: tail -f $SWE_ROOT/swe.log)"
+    # Unbuffered: python block-buffers stdout into a pipe, so without this the tee'd
+    # log arrives in silent 8KB bursts and an hours-long batch looks frozen.
+    PYTHONUNBUFFERED=1 bash "$SWE_ROOT/run_swe.sh" 2>&1 | tee -a "$SWE_ROOT/swe.log"
+    ;;
+
+  status)
+    "$PY" "$HERE/swe_status.py" "${1:-$SWE_ROOT}"
     ;;
 
   report)

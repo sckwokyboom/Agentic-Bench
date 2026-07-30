@@ -8,6 +8,7 @@ multi-swe-bench harness.
 ./scripts/swe.sh build          # clone@base.sha + patches -> fixtures + run script
 ./scripts/swe.sh doctor         # prove the toolchain builds it and the bug reproduces
 ./scripts/swe.sh run            # the batch (resumable — Ctrl-C is safe)
+./scripts/swe.sh status         # progress, from ANOTHER terminal while it runs
 ./scripts/swe.sh report         # digest -> swe-ab.md
 ```
 
@@ -59,6 +60,25 @@ fixture whose tests already pass (nothing to fix — the run grades nothing).
 ```
 
 Start small — `SWE_LIMIT=2 SWE_REPS=1` — confirm the digest looks sane, then scale.
+
+## Monitoring a running batch
+
+`run` prints how many fixtures it is about to run and tees to `$SWE_ROOT/swe.log`.
+From another terminal:
+
+```bash
+./scripts/swe.sh status          # done / running / pending per fixture + overall %
+watch -n 30 ./scripts/swe.sh status
+tail -f swe-runs/swe.log         # raw output
+```
+
+`status` reads the run tree, so it is safe at any time and also works after the batch
+died — it shows what completed and what to resume. A session with no file activity
+for a long time is flagged; that usually means a wedged provider connection.
+
+If `run` says **no fixtures**, `build` produced none: re-run it and read its per-instance
+lines — each skip states its reason (no `.java` in the fix, unresolvable target method,
+clone/patch failure).
 
 ## Reading the digest
 
