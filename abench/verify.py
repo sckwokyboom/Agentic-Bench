@@ -257,6 +257,36 @@ def undercount_override(status, passed, failed, expected_total):
     return None
 
 
+def probe_contamination_override(status, contaminated_files, cleanup_failed):
+    """Return (status, reason, message) overriding a pass/fail verdict to
+    'invalid' when the GRADED tree still carries debug instrumentation, else None.
+
+    Two triggers: (a) ``contaminated_files`` — changed .java files that still hold
+    a //[probe] line because the mid-run or grade-time strip failed (EACCES on a
+    container-owned tree) or was skipped; (b) ``cleanup_failed`` — a strip/restore
+    step raised before grading. A single leftover ``System.out.println`` probe
+    corrupts every stdout-capture test (help/usage/error assertions), so the run's
+    pass/fail then reflects the instrumentation, not the agent's code — an invalid
+    MEASUREMENT, not a real failure. Pure — safe to unit-test and to apply
+    post-hoc (mirrors ``undercount_override``)."""
+    if status not in ("passed", "failed"):
+        return None
+    if not contaminated_files and not cleanup_failed:
+        return None
+    if contaminated_files:
+        shown = ", ".join(contaminated_files[:3])
+        more = ("" if len(contaminated_files) <= 3
+                else f" (+{len(contaminated_files) - 3} more)")
+        detail = (f"{len(contaminated_files)} changed .java file(s) still contain "
+                  f"//[probe]: {shown}{more}")
+    else:
+        detail = "instrumentation cleanup raised before grading"
+    return ("invalid", "probe_contaminated",
+            f"verify invalid: graded tree contaminated by leftover debug "
+            f"instrumentation — {detail}; probe stdout corrupts capture tests, so "
+            "this is an invalid measurement, not a real failure")
+
+
 def _clear_results(workdir: Path, system: str) -> None:
     """Delete stale JUnit XML result dirs BEFORE running verify, so the XML
     fallback can only ever read results written by THIS invocation. Without
