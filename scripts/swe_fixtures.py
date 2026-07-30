@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -161,7 +162,12 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
     iid, slug = f"{org}/{repo}:pr-{num}", f"{org}_{repo}_pr{num}"
     d = root / slug
     if (d / "experiment.yaml").is_file() and not force:
-        print(f"  = {iid}: already built (use --force to rebuild)")
+        # Still repair the poms: a fixture built before the snapshot-parent workaround
+        # cannot build at all, and re-cloning it just to fix two lines is wasteful.
+        fixed = [n for n in ("checkout", "reference") if _fix_snapshot_parent(d / n)]
+        print(f"  = {iid}: already built" +
+              (f" — repaired snapshot parent in {', '.join(fixed)}" if fixed
+               else " (use --force to rebuild)"))
         return None
     sha = (rec.get("base") or {}).get("sha") or ""
     test_patch, fix_patch = rec.get("test_patch") or "", rec.get("fix_patch") or ""
@@ -174,12 +180,16 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
     for name, patches in (("checkout", [test_patch]),
                           ("reference", [test_patch, fix_patch])):
         tree = d / name
-        if tree.is_dir():
-            continue
-        print(f"  … {iid}: building {name}")
-        _clone_at(url, sha, tree)
-        for p in patches:
-            _apply(p, tree)
+        if not tree.is_dir():
+            print(f"  … {iid}: building {name}")
+            _clone_at(url, sha, tree)
+            for p in patches:
+                _apply(p, tree)
+        # Runs on EXISTING trees too, so a rebuild repairs fixtures cloned before this
+        # workaround existed without paying for another clone. It is idempotent.
+        note = _fix_snapshot_parent(tree)
+        if note:
+            print(f"    {name}: {note} (the snapshot parent no longer exists upstream)")
 
     # Target = the JAVA source file the GOLD fix changes most.
     target = primary_source_file(fix_patch)
@@ -201,6 +211,46 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
         verify=_VERIFY[build_system]), encoding="utf-8")
     print(f"  + {iid}: target={target} methods={methods[:3]} build={build_system}")
     return slug, iid
+
+
+_PARENT_BLOCK = re.compile(r"<parent>(.*?)</parent>", re.S | re.I)
+_VER = re.compile(r"(<version>\s*)([^<\s]+?)-SNAPSHOT(\s*</version>)", re.I)
+
+
+def derelease_parent(pom_text: str) -> tuple[str, str | None]:
+    """Point a SNAPSHOT <parent> at the matching RELEASE version.
+
+    Historical commits declare a parent like jackson-base:2.17.2-SNAPSHOT. Snapshots
+    are purged (Sonatype keeps them ~90 days), so that POM no longer exists in ANY
+    public repository and the tree cannot build from a bare clone at all — which is
+    precisely why Multi-SWE-bench ships prebuilt images. The released parent of the
+    same version does exist, and carries essentially the same plugin/dependency
+    management. Returns (text, note) where note is None when nothing was rewritten.
+
+    This is a BUILD workaround, not a source change: it never touches the code the
+    agent is graded on, and it is applied identically to checkout/ and reference/.
+    """
+    m = _PARENT_BLOCK.search(pom_text)
+    if not m:
+        return pom_text, None
+    block = m.group(0)
+    new_block, n = _VER.subn(r"\1\2\3", block)
+    if not n:
+        return pom_text, None
+    old = _VER.search(block)
+    return (pom_text[:m.start()] + new_block + pom_text[m.end():],
+            f"parent {old.group(2)}-SNAPSHOT -> {old.group(2)}")
+
+
+def _fix_snapshot_parent(tree: Path) -> str | None:
+    pom = tree / "pom.xml"
+    if not pom.is_file():
+        return None
+    text = pom.read_text(encoding="utf-8", errors="replace")
+    new, note = derelease_parent(text)
+    if note:
+        pom.write_text(new, encoding="utf-8")
+    return note
 
 
 def _detect_build_system(tree: Path, slug: str) -> str:
