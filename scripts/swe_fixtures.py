@@ -192,7 +192,7 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
         print(f"  ! {iid}: could not resolve the target method in {target} — skipped")
         return None
 
-    build_system = _BUILD_SYSTEM.get(f"{org}/{repo}", "maven")
+    build_system = _detect_build_system(d / "checkout", f"{org}/{repo}")
     (d / "task.md").write_text(TASK.format(issue=_issue_text(rec)), encoding="utf-8")
     (d / "experiment.yaml").write_text(EXPERIMENT.format(
         iid=iid, slug=slug.replace("_", "-"), sha=sha[:12], model=MODEL, reps=reps,
@@ -201,6 +201,19 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
         verify=_VERIFY[build_system]), encoding="utf-8")
     print(f"  + {iid}: target={target} methods={methods[:3]} build={build_system}")
     return slug, iid
+
+
+def _detect_build_system(tree: Path, slug: str) -> str:
+    """Read the build system off the checked-out tree, falling back to the adapter's
+    per-repo map. Defaulting unknown repos to maven emitted `mvn test` for Gradle
+    projects (mockito, jib) — a guaranteed verify failure that looks like the agent's
+    fault. The tree is on disk by now, so just look."""
+    if (tree / "pom.xml").is_file():
+        return "maven"
+    if any((tree / f).exists() for f in
+           ("build.gradle", "build.gradle.kts", "gradlew", "settings.gradle")):
+        return "gradle"
+    return _BUILD_SYSTEM.get(slug, "maven")
 
 
 def _issue_text(rec: dict) -> str:
