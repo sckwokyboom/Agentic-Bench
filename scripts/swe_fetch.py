@@ -40,10 +40,41 @@ REPOS: dict[str, str] = {
 _REQUIRED = ("org", "repo", "number", "test_patch", "fix_patch")
 
 
+def sniff(path: Path) -> str | None:
+    """Name what a NON-jsonl file actually is, with the remedy.
+
+    A download can go wrong in ways that all surface as a wall of json errors one per
+    line — which says nothing about the cause. Read the first bytes and say it plainly.
+    """
+    head = path.open("rb").read(400)
+    if head[:2] == b"\x1f\x8b":
+        return ("the file is GZIP-compressed, not plain jsonl — "
+                f"decompress it:  gunzip -c {path} > {path.with_suffix('.jsonl')}")
+    if head[:4] == b"PAR1":
+        return ("the file is PARQUET, not jsonl — download the .jsonl from "
+                "huggingface.co/datasets/ByteDance-Seed/Multi-SWE-bench/tree/main/java")
+    low = head[:200].lower()
+    if low.lstrip().startswith((b"<!doctype", b"<html", b"<?xml")):
+        return ("the file is an HTML/XML page, not data — the download hit an error or "
+                "redirect page. Re-fetch:  python3 scripts/swe_fetch.py <repo> --force")
+    if head.startswith(b"version https://git-lfs"):
+        return ("the file is a git-LFS POINTER, not the data — fetch it over https "
+                "instead of a git clone:  python3 scripts/swe_fetch.py <repo> --force")
+    if b"\x00" in head:
+        return ("the file is binary, not jsonl — re-fetch:  "
+                "python3 scripts/swe_fetch.py <repo> --force")
+    return None
+
+
 def validate(path: Path) -> tuple[int, str | None]:
     """(record count, error). Rejects the flat HF schema loudly rather than letting
     it become a batch of broken fixtures hours later."""
     n = 0
+    if not path.is_file():
+        return 0, f"no such file: {path}"
+    what = sniff(path)
+    if what:
+        return 0, what
     try:
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             if not line.strip():

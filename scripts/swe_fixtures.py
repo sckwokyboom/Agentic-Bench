@@ -237,11 +237,17 @@ def main() -> int:
     ap.add_argument("--reps", type=int, default=2)
     ap.add_argument("--force", action="store_true", help="rebuild existing fixtures")
     a = ap.parse_args()
-    if not a.dataset.is_file():
-        print(f"dataset not found: {a.dataset}\n"
-              "Get the NATIVE Multi-SWE-bench java records (org/repo/number/base.sha/"
-              "test_patch/fix_patch) — the flat HF SWE-bench schema will NOT work here.")
+    # Validate ONCE, up front. Without this a bad download surfaces as one cryptic
+    # json error per line — a hundred messages that never name the cause.
+    from swe_fetch import validate
+    count, err = validate(a.dataset)
+    if err:
+        print(f"unusable dataset {a.dataset}:\n  {err}")
+        print("\nExpected NATIVE Multi-SWE-bench records (org/repo/number/base.sha/"
+              "test_patch/fix_patch).\nGet one with:  python3 scripts/swe_fetch.py "
+              "jackson-core   (see --list for the other repos)")
         return 2
+    print(f"dataset: {count} instance(s) in {a.dataset}")
 
     a.root.mkdir(parents=True, exist_ok=True)
     (a.root / "system.md").write_text(SYSTEM, encoding="utf-8")
