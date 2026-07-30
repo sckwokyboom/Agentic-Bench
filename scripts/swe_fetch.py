@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -55,8 +56,14 @@ def sniff(path: Path) -> str | None:
                 "huggingface.co/datasets/ByteDance-Seed/Multi-SWE-bench/tree/main/java")
     low = head[:200].lower()
     if low.lstrip().startswith((b"<!doctype", b"<html", b"<?xml")):
-        return ("the file is an HTML/XML page, not data — the download hit an error or "
-                "redirect page. Re-fetch:  python3 scripts/swe_fetch.py <repo> --force")
+        # Quote the page: "404" and a corporate proxy's "Access Denied" need very
+        # different fixes, and the bytes are the only thing that tells them apart.
+        text = head.decode("utf-8", "replace")
+        m = re.search(r"<title[^>]*>(.*?)</title>", text, re.S | re.I)
+        gist = " ".join((m.group(1) if m else re.sub(r"<[^>]+>", " ", text)).split())[:120]
+        return (f"the file is an HTML page, not data — it says: “{gist}”. "
+                "A 404 means the upstream name changed; anything about access/proxy/login "
+                "means the network intercepted the download.")
     if head.startswith(b"version https://git-lfs"):
         return ("the file is a git-LFS POINTER, not the data — fetch it over https "
                 "instead of a git clone:  python3 scripts/swe_fetch.py <repo> --force")
@@ -128,8 +135,14 @@ def fetch(short: str, out_dir: Path, force: bool) -> bool:
     dest = out_dir / f"{short}.jsonl"
     if dest.is_file() and not force:
         n, err = validate(dest)
-        print(f"= {short}: already present ({n} records){'' if not err else ' — ' + err}")
-        return err is None
+        if not err:
+            print(f"= {short}: already present ({n} records)")
+            return True
+        # A cached file that is NOT usable must not block the setup: --force is for
+        # replacing a GOOD file, not for escaping a broken one.
+        print(f"! {short}: cached file is unusable — {err}")
+        print(f"  re-downloading (the bad copy is kept as {dest.name}.bad)")
+        dest.replace(dest.with_suffix(dest.suffix + ".bad"))
     url = _HF + fname
     tmp = dest.with_suffix(".part")
     print(f"↓ {short}: {url}")
