@@ -55,6 +55,11 @@ def collect(root: Path, runs_dir: str = "runs-ab") -> list[dict]:
                 buckets[_bucket(p)] = buckets.get(_bucket(p), 0) + 1
             rows.append({
                 "bug": bugdir.name,
+                # On a hidden-test fixture the in-workdir verify runs only the
+                # existing (green) suite, so 'passed' means "broke nothing", NOT
+                # "fixed the defect". Carried so the report cannot present it as a
+                # solve rate.
+                "hidden_tests": (bugdir / "HIDDEN_TESTS").is_file(),
                 "arm": rd.parent.name,
                 "rep": rd.name,
                 "solved": m.get("verify_status") == "passed",
@@ -104,6 +109,14 @@ def render(rows: list[dict]) -> str:
     o = ["# Defects4J cost-to-solve A/B — digest", "",
          f"runs: **{len(rows)}** | bugs: {len(bugs)} | arms: {', '.join(arms)} | "
          f"reps/arm: {len({r['rep'] for r in rows})}", ""]
+    hidden = [r for r in rows if r.get("hidden_tests")]
+    if hidden:
+        o += ["> **HIDDEN-TEST fixtures ({}/{} runs): the `solved` column below is NOT "
+              "a solve rate.** The tests encoding each fix were withheld from the "
+              "agent, so the in-workdir verify only re-runs the already-green suite — "
+              "it says the run broke nothing. The real verdict comes from "
+              "`python3 scripts/d4j_replay.py --ab`, which applies the withheld tests."
+              .format(len(hidden), len(rows)), ""]
 
     # ── rcc health: did the treatment actually happen? ────────────────────────
     rcc = [r for r in rows if r["arm"] == "rcc"]

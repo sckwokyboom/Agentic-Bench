@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -35,7 +36,7 @@ from d4j_sieve_summary import _bucket, _latest_run, _load  # noqa: E402
 
 # The harness's own parser, so a replay verdict is comparable to the recorded one
 # by construction rather than by a second, subtly different implementation.
-from abench.verify import _parse_defects4j  # noqa: E402
+from abench.verify import run_verify  # noqa: E402
 
 
 def source_only_patch(patch_text: str) -> tuple[str, list[str], list[str]]:
@@ -66,6 +67,22 @@ def source_only_patch(patch_text: str) -> tuple[str, list[str], list[str]]:
         else:
             dropped.append(p)
     return "".join(out), kept, dropped
+
+
+_VERIFY_CMD = re.compile(r'^\s*command:\s*"([^"]+)"', re.M)
+
+
+def _fixture_verify_cmd(fixture: Path) -> "str | None":
+    """The verify command this fixture was generated with.
+
+    Defects4J fixtures grade with `defects4j test`; the SWE fixtures use maven or
+    gradle. Hardcoding one of them mis-grades the other silently.
+    """
+    y = fixture / "experiment.yaml"
+    if not y.is_file():
+        return None
+    m = _VERIFY_CMD.search(y.read_text(encoding="utf-8", errors="replace"))
+    return m.group(1) if m else None
 
 
 def _run(cmd: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
@@ -118,23 +135,29 @@ def replay(bugdir: Path, timeout: int, rundir: Path | None = None) -> dict:
         if rc != 0:
             return {**r, "status": "patch failed", "detail": out.strip()[:300]}
 
-        rc, out = _run(["defects4j", "test"], work, timeout=timeout)
-        failing = (work / "failing_tests")
-        alltests = (work / "all_tests")
-        passed, failed, names = _parse_defects4j(
-            failing.read_text(encoding="utf-8", errors="replace") if failing.is_file() else None,
-            alltests.read_text(encoding="utf-8", errors="replace") if alltests.is_file() else None,
-            out)
-        r.update(replay_failed=failed, replay_passed=passed, replay_names=names[:6])
-        if failed > 0:
-            r["status"] = "failed"
-        elif rc != 0:
-            r["status"] = "build_failed"
-            r["detail"] = out.strip()[-300:]
-        elif not passed:
-            r["status"] = "no_tests"
-        else:
-            r["status"] = "passed"
+        # Hidden-test fixtures: the tests encoding the fix were withheld from the
+        # agent and are applied HERE, so the verdict measures the fix rather than a
+        # suite the defect never touched. Without this the replay would just re-run
+        # the already-green suite and call every run solved.
+        withheld = bugdir / "test.patch"
+        if withheld.is_file():
+            r["hidden_tests"] = True
+            rc, out = _run(["patch", "-p1", "--forward", "-i", str(withheld.resolve())],
+                           work, timeout=120)
+            if rc != 0:
+                return {**r, "status": "withheld tests did not apply",
+                        "detail": out.strip()[:300]}
+
+        # Grade with the FIXTURE's own verify command via abench's run_verify, which
+        # already routes maven/gradle/defects4j to the right parser. Hardcoding
+        # `defects4j test` here silently mis-graded every Maven SWE fixture.
+        cmd = _fixture_verify_cmd(bugdir) or "defects4j test"
+        v = run_verify(work, cmd, timeout)
+        r.update(replay_failed=v.failed_count, replay_passed=v.passed_count,
+                 replay_names=list(v.failed_names or [])[:6], replay_cmd=cmd,
+                 status=v.status if v.status != "error" else (v.reason or "error"))
+        if v.status not in ("passed", "failed"):
+            r["detail"] = (v.message or "")[:300]
         return r
     except subprocess.TimeoutExpired:
         return {**r, "status": "timeout"}
@@ -189,6 +212,9 @@ def main() -> int:
     ap.add_argument("--ab", action="store_true",
                     help="replay the A/B tree (runs-ab/): EVERY arm and rep, not just "
                          "the newest — grading one arm only would be worthless")
+    ap.add_argument("--runs-dir", default="runs-ab",
+                    help="with --ab: the per-instance runs subdir ('runs-ab' for the "
+                         "Defects4J A/B, 'runs' for the SWE fixtures)")
     ap.add_argument("--timeout", type=int, default=2400, help="per-bug test timeout (s)")
     ap.add_argument("--out", type=Path, help="also write the report here")
     a = ap.parse_args()
@@ -203,9 +229,9 @@ def main() -> int:
 
     if a.ab:
         # Every arm x rep, so rcc and phased are graded by the same yardstick.
-        jobs = [(d, rd) for d in dirs for rd in all_runs(d, "runs-ab")]
+        jobs = [(d, rd) for d in dirs for rd in all_runs(d, a.runs_dir)]
         if not jobs:
-            print("no A/B runs found (expected d4j-runs/<bug>/runs-ab/…) — run run_ab.sh first")
+            print(f"no A/B runs found (expected <root>/<instance>/{a.runs_dir}/…)")
             return 0
         rows = []
         for i, (d, rd) in enumerate(jobs, 1):

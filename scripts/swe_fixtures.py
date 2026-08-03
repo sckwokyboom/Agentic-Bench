@@ -87,8 +87,8 @@ metrics:
 
 SYSTEM = """\
 You are a senior Java engineer fixing a real bug reported in a project's issue
-tracker. Read the code and the failing tests, localize the root cause, and make a
-minimal source fix. Do not modify test files.
+tracker. Read the code, localize the root cause, and make a minimal source fix.
+Do not modify test files.
 """
 
 TASK = """\
@@ -97,6 +97,18 @@ TASK = """\
 ---
 Some of this project's tests currently FAIL because of the defect described above.
 Fix the SOURCE code so the whole test suite passes. Do not edit the tests.
+"""
+
+#: Hidden-test variant. Claiming "tests currently fail" would be a LIE here — the
+#: repository's suite is green; the tests that encode the fix are withheld and applied
+#: only at grading, exactly as the official SWE-bench does.
+TASK_HIDDEN = """\
+{issue}
+
+---
+Fix the defect described above in this repository's SOURCE code. The project's
+existing tests pass; there is no failing test pointing at the defect, so work from
+the report. Do not weaken or edit existing tests.
 """
 
 
@@ -157,7 +169,8 @@ def primary_source_file(patch: str) -> str | None:
     return max(weights, key=lambda k: weights[k]) if weights else None
 
 
-def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | None:
+def build(rec: dict, root: Path, reps: int, force: bool,
+          hide_tests: bool = False) -> tuple[str, str] | None:
     org, repo, num = rec["org"], rec["repo"], rec["number"]
     iid, slug = f"{org}/{repo}:pr-{num}", f"{org}_{repo}_pr{num}"
     d = root / slug
@@ -184,7 +197,11 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
 
     d.mkdir(parents=True, exist_ok=True)
     url = f"https://github.com/{org}/{repo}.git"
-    for name, patches in (("checkout", [test_patch]),
+    # Hidden tests: the agent gets a repo whose suite is GREEN and only the issue
+    # report — the official SWE-bench task. The withheld test patch is stored beside
+    # the fixture so the replay grader can apply it at verdict time.
+    checkout_patches = [] if hide_tests else [test_patch]
+    for name, patches in (("checkout", checkout_patches),
                           ("reference", [test_patch, fix_patch])):
         tree = d / name
         if not tree.is_dir():
@@ -209,8 +226,23 @@ def build(rec: dict, root: Path, reps: int, force: bool) -> tuple[str, str] | No
         print(f"  ! {iid}: could not resolve the target method in {target} — skipped")
         return None
 
+    if hide_tests:
+        # Store the withheld tests for the replay grader, and MARK the fixture: an
+        # in-workdir verify here runs only the EXISTING (green) suite, so it says
+        # nothing about whether the defect was fixed. Every consumer must know that,
+        # or a batch of untouched repos reports as 100% solved.
+        (d / "test.patch").write_text(test_patch, encoding="utf-8")
+        (d / "HIDDEN_TESTS").write_text(
+            "Tests encoding this fix are withheld from checkout/ and applied only at "
+            "grading (scripts/d4j_replay.py). The in-workdir verify is a REGRESSION "
+            "check, NOT the solve verdict.\n", encoding="utf-8")
+    else:
+        (d / "test.patch").unlink(missing_ok=True)
+        (d / "HIDDEN_TESTS").unlink(missing_ok=True)
     build_system = _detect_build_system(d / "checkout", f"{org}/{repo}")
-    (d / "task.md").write_text(TASK.format(issue=_issue_text(rec)), encoding="utf-8")
+    (d / "task.md").write_text(
+        (TASK_HIDDEN if hide_tests else TASK).format(issue=_issue_text(rec)),
+        encoding="utf-8")
     (d / "experiment.yaml").write_text(EXPERIMENT.format(
         iid=iid, slug=slug.replace("_", "-"), sha=sha[:12], model=MODEL, reps=reps,
         label=f"the {Path(target).stem}.{methods[0]} method",
@@ -293,6 +325,10 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="build at most N instances")
     ap.add_argument("--reps", type=int, default=2)
     ap.add_argument("--force", action="store_true", help="rebuild existing fixtures")
+    ap.add_argument("--hide-tests", action="store_true",
+                    help="withhold test_patch from checkout/ (the official SWE-bench "
+                         "task: only the issue report). Grading then REQUIRES "
+                         "scripts/d4j_replay.py, which applies the withheld tests.")
     a = ap.parse_args()
     # Validate ONCE, up front. Without this a bad download surfaces as one cryptic
     # json error per line — a hundred messages that never name the cause.
@@ -315,7 +351,8 @@ def main() -> int:
         if a.limit and len(made) >= a.limit:
             break
         try:
-            got = build(json.loads(line), a.root, a.reps, a.force)
+            got = build(json.loads(line), a.root, a.reps, a.force,
+                        hide_tests=a.hide_tests)
         except Exception as exc:                       # one bad record must not stop the sweep
             print(f"  ! failed: {exc}")
             continue
