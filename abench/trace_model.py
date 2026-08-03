@@ -142,6 +142,12 @@ class Trace:
     orchestration_outcome: str | None = None
     controller_test_runs: int = 0
     controller_test_time_s: float | None = None
+    #: Of the controller's suites, the ones run purely as HARNESS BOOKKEEPING — the
+    #: pre-edit baseline measurement, which exists to record a starting point and
+    #: which the autonomous baseline arm never pays for. A cost comparison that does
+    #: not subtract these bills the treatment arm for the harness's own accounting.
+    controller_bookkeeping_runs: int = 0
+    controller_bookkeeping_s: float | None = None
     accepted_rounds: int = 0
     reverted_rounds: int = 0
     # Passive analytics: the minimum failure count reached at any point in the run

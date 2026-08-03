@@ -42,7 +42,9 @@ def _degraded(rundir: Path, metrics: dict) -> bool:
 
 def collect(root: Path, runs_dir: str = "runs-ab") -> list[dict]:
     rows = []
-    for bugdir in sorted(p for p in root.iterdir() if p.is_dir() and "-" in p.name):
+    # Any directory that actually CONTAINS runs — a name filter silently reported
+    # "no runs found" for layouts whose instance dirs have no hyphen.
+    for bugdir in sorted(p for p in root.iterdir() if p.is_dir()):
         for mfile in sorted(bugdir.glob(f"{runs_dir}/*/*/*/rep_*/metrics.json")):
             rd = mfile.parent
             m = _load(mfile) or {}
@@ -62,6 +64,14 @@ def collect(root: Path, runs_dir: str = "runs-ab") -> list[dict]:
                 "steps": m.get("n_steps"),
                 "tokens": (m.get("tokens_in") or 0) + (m.get("tokens_out") or 0),
                 "test_runs": m.get("n_test_runs"),
+                # Harness accounting the baseline arm never pays for. Subtracting it
+                # is what makes the two arms comparable; None on runs recorded before
+                # the split existed, which the report states rather than assuming 0.
+                "bk_s": m.get("controller_bookkeeping_s"),
+                "bk_runs": m.get("controller_bookkeeping_runs"),
+                "ctrl_runs": m.get("controller_test_runs"),
+                "net_wall": (None if m.get("duration_s") is None else
+                             m["duration_s"] - (m.get("controller_bookkeeping_s") or 0)),
                 "rcc_loop": (m.get("rcc_subset_test_runs") or 0) > 0
                             or m.get("rcc_root_rank") is not None,
                 "rcc_subset_runs": m.get("rcc_subset_test_runs"),
@@ -120,8 +130,8 @@ def render(rows: list[dict]) -> str:
 
     # ── per-bug, per-arm cost (mean over reps) ────────────────────────────────
     o += ["## Cost per bug (mean over reps)", "",
-          "| bug | arm | solved | dur_s | steps | tokens | test runs | loop |",
-          "|---|---|---|---|---|---|---|---|"]
+          "| bug | arm | solved | dur_s | net dur_s | bookkeeping_s | steps | tokens | test runs | loop |",
+          "|---|---|---|---|---|---|---|---|---|---|"]
     per: dict[tuple[str, str], dict] = {}
     for bug in bugs:
         for arm in arms:
@@ -131,12 +141,15 @@ def render(rows: list[dict]) -> str:
             a = {"solved": sum(1 for r in rs if r["solved"]), "n": len(rs),
                  "duration": _agg(rs, "duration"), "steps": _agg(rs, "steps"),
                  "tokens": _agg(rs, "tokens"), "test_runs": _agg(rs, "test_runs"),
+                 "net_wall": _agg(rs, "net_wall"), "bk_s": _agg(rs, "bk_s"),
+                 "bk_runs": _agg(rs, "bk_runs"),
                  "degraded": any(r["degraded"] for r in rs),
                  "loop": sum(1 for r in rs if r["rcc_loop"])}
             per[(bug, arm)] = a
             loop = ("—" if arm != "rcc"
                     else ("DEGRADED" if a["degraded"] else f"{a['loop']}/{a['n']}"))
             o.append(f"| {bug} | {arm} | {a['solved']}/{a['n']} | {_fmt(a['duration'])} "
+                     f"| {_fmt(a['net_wall'])} | {_fmt(a['bk_s'])} "
                      f"| {_fmt(a['steps'], '.1f')} | {_fmt(a['tokens'])} "
                      f"| {_fmt(a['test_runs'], '.1f')} | {loop} |")
     o.append("")
@@ -144,9 +157,10 @@ def render(rows: list[dict]) -> str:
     # ── rcc vs baseline ──────────────────────────────────────────────────────
     if "rcc" in arms and "baseline" in arms:
         o += ["## rcc vs baseline (ratio <1 = rcc cheaper)", "",
-              "| bug | both solved? | dur ratio | steps ratio | tokens ratio | note |",
-              "|---|---|---|---|---|---|"]
-        ratios: dict[str, list[float]] = {"duration": [], "steps": [], "tokens": []}
+              "| bug | both solved? | dur ratio | NET dur ratio | steps ratio | tokens ratio | note |",
+              "|---|---|---|---|---|---|---|"]
+        ratios: dict[str, list[float]] = {"duration": [], "net_wall": [], "steps": [],
+                                          "tokens": []}
         solve_b = solve_r = 0
         for bug in bugs:
             b, r = per.get((bug, "baseline")), per.get((bug, "rcc"))
@@ -162,7 +176,7 @@ def render(rows: list[dict]) -> str:
                 note.append(f"solve differs (base {b['solved']}/{b['n']}, "
                             f"rcc {r['solved']}/{r['n']}) — cost not comparable")
             cells = []
-            for k in ("duration", "steps", "tokens"):
+            for k in ("duration", "net_wall", "steps", "tokens"):
                 if b[k] and r[k]:
                     ratio = r[k] / b[k]
                     cells.append(f"{ratio:.2f}×")
@@ -178,7 +192,9 @@ def render(rows: list[dict]) -> str:
         o += [f"### Headline (over the {n} bug(s) where BOTH arms solved and rcc ran "
               "its loop)", ""]
         if n:
-            for k, label in (("duration", "wall-clock"), ("steps", "steps"),
+            for k, label in (("duration", "wall-clock"),
+                             ("net_wall", "wall-clock NET of harness bookkeeping"),
+                             ("steps", "steps"),
                              ("tokens", "tokens")):
                 v = ratios[k]
                 if v:

@@ -55,6 +55,11 @@ class RccSeed:
     full_runs: int
     productive: int
     best_failed: "int | None"
+    #: Controller suite time, split so a cost comparison can exclude the harness
+    #: bookkeeping the baseline arm never pays for. Defaulted → must stay last.
+    suite_s: float = 0.0
+    bookkeeping_runs: int = 0
+    bookkeeping_s: float = 0.0
 
 
 class RccState(TypedDict, total=False):
@@ -475,6 +480,9 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
         tr = stitch(final.get("phase_traces", []), final.get("ctrl", []),
                     outcome=final.get("outcome"),
                     controller_test_runs=full_runs[0] + subset_runs[0],
+                    controller_test_time_s=(seed.suite_s if seed else None),
+                    controller_bookkeeping_runs=(seed.bookkeeping_runs if seed else 0),
+                    controller_bookkeeping_s=(seed.bookkeeping_s if seed else None),
                     accepted_rounds=productive[0], reverted_rounds=0,
                     best_failed_reached=final.get("best_failed"))
     except Exception as exc:  # pragma: no cover
@@ -483,6 +491,10 @@ def run_rcc(cfg: RccConfig, slice_: dict, methods: list, initial: SuiteEval, *,
         tr = Trace(steps=list(final.get("ctrl", [])), finished=True)
         tr.orchestration_outcome = final.get("outcome")
         tr.controller_test_runs = full_runs[0] + subset_runs[0]
+        if seed:
+            tr.controller_test_time_s = seed.suite_s
+            tr.controller_bookkeeping_runs = seed.bookkeeping_runs
+            tr.controller_bookkeeping_s = seed.bookkeeping_s
         tr.accepted_rounds = productive[0]
         tr.reverted_rounds = 0
         tr.best_failed_reached = final.get("best_failed")

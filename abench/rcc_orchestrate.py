@@ -6,6 +6,8 @@ are single-sourced from orchestrator.py so the phased-vs-rcc A/B shares its
 prefix verbatim."""
 from __future__ import annotations
 
+import time
+
 from .orchestrator import (
     _MAX_CONTRACT_CHARS,
     OrchestratorConfig,
@@ -41,6 +43,10 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
     clock = [0.0]
     full_runs = [0]
     productive = [0]
+    # Suite time/count split by WHY the controller ran it, so a cost comparison can
+    # exclude harness bookkeeping the baseline arm never pays for.
+    suite_time: dict[str, float] = {}
+    suite_runs: dict[str, int] = {}
 
     def emit(payload: dict) -> None:
         if on_event is not None:
@@ -70,17 +76,29 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
             event(f"phase {name} FAILED ({exc}); continuing degraded", name)
             return PhaseOutcome(trace=Trace(), text="")
 
-    def run_suite(phase: str) -> SuiteEval:
+    def run_suite(phase: str, *, kind: str = "verify") -> SuiteEval:
+        """Run the controller's suite, timed and attributed.
+
+        The arm is charged for suites the AGENT never asked for, and without the
+        split a cost comparison silently bills harness bookkeeping to the treatment:
+        the pre-edit baseline run exists only to record a starting point, and the
+        baseline arm pays nothing for it. `kind` ∈ {bookkeeping, verify}.
+        """
         full_runs[0] += 1
+        t0 = time.monotonic()
         try:
             return suite_runner()
         except Exception as exc:
             event(f"suite run FAILED ({exc})", phase)
             return SuiteEval(result=SuiteResult(compiled=True, ran=False,
                                                 executed=0, passed=0, failed=0))
+        finally:
+            dt = time.monotonic() - t0
+            suite_time[kind] = suite_time.get(kind, 0.0) + dt
+            suite_runs[kind] = suite_runs.get(kind, 0) + 1
 
     # ── the phased-identical prefix ─────────────────────────────────────────
-    base = run_suite("implement")
+    base = run_suite("implement", kind="bookkeeping")
     best = base.result.failed if base.result.ran else None
     event(f"ran baseline test suite (stub, before any edits): "
           f"{base.result.passed} passed / {base.result.failed} failed", "implement")
@@ -131,6 +149,9 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
               "implement")
         tr = stitch(phase_traces, ctrl, outcome=outcome,
                     controller_test_runs=full_runs[0],
+                    controller_test_time_s=sum(suite_time.values()),
+                    controller_bookkeeping_runs=suite_runs.get("bookkeeping", 0),
+                    controller_bookkeeping_s=suite_time.get("bookkeeping", 0.0),
                     accepted_rounds=productive[0], reverted_rounds=0,
                     best_failed_reached=best)
         return tr
@@ -160,6 +181,9 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
     # ── hand off the red state to the rcc loop (one continuous trace) ──────
     seed = RccSeed(phase_traces=phase_traces, ctrl=ctrl, clock=clock[0],
                    full_runs=full_runs[0], productive=productive[0],
+                   suite_s=sum(suite_time.values()),
+                   bookkeeping_runs=suite_runs.get("bookkeeping", 0),
+                   bookkeeping_s=suite_time.get("bookkeeping", 0.0),
                    best_failed=best)
     return run_rcc(rcfg, prompt_slice, methods, cur, phase_runner=phase_runner,
                    suite_runner=suite_runner, subset_runner=subset_runner,

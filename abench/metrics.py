@@ -214,6 +214,12 @@ def extract(trace: Trace, patch_text: str, cfg: MetricsConfig) -> dict:
         "rcc_beta_degraded": trace.rcc_beta_degraded,
         "rcc_gamma_degraded": trace.rcc_gamma_degraded,
         "rcc_subset_test_runs": trace.rcc_subset_test_runs,
+        "controller_test_runs": trace.controller_test_runs,
+        "controller_test_time_s": trace.controller_test_time_s,
+        # Harness accounting the baseline arm never pays for — subtract it before
+        # comparing arm costs, or the treatment is billed for the harness.
+        "controller_bookkeeping_runs": trace.controller_bookkeeping_runs,
+        "controller_bookkeeping_s": trace.controller_bookkeeping_s,
         "rcc_degraded": trace.rcc_degraded,
         "rcc_degrade_reason": trace.rcc_degrade_reason,
     }

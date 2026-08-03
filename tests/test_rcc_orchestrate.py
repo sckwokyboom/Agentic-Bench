@@ -159,3 +159,31 @@ def test_focus_narrows_graph_to_failing_tests():
     # the failing test is in the alpha prompt; the passing one is filtered out
     assert "p.CT.fail" in seen["alpha"]
     assert "p.DT.pass" not in seen["alpha"]
+
+
+def test_bookkeeping_suite_is_split_out_of_the_arm_cost():
+    # The pre-edit baseline suite exists only to record a starting point; the
+    # autonomous baseline arm never pays for it. Billing it to the treatment makes
+    # rcc look more expensive than its own work — so it must be separately
+    # attributed, not folded into one controller total.
+    tr = run_rcc_condition(
+        _OCFG, _RCFG, _SUB, phase_runner=PrefixPhase(),
+        suite_runner=_seq_full([_ev(0, 2), _ev(100, 0)]),   # baseline red, implement green
+        subset_runner=_seq_subset([]), memory=FakeMemory(), strip_probes=lambda: 0)
+    assert tr.orchestration_outcome == "green"
+    assert tr.controller_test_runs == 2                  # baseline + post-implement
+    assert tr.controller_bookkeeping_runs == 1           # only the pre-edit one
+    assert tr.controller_bookkeeping_s is not None
+    assert tr.controller_test_time_s is not None
+    # Bookkeeping is a SUBSET of the controller's total suite time, never more.
+    assert 0 <= tr.controller_bookkeeping_s <= tr.controller_test_time_s + 1e-6
+
+
+def test_bookkeeping_split_survives_into_the_rcc_loop():
+    # The red path hands off to run_rcc via RccSeed; the split must arrive with it,
+    # otherwise every run that actually engages the loop loses the attribution.
+    tr = _run_cond([(_ev(1, 1), ["RCC_PROBE x"]), (_ev(2, 0), [])],
+                   [_ev(0, 2), _ev(1, 1), _ev(100, 0)])
+    assert tr.controller_bookkeeping_runs == 1
+    assert tr.controller_bookkeeping_s is not None
+    assert tr.controller_test_runs >= 2
