@@ -58,7 +58,27 @@ DEFAULT_SET = ["Closure-116", "Closure-175", "JacksonDatabind-18", "Closure-49",
 _SIG = re.compile(
     r"^\s*(?:@\w+[^\n]*\s+)?(?:public|protected|private|static|final|abstract|"
     r"synchronized|native|strictfp|\s)*[\w<>\[\],.?\s]+\s+(\w+)\s*\([^;]*$")
-_SKIP = {"if", "for", "while", "switch", "catch", "return", "new", "else", "do"}
+#: Java keywords that can precede a '(' and would otherwise read as a method name.
+_SKIP = {"if", "for", "while", "switch", "catch", "return", "new", "else", "do",
+         "try", "synchronized", "throw", "assert", "yield", "super", "this",
+         "case", "finally", "instanceof"}
+#: A line STARTING with one of these is a statement, not a declaration. Without this
+#: `throw new IllegalStateException(` resolved to 'IllegalStateException' and
+#: `return new Foo(` to 'Foo' — real targets seen on dubbo and fastjson2, which would
+#: have seeded rcc's graph with a class name and weakened the treatment silently.
+_STMT_START = ("throw", "return", "new ", "assert", "yield", "case", "}", "//", "*")
+
+
+def _declared_method(line: str) -> "str | None":
+    """The method/constructor a DECLARATION line declares, else None."""
+    stripped = line.strip()
+    if stripped.startswith(_STMT_START):
+        return None
+    m = _SIG.match(line)
+    if not m:
+        return None
+    name = m.group(1)
+    return None if name in _SKIP else name
 
 EXPERIMENT = """\
 # AUTO-GENERATED cost-to-solve A/B for Defects4J {proj}-{bug}
@@ -129,11 +149,11 @@ def methods_from_gt_diff(buggy: Path, fixed: Path) -> list[str]:
             changed.update(range(i1, min(i2 + 1, len(a))))
     names: list[str] = []
     for ln in sorted(changed):
-        for j in range(ln, -1, -1):          # nearest signature above the change
-            m = _SIG.match(a[j])
-            if m and m.group(1) not in _SKIP:
-                if m.group(1) not in names:
-                    names.append(m.group(1))
+        for j in range(ln, -1, -1):          # nearest declaration above the change
+            name = _declared_method(a[j])
+            if name:
+                if name not in names:
+                    names.append(name)
                 break
     return names
 
