@@ -163,6 +163,11 @@ def check_fixture(fixture: Path, compile_only: bool, timeout: int) -> list[str]:
     gradle = cmd.startswith("./gradlew")
     build = (["./gradlew", "compileTestJava", "--console=plain"] if gradle
              else ["mvn", "-B", "-q", "test-compile"])
+    # Announce before blocking: a first build on a large repo downloads the whole
+    # dependency tree and can run for tens of minutes with nothing on screen, which
+    # is indistinguishable from a hang.
+    print(f"   … compiling {fixture.name} ({' '.join(build[:2])}; first build also "
+          f"downloads dependencies; timeout {timeout}s)", flush=True)
     rc, txt = _run(build, cwd=co, timeout=timeout)
     if rc != 0:
         if _tests_need_the_fix(txt):
@@ -181,7 +186,17 @@ def check_fixture(fixture: Path, compile_only: bool, timeout: int) -> list[str]:
     notes.append(f"{OK} {fixture.name}: compiles")
     if compile_only:
         return notes
+    if (fixture / "HIDDEN_TESTS").is_file():
+        # The tests encoding the fix were withheld, so checkout/'s suite is GREEN by
+        # construction. Running it would take many minutes and then report "the bug
+        # does not reproduce" about every fixture — a false alarm, not a finding.
+        notes.append(f"{OK} {fixture.name}: hidden-test fixture — skipping the "
+                     "reproduce check (its suite is green by design; the verdict "
+                     "comes from d4j_replay.py, which applies the withheld tests)")
+        return notes
 
+    print(f"   … running the full suite in {fixture.name} to check the bug reproduces "
+          f"(can take many minutes; timeout {timeout}s)", flush=True)
     rc, txt = _run(cmd.split(), cwd=co, timeout=timeout)
     if rc == 0:
         notes.append(f"{BAD} {fixture.name}: tests PASS in checkout/ — the bug does not "
