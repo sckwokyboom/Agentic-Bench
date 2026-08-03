@@ -6,11 +6,13 @@
 #   ./scripts/swe.sh doctor [dir]        check toolchain; with a fixture dir, prove it builds
 #   ./scripts/swe.sh run                 run the batch (resumable — Ctrl-C is safe)
 #   ./scripts/swe.sh status              progress of a running batch (safe anytime)
+#   ./scripts/swe.sh probe [repos…]      memorisation probe across repos -> probe.md
 #   ./scripts/swe.sh report              digest to swe-ab.md
 #   ./scripts/swe.sh all                 fetch + build + doctor + run + report
 #
 # Env: DEEPSEEK_API_KEY (required to run), MSB_DATA (default ~/msb-data),
-#      SWE_ROOT (default ./swe-runs), SWE_REPO (default jackson-core), SWE_LIMIT, SWE_REPS.
+#      SWE_ROOT (default ./swe-runs), SWE_REPO (default jackson-core), SWE_LIMIT, SWE_REPS,
+#      SWE_PROBE_REPOS (default 'fastjson2 logstash').
 #
 # The verdicts produced here are OUR test runs, NOT the official multi-swe-bench
 # `resolved` — comparable to our Defects4J A/B and to each other, not to published
@@ -75,6 +77,33 @@ case "$cmd" in
 
   status)
     "$PY" "$HERE/swe_status.py" "${1:-$SWE_ROOT}"
+    ;;
+
+  probe)
+    # Memorisation probe: for each repo, fetch -> hidden-test fixtures -> compile
+    # check -> run -> one cross-repo verdict table. Answers "can this repository
+    # measure problem-solving, or does the model just recall the fix?".
+    [ -n "${DEEPSEEK_API_KEY:-}" ] || { echo "DEEPSEEK_API_KEY is unset"; exit 2; }
+    repos="${*:-${SWE_PROBE_REPOS:-fastjson2 logstash}}"
+    lim="${SWE_LIMIT:-2}"
+    echo "probe: [$repos] x $lim instance(s) x 1 rep, tests HIDDEN"
+    for r in $repos; do
+      root="$ROOT/swe-probe-$r"
+      echo ""
+      echo "───────── $r ─────────"
+      "$PY" "$HERE/swe_fetch.py" --out "$MSB_DATA" "$r" || { echo "  skip $r: no dataset"; continue; }
+      "$PY" "$HERE/swe_fixtures.py" "$MSB_DATA/$r.jsonl" --root "$root" \
+          --limit "$lim" --reps 1 --hide-tests || { echo "  skip $r: build failed"; continue; }
+      # Compile-only: on hidden-test fixtures the suite is green by design, so the
+      # reproduce check is meaningless — and on big repos it costs tens of minutes.
+      "$PY" "$HERE/swe_doctor.py" --all "$root" --compile-only || \
+          echo "  ! $r: some fixtures do not build — they will be skipped below"
+      [ -x "$root/run_swe.sh" ] || { echo "  skip $r: nothing to run"; continue; }
+      PYTHONUNBUFFERED=1 bash "$root/run_swe.sh" 2>&1 | tee -a "$root/probe.log"
+    done
+    echo ""
+    echo "───────── verdict ─────────"
+    "$PY" "$HERE/swe_probe_summary.py" --out "$ROOT/probe.md"
     ;;
 
   report)
