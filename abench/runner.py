@@ -45,6 +45,23 @@ def default_batch_id() -> str:
     return _datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 
+def _baseline_expected(exp: Experiment) -> "int | None":
+    """Full suite size from the experiment's cached baseline verify.
+
+    The rcc prefix used to learn this by running the whole suite once per rep
+    BEFORE the agent touched anything — cost charged to the treatment arm that the
+    autonomous baseline never pays. The cache already knows it, so the autonomous
+    path reads it instead of re-measuring. None when no cache exists (the
+    undercount guard then simply does not fire)."""
+    try:
+        cache = exp.fixture_path.parent / ".verify-baseline.json"
+        data = json.loads(cache.read_text())
+        n = data.get("passed_count")
+        return int(n) if isinstance(n, int) and n > 0 else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def _load_coverage(impact_dir) -> dict:
     """Tolerant read of .impact/coverage.json for the rcc llm-builder hint; {} on absence."""
     try:
@@ -676,7 +693,8 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                                           max_attempts=ocfg.rcc_max_attempts,
                                           cluster_cap=ocfg.cluster_cap,
                                           subset_class_cap=ocfg.rcc_subset_class_cap,
-                                          revert_to_best=ocfg.rcc_revert_to_best),
+                                          revert_to_best=ocfg.rcc_revert_to_best,
+                                          first_attempt=ocfg.rcc_first_attempt),
                                 sub,
                                 phase_runner=phase_runner, suite_runner=suite_runner,
                                 subset_runner=make_subset_suite_runner(
@@ -688,6 +706,11 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                                     workdir, augment_for_authoritative_run(suite_cmd),
                                     exp.verify.timeout_s),
                                 memory=RccMemory(mem_path),
+                                # The autonomous first attempt needs the SAME user
+                                # message the baseline arm gets; the cached baseline
+                                # size replaces the per-rep pre-edit suite.
+                                task_prompt=user_message,
+                                baseline_executed=_baseline_expected(exp),
                                 strip_probes=lambda: strip_probe_lines_repo(workdir),
                                 # revert_to_best: keep the best-reached worktree
                                 # (git tree snapshot/restore), gated by config.

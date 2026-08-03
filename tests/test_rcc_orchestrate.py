@@ -7,6 +7,7 @@ pytest.importorskip("langgraph")
 
 from abench.orchestrator import OrchestratorConfig, PhaseOutcome, SuiteEval
 from abench.rcc_graph import RccConfig
+from abench.rcc_graph import RccConfig
 from abench.rcc_orchestrate import run_rcc_condition
 from abench.regression_gate import SuiteResult
 from abench.trace_model import StepKind, Trace
@@ -187,3 +188,61 @@ def test_bookkeeping_split_survives_into_the_rcc_loop():
     assert tr.controller_bookkeeping_runs == 1
     assert tr.controller_bookkeeping_s is not None
     assert tr.controller_test_runs >= 2
+
+
+def test_autonomous_first_attempt_is_baseline_identical():
+    # P1: on tasks the plain agent solves, rcc must not pay for a forced prefix.
+    # The autonomous first attempt runs ONE phase with the task prompt and an
+    # UNRESTRICTED toolset (tools=None), and skips the pre-edit bookkeeping suite.
+    seen: list = []
+
+    class Rec(PrefixPhase):
+        def __call__(self, phase, prompt, tools):
+            seen.append((phase, tools))
+            return super().__call__(phase, prompt, tools)
+
+    cfg = RccConfig(target_label="m", max_attempts=2, first_attempt="autonomous")
+    tr = run_rcc_condition(
+        _OCFG, cfg, _SUB, phase_runner=Rec(),
+        suite_runner=_seq_full([_ev(100, 0)]),        # ONE suite: the attempt's verify
+        subset_runner=_seq_subset([]), memory=FakeMemory(), strip_probes=lambda: 0,
+        task_prompt="fix the bug", baseline_executed=100)
+    assert tr.orchestration_outcome == "green"
+    assert [p for p, _ in seen] == ["attempt"]        # no understand/implement
+    assert seen[0][1] is None                         # unrestricted, like baseline
+    assert tr.controller_test_runs == 1                # verify only
+    assert tr.controller_bookkeeping_runs == 0         # the pre-edit suite is gone
+
+
+def test_autonomous_still_enters_the_loop_when_red():
+    # The point is to skip the prefix, NOT to skip diagnosis: a red first attempt
+    # must still hand off to the causal loop.
+    cfg = RccConfig(target_label="m", max_attempts=2, first_attempt="autonomous")
+    tr = run_rcc_condition(
+        _OCFG, cfg, _SUB, phase_runner=PrefixPhase(),
+        suite_runner=_seq_full([_ev(1, 1), _ev(100, 0)]),   # attempt red, then green
+        subset_runner=_seq_subset([(_ev(1, 1), ["RCC_PROBE x"]), (_ev(2, 0), [])]),
+        memory=FakeMemory(), strip_probes=lambda: 0,
+        task_prompt="fix the bug", baseline_executed=100)
+    assert tr.controller_bookkeeping_runs == 0
+    phases = {s.phase for s in tr.steps if s.phase}
+    assert "attempt" in phases and "alpha" in phases    # loop was entered
+
+
+def test_phased_first_attempt_keeps_the_old_prefix():
+    # The old behaviour stays reachable so the earlier A/B numbers can be reproduced.
+    seen: list = []
+
+    class Rec(PrefixPhase):
+        def __call__(self, phase, prompt, tools):
+            seen.append(phase)
+            return super().__call__(phase, prompt, tools)
+
+    cfg = RccConfig(target_label="m", max_attempts=2, first_attempt="phased")
+    tr = run_rcc_condition(
+        _OCFG, cfg, _SUB, phase_runner=Rec(),
+        suite_runner=_seq_full([_ev(0, 2), _ev(100, 0)]),
+        subset_runner=_seq_subset([]), memory=FakeMemory(), strip_probes=lambda: 0,
+        task_prompt="fix the bug", baseline_executed=100)
+    assert seen == ["understand", "implement"]
+    assert tr.controller_bookkeeping_runs == 1

@@ -1,9 +1,17 @@
-"""The rcc condition driver: the SAME prefix as phased (baseline suite →
-understand → implement → suite), then either finish green or hand the red state
-to the rcc loop with an RccSeed so the stitched Trace is one continuous run.
-Sequential code (no langgraph needed for a linear prefix); prompt/gate helpers
-are single-sourced from orchestrator.py so the phased-vs-rcc A/B shares its
-prefix verbatim."""
+"""The rcc condition driver: a first attempt, then either finish green or hand the
+red state to the rcc loop with an RccSeed so the stitched Trace is one continuous run.
+
+The first attempt is controlled by `orchestration.rcc_first_attempt`:
+
+  autonomous (default) — identical to the BASELINE arm: same prompt, unrestricted
+      toolset, no forced phases, no pre-edit suite. Diagnosis is paid for only when
+      that attempt leaves the suite red. Measurement drove this: the forced prefix
+      cost 2-5x baseline on tasks where the causal loop never ran at all.
+  phased — the old baseline-suite -> understand -> implement -> suite prefix, shared
+      verbatim with the phased arm. Kept to reproduce the earlier A/B numbers.
+
+Sequential code (no langgraph needed for a linear prefix); prompt/gate helpers are
+single-sourced from orchestrator.py."""
 from __future__ import annotations
 
 import time
@@ -37,7 +45,8 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
                       subset_runner, memory, strip_probes,
                       full_suite_runner=None, snapshot=None, restore=None,
                       on_event=None, cancel_event=None,
-                      persist_dir=None) -> Trace:
+                      persist_dir=None, task_prompt=None,
+                      baseline_executed=None) -> Trace:
     phase_traces: list = []
     ctrl: list = []
     clock = [0.0]
@@ -97,31 +106,51 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
             suite_time[kind] = suite_time.get(kind, 0.0) + dt
             suite_runs[kind] = suite_runs.get(kind, 0) + 1
 
-    # ── the phased-identical prefix ─────────────────────────────────────────
-    base = run_suite("implement", kind="bookkeeping")
-    best = base.result.failed if base.result.ran else None
-    event(f"ran baseline test suite (stub, before any edits): "
-          f"{base.result.passed} passed / {base.result.failed} failed", "implement")
+    # ── first attempt ───────────────────────────────────────────────────────
+    # 'autonomous' makes it IDENTICAL to the baseline arm — same prompt, same
+    # unrestricted toolset, no forced phases, no pre-edit suite. The forced prefix
+    # was measured costing 2-5x baseline on tasks where the causal loop never ran
+    # at all: a tax on work rcc did not do. Diagnosis is paid for only on red.
+    autonomous = (getattr(rcfg, "first_attempt", "phased") == "autonomous"
+                  and bool(task_prompt))
+    if autonomous:
+        best = None
+        # The pre-edit suite exists to size the suite for the undercount guard; the
+        # experiment's cached baseline verify already knows that, so re-running it
+        # per rep is pure duplicated cost.
+        base_exec = baseline_executed
+        a = do_phase("attempt", task_prompt, None)
+        phase_traces.append(("attempt", a.trace))
+        event("first attempt done (autonomous — identical to the baseline arm)",
+              "attempt")
+        cur = run_suite("attempt")
+    else:
+        base = run_suite("implement", kind="bookkeeping")
+        best = base.result.failed if base.result.ran else None
+        event(f"ran baseline test suite (stub, before any edits): "
+              f"{base.result.passed} passed / {base.result.failed} failed", "implement")
 
-    u = do_phase("understand", understand_prompt(ocfg), ["read", "grep"])
-    ok, why = contract_ok(u, ocfg)
-    contract = (_cap(u.text, _MAX_CONTRACT_CHARS) if ok
-                else fallback_contract(base.failures, ocfg))
-    event("agent's contract accepted (its spec of the method's required behaviour)"
-          if ok else f"agent's contract rejected ({why}) — using an auto-derived fallback",
-          "understand")
-    phase_traces.append(("understand", u.trace))
+        u = do_phase("understand", understand_prompt(ocfg), ["read", "grep"])
+        ok, why = contract_ok(u, ocfg)
+        contract = (_cap(u.text, _MAX_CONTRACT_CHARS) if ok
+                    else fallback_contract(base.failures, ocfg))
+        event("agent's contract accepted (its spec of the method's required behaviour)"
+              if ok else f"agent's contract rejected ({why}) — using an auto-derived fallback",
+              "understand")
+        phase_traces.append(("understand", u.trace))
 
-    im = do_phase("implement", implement_prompt(ocfg, contract, ""), ["read", "edit"])
-    cur = run_suite("implement")
+        im = do_phase("implement", implement_prompt(ocfg, contract, ""), ["read", "edit"])
+        phase_traces.append(("implement", im.trace))
+        base_exec = base.result.executed
+        cur = run_suite("implement")
     # Guard against the Gradle up-to-date undercount: after the agent ran the
     # suite itself, the controller's incremental re-run can report "0 failed"
     # over a tiny subset (executed << baseline's full count) — a FALSE green that
     # would skip rcc entirely. When the post-implement run looks green but grossly
     # under-executes vs the baseline, force ONE authoritative (--rerun-tasks) run
-    # and trust THAT for the green decision. base ran on a fresh workdir, so its
-    # executed count is the reliable full-suite size.
-    base_exec = base.result.executed
+    # and trust THAT for the green decision. base_exec is the reliable full-suite
+    # size: the pre-edit run on a fresh workdir, or the experiment's cached
+    # baseline verify when the autonomous path skipped that run.
     looks_green = cur.result.compiled and cur.result.ran and cur.result.failed == 0
     under = (base_exec and cur.result.executed is not None
              and cur.result.executed < base_exec * UNDERCOUNT_RATIO)
@@ -138,15 +167,15 @@ def run_rcc_condition(ocfg: OrchestratorConfig, rcfg: RccConfig,
             event(f"full re-run — {cur.result.passed} passed / {cur.result.failed} "
                   f"failed (compiled={cur.result.compiled})", "implement")
     best = _track_best(cur, best, productive)
-    event(f"implement done — {cur.result.passed} passed / {cur.result.failed} "
-          f"failed (compiled={cur.result.compiled})", "implement")
-    phase_traces.append(("implement", im.trace))
+    stage = "attempt" if autonomous else "implement"
+    event(f"{stage} done — {cur.result.passed} passed / {cur.result.failed} "
+          f"failed (compiled={cur.result.compiled})", stage)
 
     green = cur.result.compiled and cur.result.ran and cur.result.failed == 0
     if green or cancelled():
         outcome = "cancelled" if cancelled() else "green"
-        event(f"finalized: {outcome} — implement already green, rcc not invoked",
-              "implement")
+        event(f"finalized: {outcome} — {stage} already green, rcc not invoked",
+              stage)
         tr = stitch(phase_traces, ctrl, outcome=outcome,
                     controller_test_runs=full_runs[0],
                     controller_test_time_s=sum(suite_time.values()),

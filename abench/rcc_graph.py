@@ -42,6 +42,12 @@ class RccConfig:
     cluster_cap: int = 5
     subset_class_cap: int = 15     # cap on test classes kept by the focus step
     revert_to_best: bool = False   # keep the best-reached worktree, not the last fix
+    #: 'autonomous' = the first attempt is IDENTICAL to the baseline arm and the
+    #: causal loop is entered only if it leaves the suite red; 'phased' = the old
+    #: forced understand/implement prefix. Lives here, not on OrchestratorConfig,
+    #: because build_orchestrator_config does not carry rcc_* knobs — putting it
+    #: there would have made the default a silent no-op.
+    first_attempt: str = "phased"
 
 
 @dataclass

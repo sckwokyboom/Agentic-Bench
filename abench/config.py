@@ -491,6 +491,18 @@ class OrchestrationCfg(BaseModel):
             "via MutationGraph.focus). Dense targets are covered by 40+ classes — "
             "uncapped subsets erase the cycle-time win. The full suite still gates "
             "every accept; 0 disables the cap."))
+    rcc_first_attempt: Literal["autonomous", "phased"] = Field(
+        default="autonomous", title="rcc first attempt",
+        description=(
+            "What rcc does BEFORE any diagnosis. 'autonomous' (default) runs the "
+            "agent exactly as the baseline arm does — same prompt, same unrestricted "
+            "toolset, no forced understand/implement phases and no pre-edit suite — "
+            "and engages the causal loop only if that attempt leaves the suite RED. "
+            "Measurements showed the forced prefix costing 2-5x baseline on tasks "
+            "where the loop never even ran, i.e. a tax on work rcc did not do. "
+            "'phased' keeps the old prefix, which is what the earlier A/B measured; "
+            "use it only to reproduce those numbers."),
+    )
     rcc_strict: bool = Field(
         default=True, title="rcc strict: fail instead of degrading to phased",
         description=(

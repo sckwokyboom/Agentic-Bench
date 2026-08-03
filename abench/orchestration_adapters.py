@@ -172,11 +172,17 @@ def make_phase_runner(client, *, workdir, system_prompt, model, timeout_s, on_ev
     cancel_event is forwarded to each phase's run_task so a UI cancel kills the
     IN-FLIGHT phase subprocess promptly (≤0.5s) — without it, a phased run ignores
     cancel until the whole run finishes."""
-    def runner(phase: str, prompt: str, allowed_tools: list[str]) -> PhaseOutcome:
+    def runner(phase: str, prompt: str,
+               allowed_tools: "list[str] | None") -> PhaseOutcome:
+        # allowed_tools=None means DO NOT scope the toolset — the phase runs with
+        # exactly what the autonomous baseline arm gets. Required for rcc's
+        # first attempt to be identical to baseline rather than merely similar.
         res = client.run_task(
             workdir=str(workdir), system_prompt=system_prompt, model=model,
             user_message=prompt, timeout_s=timeout_s,
-            agent_tools={t: True for t in allowed_tools}, on_event=on_event,
+            agent_tools=(None if allowed_tools is None
+                         else {t: True for t in allowed_tools}),
+            on_event=on_event,
             cancel_event=cancel_event, temperature=temperature,
         )
         tr = res.trace
