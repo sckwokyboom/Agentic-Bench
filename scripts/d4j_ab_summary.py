@@ -88,6 +88,11 @@ def collect(root: Path, runs_dir: str = "runs-ab") -> list[dict]:
                 "test_edits": buckets.get("test", 0),
                 "cheat": [s.get("type") for s in
                           ((m.get("cheating") or {}).get("signals") or [])],
+                # Provider/proxy failures (HTTP 407, 429, 5xx). A run that lost turns
+                # to infrastructure is not a measurement of the agent: it may have
+                # stopped early and look like a legitimate give-up.
+                "svc_errors": m.get("n_service_errors") or 0,
+                "rate_limits": m.get("n_rate_limits") or 0,
                 "error": m.get("error"),
                 "rundir": str(rd.relative_to(root)),
             })
@@ -109,6 +114,13 @@ def render(rows: list[dict]) -> str:
     o = ["# Defects4J cost-to-solve A/B — digest", "",
          f"runs: **{len(rows)}** | bugs: {len(bugs)} | arms: {', '.join(arms)} | "
          f"reps/arm: {len({r['rep'] for r in rows})}", ""]
+    hurt = [r for r in rows if r.get("svc_errors") or r.get("rate_limits")]
+    if hurt:
+        o += ["> **{}/{} runs hit provider/proxy errors** (407/429/5xx). Those runs lost "
+              "turns to infrastructure, so neither their cost nor their verdict measures "
+              "the agent — they are EXCLUDED from the headline ratios below and listed "
+              "under validity flags. Re-run them before trusting any conclusion."
+              .format(len(hurt), len(rows)), ""]
     hidden = [r for r in rows if r.get("hidden_tests")]
     if hidden:
         o += ["> **HIDDEN-TEST fixtures ({}/{} runs): the `solved` column below is NOT "
@@ -157,6 +169,7 @@ def render(rows: list[dict]) -> str:
                  "net_wall": _agg(rs, "net_wall"), "bk_s": _agg(rs, "bk_s"),
                  "bk_runs": _agg(rs, "bk_runs"),
                  "degraded": any(r["degraded"] for r in rs),
+                 "svc": sum(r.get("svc_errors", 0) + r.get("rate_limits", 0) for r in rs),
                  "loop": sum(1 for r in rs if r["rcc_loop"])}
             per[(bug, arm)] = a
             loop = ("—" if arm != "rcc"
@@ -185,6 +198,9 @@ def render(rows: list[dict]) -> str:
             note = []
             if r["degraded"]:
                 note.append("rcc DEGRADED — excluded")
+            if b.get("svc") or r.get("svc"):
+                note.append(f"provider/proxy errors (base {b.get('svc',0)}, "
+                            f"rcc {r.get('svc',0)}) — excluded")
             if not both:
                 note.append(f"solve differs (base {b['solved']}/{b['n']}, "
                             f"rcc {r['solved']}/{r['n']}) — cost not comparable")
@@ -194,7 +210,7 @@ def render(rows: list[dict]) -> str:
                     ratio = r[k] / b[k]
                     cells.append(f"{ratio:.2f}×")
                     # Only pool a ratio when the comparison is meaningful.
-                    if both and not r["degraded"]:
+                    if both and not r["degraded"] and not (b.get("svc") or r.get("svc")):
                         ratios[k].append(ratio)
                 else:
                     cells.append("—")
@@ -227,13 +243,17 @@ def render(rows: list[dict]) -> str:
                   "or had rcc degrade. The cost claim cannot be made from this batch.", ""]
 
     # ── validity ─────────────────────────────────────────────────────────────
-    bad = [r for r in rows if r["test_edits"] or r["cheat"] or r["error"]]
+    bad = [r for r in rows if r["test_edits"] or r["cheat"] or r["error"]
+           or r.get("svc_errors") or r.get("rate_limits")]
     if bad:
         o += ["## Validity flags (per run)", ""]
         for r in bad:
             bits = []
             if r["test_edits"]:
                 bits.append(f"edited {r['test_edits']} test file(s)")
+            if r.get("svc_errors") or r.get("rate_limits"):
+                bits.append(f"provider/proxy errors: {r.get('svc_errors',0)} service, "
+                            f"{r.get('rate_limits',0)} rate-limit")
             if r["cheat"]:
                 bits.append("anti-cheat: " + ", ".join(r["cheat"]))
             if r["error"]:
