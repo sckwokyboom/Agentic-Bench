@@ -184,6 +184,101 @@ def split_params(sig: str) -> list[str]:
     return out
 
 
+def reanchor(methods_path: Path, original: Path, seed: Path) -> int:
+    """Move the target file's method spans from ORIGINAL to STUB coordinates.
+
+    joern indexed the original tree, but the agent edits the stripped one, and the
+    stub is 3 lines where the body was — so every span below the target is off. rcc
+    would then point at the wrong lines. Ported from prepare.py, which does exactly
+    this for the committed putValue artifacts.
+    """
+    import difflib
+    a = original.read_text(encoding="utf-8").splitlines()
+    b = seed.read_text(encoding="utf-8").splitlines()
+    lmap: dict[int, int] = {}
+    for tag, i1, i2, j1, _j2 in difflib.SequenceMatcher(a=a, b=b,
+                                                        autojunk=False).get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                lmap[i1 + k + 1] = j1 + k + 1
+        else:                       # collapse a replaced block onto the seed's start
+            for k in range(i1, i2):
+                lmap[k + 1] = j1 + 1
+    base = original.name
+    methods = json.loads(methods_path.read_text(encoding="utf-8"))
+    moved = 0
+    for loc in methods.values():
+        if not str(loc.get("file", "")).endswith(base):
+            continue
+        s = lmap.get(loc["start"])
+        if s is None:
+            continue
+        e = max(lmap.get(loc["end"], s), s)
+        if [s, e] != [loc["start"], loc["end"]]:
+            loc["start"], loc["end"] = s, e
+            moved += 1
+    methods_path.write_text(json.dumps(methods, indent=0), encoding="utf-8")
+    return moved
+
+
+def pack_overlay(gt_out: Path, overlay: Path, fqn: str,
+                 original: Path, seed: Path) -> str | None:
+    """Assemble the rcc overlay from a produce_artifacts run. None on success.
+
+    Graph-Tipper writes `impact/` (indices) and `slice-work/<hash>.graph.json` (the
+    mutation graph) — but rcc reads `.impact/mutation-graph.json[.gz]`, so the graph
+    has to be selected by target and gzipped into place. Getting this wrong is silent:
+    the first version copied from a path that does not exist, published an EMPTY
+    overlay, and every rcc run would have died at rcc_strict with no graph.
+    """
+    src = gt_out / "impact"
+    if not src.is_dir():
+        return f"no {src} — produce_artifacts wrote nothing to copy"
+    shutil.copytree(src, overlay / ".impact")
+
+    graphs = sorted((gt_out / "slice-work").glob("*.graph.json"))
+    chosen = None
+    for g in graphs:
+        try:
+            if json.loads(g.read_text(encoding="utf-8")).get("target", {}).get("fqn") == fqn:
+                chosen = g
+                break
+        except (OSError, json.JSONDecodeError):
+            continue
+    if chosen is None:
+        return (f"no mutation graph for {fqn} among "
+                f"{[g.name for g in graphs] or 'no *.graph.json at all'}")
+    # SCRUB before publishing. produce_artifacts' --body-from only swaps the body in
+    # the markdown slices — its leak guard covers those alone — while the graph keeps
+    # target.current_body as found in the FULL tree, i.e. the reference implementation.
+    # The shipped putValue artifact has that field empty, so it was scrubbed too. Left
+    # in, the rcc arm reads the answer out of its own graph and every number it
+    # produces is meaningless.
+    import gzip
+    graph = json.loads(chosen.read_text(encoding="utf-8"))
+    stub_body = ""
+    try:
+        seed_lines = seed.read_text(encoding="utf-8").splitlines(keepends=True)
+        ls = graph.get("target", {}).get("line_start")
+        if ls:
+            f0, l0 = body_span(seed_lines, ls)
+            stub_body = "".join(seed_lines[f0:l0 + 1]).rstrip("\r\n")
+    except (OSError, ValueError):
+        stub_body = ""
+    if STUB_MARK not in stub_body:            # never publish a body we cannot vouch for
+        stub_body = ""
+    graph.setdefault("target", {})["current_body"] = stub_body
+    graph.get("method_bodies", {}).pop(fqn, None)
+    with gzip.open(overlay / ".impact" / "mutation-graph.json.gz", "wt",
+                   encoding="utf-8") as fh:
+        json.dump(graph, fh)
+
+    mj = overlay / ".impact" / "methods.json"
+    if mj.is_file():
+        reanchor(mj, original, seed)
+    return None
+
+
 def check_no_leak(overlay: Path, reference_body: str) -> str | None:
     """Refuse to publish an overlay that carries the answer.
 
@@ -191,17 +286,27 @@ def check_no_leak(overlay: Path, reference_body: str) -> str | None:
     handed the solution and every number it produces is worthless — the failure this
     guard exists to make impossible.
     """
+    import gzip
     needle = " ".join(reference_body.split())[:200]
     if len(needle) < 40:
         return None                        # too short to fingerprint reliably
     for f in sorted(overlay.rglob("*")):
-        if not f.is_file() or f.suffix == ".gz":
+        if not f.is_file():
             continue
         try:
-            text = " ".join(f.read_text(encoding="utf-8", errors="replace").split())
-        except OSError:
+            # The graph ships gzipped and is the ONE file rcc actually reads — the
+            # first version skipped .gz and so never inspected it.
+            raw = (gzip.open(f, "rt", encoding="utf-8", errors="replace").read()
+                   if f.suffix == ".gz"
+                   else f.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, EOFError):
             continue
-        if needle in text:
+        # JSON stores the body with ESCAPED newlines, so collapsing real whitespace
+        # alone never matched it — that is precisely how a leaked reference body in
+        # the graph passed this guard the first time. Neutralise the escapes too.
+        flat = " ".join(raw.replace("\\n", " ").replace("\\t", " ")
+                        .replace("\\r", " ").split())
+        if needle in flat:
             return f"reference body found in {f.relative_to(overlay)}"
     return None
 
@@ -219,13 +324,28 @@ def produce_graph(gt: Path, method: str, fqn: str, decl: str, checkout: Path,
            # the agent-visible stub — the real body is the answer.
            "--out", str(out), "--body-from", str(checkout), "--force"]
     env = dict(os.environ, PYTHONPATH=str(gt))
+    # The artifact build downloads byte-buddy from Maven Central, and a python.org
+    # Python.framework ships without CA certificates — every graph build died on
+    # CERTIFICATE_VERIFY_FAILED. certifi is already a dependency here, so point the
+    # child at its bundle rather than requiring "Install Certificates.command".
+    if "SSL_CERT_FILE" not in env:
+        try:
+            import certifi
+            env["SSL_CERT_FILE"] = env["REQUESTS_CA_BUNDLE"] = certifi.where()
+        except ImportError:
+            pass
     t0 = time.monotonic()
     p = subprocess.run(cmd, cwd=gt, env=env, capture_output=True,
                        text=True, errors="replace", timeout=timeout)
     dt = time.monotonic() - t0
     if p.returncode != 0:
-        tail = (p.stderr or p.stdout or "").strip().splitlines()[-4:]
-        return f"produce_artifacts failed in {dt:.0f}s: {' | '.join(tail)}"
+        out.mkdir(parents=True, exist_ok=True)
+        log = out / "produce_artifacts.log"
+        log.write_text(f"$ {' '.join(cmd)}\n\n--- stdout ---\n{p.stdout}\n"
+                       f"--- stderr ---\n{p.stderr}", encoding="utf-8")
+        cause = [ln for ln in (p.stderr or "").strip().splitlines()
+                 if ln.strip() and not ln.startswith((" ", "\t"))][-1:] or ["(no stderr)"]
+        return f"produce_artifacts failed in {dt:.0f}s: {cause[0][:160]} — see {log}"
     print(f"      graph built in {dt / 60:.1f} min")
     return None
 
@@ -329,16 +449,12 @@ def main() -> int:
                 continue
             overlay = d / "overlay"
             shutil.rmtree(overlay, ignore_errors=True)
-            (overlay / ".impact").mkdir(parents=True)
-            for name in ("mutation-graph.json.gz", "methods.json", "coverage.json",
-                         "mutation.json"):
-                s = d / "gt-out" / ".impact" / name
-                if s.is_file():
-                    shutil.copy2(s, overlay / ".impact" / name)
-            oc = d / "gt-out" / ".opencode" / "impact.json"
-            if oc.is_file():
-                (overlay / ".opencode").mkdir(parents=True, exist_ok=True)
-                shutil.copy2(oc, overlay / ".opencode" / "impact.json")
+            err = pack_overlay(d / "gt-out", overlay, fqn,
+                               ORIGINAL / src_file, checkout / src_file)
+            if err:
+                skipped.append(f"{m}: {err}")
+                shutil.rmtree(d, ignore_errors=True)
+                continue
             leak = check_no_leak(overlay, reference_body)
             if leak:
                 skipped.append(f"{m}: LEAK GUARD — {leak}")
