@@ -171,9 +171,14 @@ def split_params(sig: str) -> list[str]:
     out = []
     for p in parts:
         p = p.strip().replace("final ", "")
-        # Varargs otherwise lose their type entirely (addRowValues(Text...) resolved
-        # to no parameters at all). Graph-Tipper spells them `Text...` in its own
-        # slices, and `Text[]` made its slice step exit 2 with the target not found.
+        # Varargs must be spelled as an ARRAY, not with dots. Graph-Tipper's
+        # MethodLocator.matches() compares simple names via
+        #   simpleName(s) = s.substring(max(lastIndexOf('.'), lastIndexOf('$')) + 1)
+        # so `picocli...$Text[]` reduces to `Text[]` and matches, while `Text...`
+        # reduces to the EMPTY string and matches nothing — which is how
+        # addRowValues(String...)/addRowValues(Text...) stayed ambiguous and the slice
+        # step died with "Multiple matches". Its markdown prints `Text...`; its
+        # matcher does not accept it.
         varargs = "..." in p
         toks = p.replace("...", " ").split()
         if len(toks) < 2:
@@ -181,7 +186,7 @@ def split_params(sig: str) -> list[str]:
         t = " ".join(toks[:-1])            # everything but the parameter name
         arr = "[]" * t.count("[]")
         t = t.replace("[]", "").split("<")[0].rsplit(".", 1)[-1]   # simple name
-        out.append(t + arr + ("..." if varargs else ""))
+        out.append(t + arr + ("[]" if varargs else ""))
     return out
 
 
