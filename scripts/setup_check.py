@@ -101,9 +101,20 @@ def main() -> int:
             if not have and a.build_image:
                 proxy = _proxy_build_args()
                 if proxy:
+                    # NAMES only. This used to print the whole --build-arg list, i.e.
+                    # the proxy URL and any credentials embedded in it, straight to a
+                    # console whose output routinely gets pasted into tickets and chat.
+                    names = sorted({p.split("=", 1)[0] for p in proxy if "=" in p})
                     print("  [setup] inheriting host proxy into docker build "
-                          "(build-time only): " + " ".join(proxy))
-                subprocess.run([docker, "build", *proxy, "-t", "abench-sandbox:latest",
+                          "(build-time only, values not shown): " + ", ".join(names))
+                print("  [setup] building abench-sandbox:latest — the gradle-warm "
+                      "stage downloads the Gradle distribution and every picocli "
+                      "dependency, then compiles its tests. That stage is cached on "
+                      "the contents of experiments/picocli-putValue/stripped/, so it "
+                      "re-runs in full whenever the fixture is rebuilt (e.g. after "
+                      "prepare.py --force) and is quick otherwise.")
+                subprocess.run([docker, "build", "--progress=plain", *proxy,
+                                "-t", "abench-sandbox:latest",
                                 "-f", "docker/Dockerfile.sandbox", "."], check=True)
                 have = True
             check("abench-sandbox:latest image", have, "re-run with --build-image")
