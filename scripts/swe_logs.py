@@ -73,11 +73,16 @@ def scan_run(rundir: Path) -> dict | None:
     "Broken" means the run cannot be counted as a fair measurement: the provider
     errored, the harness never produced a result, or the environment failed under it.
     """
-    text = ""
+    # run.log and debug.log are frequently identical; concatenating them blindly
+    # printed every summary twice and halved how much real context fit in a tail.
+    parts: list[str] = []
     for name in ("run.log", "debug.log"):
         f = rundir / name
         if f.is_file():
-            text += _read(f)
+            t = _read(f)
+            if t and t not in parts:
+                parts.append(t)
+    text = "\n".join(parts)
     if not text and not (rundir / "error.log").is_file():
         return None
 
@@ -97,12 +102,21 @@ def scan_run(rundir: Path) -> dict | None:
             faults.append(f"interrupted={interrupted}")
     if res:
         finished, reason, steps, t_in, _t_out, _verify = res.groups()
-        if finished != "True":
+        # finished=False with NO reason is not evidence of anything: stitched
+        # orchestrated traces carried the field's default until trace_stitch was
+        # fixed, so every rcc run in older batches reads as aborted while its steps,
+        # tokens and verdict are perfectly normal. Only a stated reason means the run
+        # was actually cut short.
+        if finished != "True" and reason not in ("None", "null", ""):
             faults.append(f"unfinished (reason={reason})")
-        if steps == "0" or t_in == "0":
-            # No steps and no input tokens: the session never got off the ground, so
-            # whatever verdict it carries is about the untouched checkout.
+        if steps == "0":
+            # No steps at all: the session never got off the ground, so whatever
+            # verdict it carries is about the untouched checkout.
             faults.append("session never ran (0 steps)")
+        elif t_in == "0":
+            # Steps but no input tokens is impossible for a live session — the trace
+            # lost its accounting, so this run cannot be costed.
+            faults.append(f"no tokens recorded ({steps} steps)")
     elif oc:
         faults.append("no result line (crashed after the agent)")
     else:
@@ -136,7 +150,9 @@ def tally_outcomes(rundirs: list[Path]) -> dict:
         for name in ("run.log", "debug.log"):
             f = d / name
             if f.is_file():
-                text += _read(f)
+                text = _read(f)
+                if _RESULT.search(text):
+                    break
         m = _RESULT.search(text)
         out[m.group(6) if m and m.group(6) in out else "unknown"] += 1
     return out

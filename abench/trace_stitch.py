@@ -95,9 +95,16 @@ def stitch(
 
     starts = [tr.started_at for _, tr in phases if tr.started_at is not None]
     ends = [tr.ended_at for _, tr in phases if tr.ended_at is not None]
+    # Completion has to be carried across, not left at the field default: without this
+    # EVERY orchestrated run reported finished=False with interrupted_reason=None — a
+    # self-contradiction that reached metrics.json and the reports, and made healthy
+    # rcc runs look aborted. A stitched run is finished when no phase was interrupted.
+    reasons = [tr.interrupted_reason for _, tr in phases if tr.interrupted_reason]
     return Trace(
         steps=steps,
         turns=turns,
+        finished=bool(phases) and all(tr.finished for _, tr in phases),
+        interrupted_reason=reasons[0] if reasons else None,
         started_at=min(starts) if starts else None,
         ended_at=max(ends) if ends else None,
         tokens_in=_sum([tr.tokens_in for _, tr in phases]),
