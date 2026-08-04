@@ -66,8 +66,8 @@ EXPERIMENT = """\
 # Read target_similarity FIRST: picocli is public, so a verbatim restoration means
 # the model recalled the body and this method measures recall, not repair.
 name: picocli-{method}-ab
-fixture_path: ./checkout           # the stub tree the agent sees
-reference_path: {reference}        # the real picocli tree (target_similarity)
+fixture_path: ./stripped           # the stub tree the agent sees
+reference_path: ./original         # the real picocli tree (target_similarity)
 task_prompt: ./task.md
 system_prompt: {system}
 model: {model}
@@ -452,11 +452,18 @@ def main() -> int:
             continue
 
         print(f"  … {m}: copying the tree")
-        checkout = d / "checkout"
+        checkout = d / "stripped"
         if checkout.exists():
             shutil.rmtree(checkout)
         d.mkdir(parents=True, exist_ok=True)
         shutil.copytree(ORIGINAL, checkout, symlinks=True)
+        # abench-ui lists a directory as an experiment when it holds experiment.yaml,
+        # and badges it by the presence of stripped/ and original/. Symlinking the
+        # shared reference (rather than copying 100MB per method) makes each sweep
+        # directory look exactly like the picocli experiment the UI already knows.
+        link = d / "original"
+        if not link.exists():
+            link.symlink_to(os.path.relpath(ORIGINAL, d))
 
         target = checkout / src_file
         original_src = (ORIGINAL / src_file).read_text(encoding="utf-8").splitlines(keepends=True)
@@ -518,7 +525,6 @@ def main() -> int:
             sandbox=sandbox,
             method=m, tests=len(cov[fqn]), lines=removed, model=a.model, reps=a.reps,
             conditions="\n".join(conditions),
-            reference=os.path.relpath(ORIGINAL, d),
             system=os.path.relpath(sys_prompt, d)), encoding="utf-8")
         made.append((m, len(cov[fqn]), f"{removed} lines stripped"))
         lines_out += [f'echo "=== {m} ==="', f'D="$ROOT/{m}"',
