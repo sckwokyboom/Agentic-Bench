@@ -113,10 +113,23 @@ def s_fixtures(force):
     if orig.exists() and not force:
         print("[prepare:fixtures] original/ exists, skip (use --force to redo)")
     else:
+        # Clone into a staging dir and swap only on success. Removing original/ first
+        # means a failed clone LOSES the tree: behind an authenticating proxy the
+        # clone died with 407 and left the machine with no reference tree at all —
+        # and it cannot be restored from git, since original/ is untracked.
+        staging = HERE / "original.incoming"
+        _rmtree(staging)
+        try:
+            run(["git", "-c", "core.autocrlf=false", "clone", LOCK["repo"], staging])
+            run(["git", "checkout", "-q", LOCK["sha"]], cwd=staging)
+            _rmtree(staging / ".git")
+        except BaseException:
+            _rmtree(staging)
+            if orig.exists():
+                print("[prepare:fixtures] clone failed — existing original/ left intact")
+            raise
         _rmtree(orig)
-        run(["git", "-c", "core.autocrlf=false", "clone", LOCK["repo"], orig])
-        run(["git", "checkout", "-q", LOCK["sha"]], cwd=orig)
-        _rmtree(orig / ".git")
+        staging.rename(orig)
     if stripped.exists() and not force:
         print("[prepare:fixtures] stripped/ exists, skip")
         return

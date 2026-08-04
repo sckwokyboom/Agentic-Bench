@@ -374,6 +374,20 @@ def main() -> int:
     if not ORIGINAL.is_dir():
         print(f"missing {ORIGINAL} — run experiments/picocli-putValue/prepare.py first")
         return 2
+    # The reference tree must be PRISTINE picocli. It is not tracked in git — it is
+    # cloned at a pinned SHA — so it is easy to strip in place by accident, and the
+    # consequences are silent: reference_path drives target_similarity, so a stubbed
+    # reference would compare the agent's work against a stub and call it a match.
+    # It also breaks the coverage capture (a stubbed putValue failed 175 of 267 tests
+    # after 564 seconds, with the real cause nowhere in the error).
+    ref_src = ORIGINAL / "src/main/java/picocli/CommandLine.java"
+    if ref_src.is_file() and STUB_MARK in ref_src.read_text(encoding="utf-8"):
+        print(f"CONTAMINATED reference tree: {ref_src} already contains a stub.\n"
+              f"  {ORIGINAL} must be untouched picocli — it is the similarity "
+              "reference AND the tree the coverage capture runs its tests on.\n"
+              "  Restore it:  python3 experiments/picocli-putValue/prepare.py "
+              "--only fixtures --force")
+        return 2
     gt = None
     if not a.no_graph:
         try:
