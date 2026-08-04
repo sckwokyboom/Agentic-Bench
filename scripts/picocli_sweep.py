@@ -171,8 +171,9 @@ def split_params(sig: str) -> list[str]:
     out = []
     for p in parts:
         p = p.strip().replace("final ", "")
-        # Varargs are an array at the JVM level, and `Text... values` otherwise loses
-        # its type entirely — picocli's addRowValues(Text...) resolved to no params.
+        # Varargs otherwise lose their type entirely (addRowValues(Text...) resolved
+        # to no parameters at all). Graph-Tipper spells them `Text...` in its own
+        # slices, and `Text[]` made its slice step exit 2 with the target not found.
         varargs = "..." in p
         toks = p.replace("...", " ").split()
         if len(toks) < 2:
@@ -180,7 +181,7 @@ def split_params(sig: str) -> list[str]:
         t = " ".join(toks[:-1])            # everything but the parameter name
         arr = "[]" * t.count("[]")
         t = t.replace("[]", "").split("<")[0].rsplit(".", 1)[-1]   # simple name
-        out.append(t + arr + ("[]" if varargs else ""))
+        out.append(t + arr + ("..." if varargs else ""))
     return out
 
 
@@ -365,6 +366,10 @@ def main() -> int:
                          "checking the strip step quickly")
     ap.add_argument("--force", action="store_true", help="rebuild existing fixtures")
     a = ap.parse_args()
+    # Every path handed to produce_artifacts must be absolute: it runs with
+    # cwd=Graph-Tipper, so a relative --root wrote the artifacts into the
+    # Graph-Tipper checkout and the sweep found nothing.
+    a.root = a.root.resolve()
 
     if not ORIGINAL.is_dir():
         print(f"missing {ORIGINAL} — run experiments/picocli-putValue/prepare.py first")
@@ -444,8 +449,9 @@ def main() -> int:
             err = produce_graph(gt, m, fqn, original_src[first], checkout,
                                 d / "gt-out", a.tests, a.graph_timeout)
             if err:
+                # Deliberately NOT removed: the failure log lives under gt-out/ and
+                # deleting it was why the first WSL failure could not be diagnosed.
                 skipped.append(f"{m}: {err}")
-                shutil.rmtree(d, ignore_errors=True)
                 continue
             overlay = d / "overlay"
             shutil.rmtree(overlay, ignore_errors=True)
