@@ -31,20 +31,35 @@ def _load(p: Path):
         return None
 
 
+def is_dead(m: dict) -> bool:
+    """A run that never touched the code, so its similarity is meaningless.
+
+    This matters more here than anywhere else. A proxy-killed session leaves the
+    checkout untouched, so `target_similarity` is measured against the BUGGY source
+    and comes out low — exactly the value that reads as "the model is deriving, not
+    recalling". Counting those would turn a memorised repository into a recommended
+    one. On hidden-test fixtures they also grade as verify=passed, because the suite
+    is green by design, so the verdict cannot filter them either.
+    """
+    return bool(m.get("n_service_errors") or m.get("error")
+                or m.get("n_steps") == 0 or m.get("tokens_in") == 0)
+
+
 def scan(root: Path) -> dict:
-    sims, solved, runs, errs = [], 0, 0, 0
+    sims, solved, runs, dead = [], 0, 0, 0
     for mf in root.glob("*/runs/*/*/*/rep_*/metrics.json"):
         m = _load(mf) or {}
         runs += 1
+        if is_dead(m):
+            dead += 1
+            continue
         s = (m.get("cheating") or {}).get("target_similarity")
         if isinstance(s, (int, float)):
             sims.append(float(s))
         if m.get("verify_status") == "passed":
             solved += 1
-        if m.get("n_service_errors") or m.get("error"):
-            errs += 1
     return {"repo": root.name.replace("swe-probe-", ""), "runs": runs, "sims": sims,
-            "solved": solved, "errs": errs}
+            "solved": solved, "dead": dead, "live": runs - dead}
 
 
 def verdict(sims: list[float]) -> str:
@@ -73,23 +88,26 @@ def main() -> int:
 
     rows = [scan(r) for r in roots]
     o = ["# Memorisation probe", "",
-         "| repo | runs | median similarity | verbatim (>=0.98) | workdir-passed | verdict |",
+         "| repo | runs (live/total) | median similarity | verbatim (>=0.98) | "
+         "workdir-passed | verdict |",
          "|---|---|---|---|---|---|"]
     for r in rows:
         sims = r["sims"]
         med = f"{statistics.median(sims):.2f}" if sims else "—"
         verb = f"{sum(1 for s in sims if s >= VERBATIM)}/{len(sims)}" if sims else "—"
-        o.append(f"| {r['repo']} | {r['runs']} | {med} | {verb} | {r['solved']}/{r['runs']} "
-                 f"| {verdict(sims)} |")
+        o.append(f"| {r['repo']} | {r['live']}/{r['runs']} | {med} | {verb} | "
+                 f"{r['solved']}/{r['live']} | {verdict(sims)} |")
     o += ["",
           "`workdir-passed` is NOT a solve rate on hidden-test fixtures — it only says "
           "the run broke nothing. For the real verdict run "
           "`python3 scripts/d4j_replay.py --root <probe-root> --ab --runs-dir runs`, "
           "which applies the withheld tests.", ""]
-    bad = [r for r in rows if r["errs"]]
+    bad = [r for r in rows if r["dead"]]
     if bad:
-        o += ["Runs with provider errors or crashes (excluded from any conclusion): "
-              + ", ".join(f"{r['repo']} ({r['errs']})" for r in bad), ""]
+        o += ["Dead runs EXCLUDED from every column above (provider error, crash, or\n"
+              "zero steps — they never touched the code, so their similarity would be\n"
+              "measured against the buggy source and read as 'not memorised'): "
+              + ", ".join(f"{r['repo']} ({r['dead']}/{r['runs']})" for r in bad), ""]
     # Match the per-row verdict exactly: a repo where half the runs are verbatim is
     # "mostly memorised" and must not be recommended just because its MEDIAN dipped.
     usable = [r for r in rows if r["sims"]
