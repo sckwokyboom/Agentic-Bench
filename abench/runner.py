@@ -779,13 +779,25 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
 
                 rate_limited = result.trace.interrupted_reason == "rate_limit"
                 cancelled = cancel_event is not None and cancel_event.is_set()
+                # A session that took ZERO steps after a provider error never began:
+                # an authenticating proxy answered 407 before the first turn, so the
+                # workdir is untouched and the recorded verdict is about the fixture,
+                # not the agent. Retrying that is not a second attempt for the agent —
+                # there was no first one — and it is applied identically to every arm.
+                # Without it a 407 silently scores the arm it happened to hit, which
+                # is how both baseline reps of a picocli A/B came back at 0 steps.
+                stillborn = (getattr(result.trace, "n_service_errors", 0)
+                             and not result.trace.steps)
 
-                if rate_limited and attempt <= exp.rate_limit_retries and not cancelled:
+                if ((rate_limited or stillborn) and attempt <= exp.rate_limit_retries
+                        and not cancelled):
                     backoff = min(
                         exp.rate_limit_backoff_s * (2 ** (attempt - 1)), 120.0
                     )
+                    reason = "rate-limited (429)" if rate_limited else (
+                        "provider error before the first step")
                     msg = (
-                        f"[abench] rate-limited (429) — retry "
+                        f"[abench] {reason} — retry "
                         f"{attempt}/{exp.rate_limit_retries} after {backoff:.0f}s"
                     )
                     _log(msg)

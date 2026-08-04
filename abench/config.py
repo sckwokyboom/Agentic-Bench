@@ -637,7 +637,10 @@ class Experiment(BaseModel):
         title="Rate-limit retries",
         description=(
             "Retry a run this many times when the provider returns 429 (rate "
-            "limit), with exponential backoff. 0 disables."
+            "limit), or when a provider error killed the session BEFORE its first "
+            "step — a 0-step run is not an attempt, so retrying it recovers the "
+            "measurement rather than giving the agent another try. Exponential "
+            "backoff; 0 disables."
         ),
     )
     rate_limit_backoff_s: float = Field(

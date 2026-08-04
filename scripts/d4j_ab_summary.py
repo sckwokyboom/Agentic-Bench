@@ -108,11 +108,14 @@ def _fmt(v, spec=".0f") -> str:
     return format(v, spec) if isinstance(v, (int, float)) else "—"
 
 
-def render(rows: list[dict]) -> str:
+def render(rows: list[dict], title: str = "") -> str:
     bugs = sorted({r["bug"] for r in rows})
     arms = sorted({r["arm"] for r in rows})
-    o = ["# Defects4J cost-to-solve A/B — digest", "",
-         f"runs: **{len(rows)}** | bugs: {len(bugs)} | arms: {', '.join(arms)} | "
+    # The header used to say "Defects4J" unconditionally, which is wrong the moment
+    # this is pointed at a SWE-bench or picocli sweep — and a report that misnames its
+    # own subject is worse than no report.
+    o = [f"# {title or 'Cost-to-solve A/B'} — digest", "",
+         f"runs: **{len(rows)}** | targets: {len(bugs)} | arms: {', '.join(arms)} | "
          f"reps/arm: {len({r['rep'] for r in rows})}", ""]
     hurt = [r for r in rows if r.get("svc_errors") or r.get("rate_limits")]
     if hurt:
@@ -155,7 +158,7 @@ def render(rows: list[dict]) -> str:
 
     # ── per-bug, per-arm cost (mean over reps) ────────────────────────────────
     o += ["## Cost per bug (mean over reps)", "",
-          "| bug | arm | solved | dur_s | net dur_s | bookkeeping_s | steps | tokens | test runs | loop |",
+          "| target | arm | solved | dur_s | net dur_s | bookkeeping_s | steps | tokens | test runs | loop |",
           "|---|---|---|---|---|---|---|---|---|---|"]
     per: dict[tuple[str, str], dict] = {}
     for bug in bugs:
@@ -183,7 +186,7 @@ def render(rows: list[dict]) -> str:
     # ── rcc vs baseline ──────────────────────────────────────────────────────
     if "rcc" in arms and "baseline" in arms:
         o += ["## rcc vs baseline (ratio <1 = rcc cheaper)", "",
-              "| bug | both solved? | dur ratio | NET dur ratio | steps ratio | tokens ratio | note |",
+              "| target | both solved? | dur ratio | NET dur ratio | steps ratio | tokens ratio | note |",
               "|---|---|---|---|---|---|---|"]
         ratios: dict[str, list[float]] = {"duration": [], "net_wall": [], "steps": [],
                                           "tokens": []}
@@ -271,6 +274,7 @@ def main() -> int:
                     help="per-instance runs subdir: 'runs-ab' for the Defects4J A/B, "
                          "'runs' for the SWE-bench fixtures built by swe_fixtures.py")
     ap.add_argument("--out", type=Path, help="also write the digest here")
+    ap.add_argument("--title", help="report heading (default: derived from the root)")
     a = ap.parse_args()
     if not a.root.is_dir():
         print(f"no such run root: {a.root}")
@@ -279,7 +283,13 @@ def main() -> int:
     if not rows:
         print(f"no A/B runs found (expected {a.root}/<instance>/{a.runs_dir}/…)")
         return 0
-    text = render(rows)
+    # Name the subject after the run root, so a picocli sweep does not come back
+    # labelled "Defects4J".
+    known = {"d4j-runs": "Defects4J cost-to-solve A/B",
+             "swe-runs": "SWE-bench-java (fixture mode) A/B",
+             "picocli-sweep": "picocli method-restoration A/B"}
+    title = a.title or known.get(a.root.name, f"{a.root.name} A/B")
+    text = render(rows, title)
     print(text)
     if a.out:
         a.out.write_text(text, encoding="utf-8")
