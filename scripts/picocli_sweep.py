@@ -335,13 +335,17 @@ def produce_graph(gt: Path, method: str, fqn: str, decl: str, checkout: Path,
             env["SSL_CERT_FILE"] = env["REQUESTS_CA_BUNDLE"] = certifi.where()
         except ImportError:
             pass
+    # A previous attempt's slice-work/ makes produce_artifacts find two budget
+    # slices and abort — keeping failed fixtures for diagnosis turned every retry
+    # into a different failure. Start from an empty output dir.
+    shutil.rmtree(out, ignore_errors=True)
     t0 = time.monotonic()
     p = subprocess.run(cmd, cwd=gt, env=env, capture_output=True,
                        text=True, errors="replace", timeout=timeout)
     dt = time.monotonic() - t0
     if p.returncode != 0:
-        out.mkdir(parents=True, exist_ok=True)
-        log = out / "produce_artifacts.log"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        log = out.parent / "produce_artifacts.log"
         log.write_text(f"$ {' '.join(cmd)}\n\n--- stdout ---\n{p.stdout}\n"
                        f"--- stderr ---\n{p.stderr}", encoding="utf-8")
         cause = [ln for ln in (p.stderr or "").strip().splitlines()
