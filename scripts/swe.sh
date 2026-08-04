@@ -7,12 +7,15 @@
 #   ./scripts/swe.sh run                 run the batch (resumable — Ctrl-C is safe)
 #   ./scripts/swe.sh status              progress of a running batch (safe anytime)
 #   ./scripts/swe.sh probe [repos…]      memorisation probe across repos -> probe.md
+#   ./scripts/swe.sh logs  [roots…]      collect every FAILURE -> failures.md
 #   ./scripts/swe.sh report              digest to swe-ab.md
 #   ./scripts/swe.sh all                 fetch + build + doctor + run + report
 #
 # Env: DEEPSEEK_API_KEY (required to run), MSB_DATA (default ~/msb-data),
 #      SWE_ROOT (default ./swe-runs), SWE_REPO (default jackson-core), SWE_LIMIT, SWE_REPS,
-#      SWE_PROBE_REPOS (default 'fastjson2 logstash').
+#      SWE_PROBE_REPOS (default 'fastjson2 logstash'),
+#      SWE_PROBE_BASE  (where probe roots live; put it on the LINUX fs under WSL —
+#                       a /mnt/* DrvFs tree throws Input/output error under git+maven).
 #
 # The verdicts produced here are OUR test runs, NOT the official multi-swe-bench
 # `resolved` — comparable to our Defects4J A/B and to each other, not to published
@@ -88,7 +91,7 @@ case "$cmd" in
     lim="${SWE_LIMIT:-2}"
     echo "probe: [$repos] x $lim instance(s) x 1 rep, tests HIDDEN"
     for r in $repos; do
-      root="$ROOT/swe-probe-$r"
+      root="${SWE_PROBE_BASE:-$ROOT}/swe-probe-$r"
       echo ""
       echo "───────── $r ─────────"
       "$PY" "$HERE/swe_fetch.py" --out "$MSB_DATA" "$r" || { echo "  skip $r: no dataset"; continue; }
@@ -103,7 +106,14 @@ case "$cmd" in
     done
     echo ""
     echo "───────── verdict ─────────"
-    "$PY" "$HERE/swe_probe_summary.py" --out "$ROOT/probe.md"
+    "$PY" "$HERE/swe_probe_summary.py" \
+        --roots "${SWE_PROBE_BASE:-$ROOT}"/swe-probe-* --out "$ROOT/probe.md"
+    ;;
+
+  logs)
+    # Collect only what FAILED, from every run's own log files — the console
+    # scrollback is usually gone by the time anyone looks.
+    "$PY" "$HERE/swe_logs.py" ${@:+--roots "$@"} --out "$ROOT/failures.md"
     ;;
 
   report)
