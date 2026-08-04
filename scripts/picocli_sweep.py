@@ -83,7 +83,7 @@ opencode:
       models: [deepseek-v4-flash, deepseek-chat, deepseek-reasoner]
       api_key_env: DEEPSEEK_API_KEY
   sandbox:
-    mode: none
+{sandbox}
 orchestration:
   target_label: the TextTable.{method} method
   max_diagnose_iters: 8
@@ -374,6 +374,12 @@ def main() -> int:
                     help="build fixtures only; rcc needs the graph, so this is for "
                          "checking the strip step quickly")
     ap.add_argument("--force", action="store_true", help="rebuild existing fixtures")
+    ap.add_argument("--container", action="store_true",
+                    help="run each agent session in the sandbox container instead of "
+                         "on the host: proxy settings that are already configured for "
+                         "containers then apply, and the workdir becomes the only host "
+                         "path the agent can see (closing the read-the-original leak). "
+                         "Only env var NAMES are written to the config, never values.")
     a = ap.parse_args()
     # Every path handed to produce_artifacts must be absolute: it runs with
     # cwd=Graph-Tipper, so a relative --root wrote the artifacts into the
@@ -502,7 +508,14 @@ def main() -> int:
             conditions += ["  - name: rcc", "    orchestration: rcc",
                            "    overlay: ./overlay",
                            "    restore_non_target_before_verify: true"]
+        # Only NAMES are emitted here. The values stay in the operator's environment
+        # and are never read, logged or written by the generator.
+        sandbox = ("    mode: container\n"
+                   "    env_passthrough: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY,\n"
+                   "                      http_proxy, https_proxy, no_proxy]"
+                   if a.container else "    mode: none")
         (d / "experiment.yaml").write_text(EXPERIMENT.format(
+            sandbox=sandbox,
             method=m, tests=len(cov[fqn]), lines=removed, model=a.model, reps=a.reps,
             conditions="\n".join(conditions),
             reference=os.path.relpath(ORIGINAL, d),
