@@ -98,12 +98,16 @@ RUN update-ca-certificates && \
     done; echo "[extra-ca] registered $n extra cert(s)"
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 # THEN apt — corporate CA already trusted, so the HTTPS mirror switch verifies.
+# ripgrep is here on purpose: opencode downloads its own rg from GitHub Releases at
+# RUN time when none is on PATH ("downloading ripgrep …-x86_64-unknown-linux-musl"),
+# which is one more per-run network dependency inside something measured in seconds —
+# and one more thing for an authenticating proxy to refuse.
 RUN if [ -n "${HTTPS_PROXY}${https_proxy}" ]; then \
       sed -i -E 's#http://(archive|security)\.ubuntu\.com#https://\1.ubuntu.com#g' \
         /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
     fi \
     && apt-get update && apt-get install -y --no-install-recommends \
-        curl git unzip ca-certificates maven python3 \
+        curl git unzip ca-certificates maven python3 ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # System Gradle for projects that ship NO wrapper. picocli uses its own
