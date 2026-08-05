@@ -104,7 +104,10 @@ def main() -> int:
                     # NAMES only. This used to print the whole --build-arg list, i.e.
                     # the proxy URL and any credentials embedded in it, straight to a
                     # console whose output routinely gets pasted into tickets and chat.
-                    names = sorted({p.split("=", 1)[0] for p in proxy if "=" in p})
+                    # Only NAME=VALUE pairs are env vars; flags like --network=host
+                    # travel in the same list and are not names to report.
+                    names = sorted({p.split("=", 1)[0] for p in proxy
+                                    if "=" in p and not p.startswith("-")})
                     print("  [setup] inheriting host proxy into docker build "
                           "(build-time only, values not shown): " + ", ".join(names))
                 print("  [setup] building abench-sandbox:latest — the gradle-warm "
@@ -113,7 +116,14 @@ def main() -> int:
                       "the contents of experiments/picocli-putValue/stripped/, so it "
                       "re-runs in full whenever the fixture is rebuilt (e.g. after "
                       "prepare.py --force) and is quick otherwise.")
-                subprocess.run([docker, "build", "--progress=plain", *proxy,
+                # --progress is a BuildKit flag. The legacy builder (no buildx
+                # installed) rejects it with "unknown flag" and exit 125, which turned
+                # a readability tweak into a build that could not start at all. Ask
+                # the local docker what it supports instead of assuming.
+                helptext = subprocess.run([docker, "build", "--help"],
+                                          capture_output=True, text=True).stdout
+                progress = ["--progress=plain"] if "--progress" in helptext else []
+                subprocess.run([docker, "build", *progress, *proxy,
                                 "-t", "abench-sandbox:latest",
                                 "-f", "docker/Dockerfile.sandbox", "."], check=True)
                 have = True
