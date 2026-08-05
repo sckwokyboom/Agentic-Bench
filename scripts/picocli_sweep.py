@@ -65,7 +65,10 @@ EXPERIMENT = """\
 # baseline = raw agent. rcc = causal loop over the ground-truth mutation graph.
 # Read target_similarity FIRST: picocli is public, so a verbatim restoration means
 # the model recalled the body and this method measures recall, not repair.
-name: picocli-{method}-ab
+# The name MUST equal the directory name: abench writes runs to
+# output_dir/<name>/<batch>, while abench-ui reads <exp-dir>/runs/<exp-dir-name>.
+# When they differ the UI polls a path that will never exist and spams 404.
+name: {method}
 fixture_path: ./stripped           # the stub tree the agent sees
 reference_path: ./original         # the real picocli tree (target_similarity)
 task_prompt: ./task.md
