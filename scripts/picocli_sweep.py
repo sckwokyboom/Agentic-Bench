@@ -446,9 +446,22 @@ def main() -> int:
 
     a.root.mkdir(parents=True, exist_ok=True)
     made, skipped = [], []
+    # Built to be left running unattended: every experiment is independent, a failure
+    # in one does not stop the rest, finished ones are skipped on a re-run, and the
+    # digest is produced at the end so the morning starts with numbers rather than a
+    # directory tree.
     lines_out = ["#!/usr/bin/env bash", "set -uo pipefail",
-                 "# picocli method-restoration A/B: baseline vs rcc. Resumable.",
-                 'ROOT="$(cd "$(dirname "$0")" && pwd)"', ""]
+                 "# picocli method-restoration A/B: baseline vs rcc, one experiment per",
+                 "# method. Resumable — re-running skips experiments that already have",
+                 "# runs, so an interrupted night can simply be started again.",
+                 'ROOT="$(cd "$(dirname "$0")" && pwd)"',
+                 'LOG="$ROOT/sweep.log"',
+                 '[ -n "${DEEPSEEK_API_KEY:-}" ] || { echo "DEEPSEEK_API_KEY is unset"; exit 2; }',
+                 'exec > >(tee -a "$LOG") 2>&1',
+                 'START=$(date +%s)',
+                 'echo "=== sweep started $(date -Is) — log: $LOG ==="',
+                 'ts() { date +%H:%M:%S; }',
+                 ""]
 
     for spec in want:
         hits = by_short.get(spec) or []
@@ -475,7 +488,7 @@ def main() -> int:
         d = a.root / slug
         if (d / "experiment.yaml").is_file() and not a.force:
             made.append((slug, cov_note(cov, fqn), "reused"))
-            lines_out += [f'echo "=== {slug} ==="', f'D="$ROOT/{slug}"',
+            lines_out += [f'echo "[$(ts)] === {slug} ==="', f'D="$ROOT/{slug}"',
                           'if ls "$D"/runs/*/*/*/rep_*/metrics.json >/dev/null 2>&1; then',
                           f'  echo "  SKIP {slug}: already has runs (rm -rf $D/runs to redo)"',
                           "else",
@@ -559,13 +572,23 @@ def main() -> int:
             conditions="\n".join(conditions),
             system=os.path.relpath(sys_prompt, d)), encoding="utf-8")
         made.append((slug, cov_note(cov, fqn), f"{removed} lines stripped"))
-        lines_out += [f'echo "=== {slug} ==="', f'D="$ROOT/{slug}"',
+        lines_out += [f'echo "[$(ts)] === {slug} ==="', f'D="$ROOT/{slug}"',
                       'if ls "$D"/runs/*/*/*/rep_*/metrics.json >/dev/null 2>&1; then',
                       f'  echo "  SKIP {slug}: already has runs (rm -rf $D/runs to redo)"',
                       "else",
                       f'  ( cd "$D" && abench run experiment.yaml ) || echo "  !! failed: {slug}"',
                       "fi", ""]
 
+    lines_out += [
+        'echo ""',
+        'echo "=== sweep finished $(date -Is) after $(( ($(date +%s)-START)/60 )) min ==="',
+        "# The digest is the point of the batch; produce it here so an unattended run",
+        "# ends with a comparison rather than a tree of artefacts to go find.",
+        f'python3 "$ROOT/../scripts/d4j_ab_summary.py" "$ROOT" --runs-dir runs '
+        f'--out "$ROOT/picocli-ab.md" || echo "  !! digest failed — run it by hand"',
+        'echo "digest: $ROOT/picocli-ab.md"',
+        "",
+    ]
     script = a.root / "run_sweep.sh"
     script.write_text("\n".join(lines_out))
     script.chmod(0o755)
