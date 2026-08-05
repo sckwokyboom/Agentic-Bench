@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -60,6 +61,15 @@ class _RunStartBody(BaseModel):
     experiment_name: str
     # Optional run subset: restrict to these conditions and/or override the
     # repetition count (None = use the experiment's full set / configured reps).
+    conditions: list[str] | None = None
+    repetitions: int | None = None
+
+
+class _QueueStartBody(BaseModel):
+    """Run several experiments back to back. Sequential BY DESIGN: two agent sessions
+    on one machine contend for CPU during their verifies, and duration is one of the
+    numbers being measured."""
+    experiment_names: list[str]
     conditions: list[str] | None = None
     repetitions: int | None = None
 
@@ -131,6 +141,10 @@ def create_app(
     constructing a RealOpenCodeClient — the test seam."""
     state: dict = {
         "experiments_dir": Path(experiments_dir),
+        # One queue per server: sequential by design, so there is nothing
+        # to key by. Sessions themselves stay in state["sessions"].
+        "queue": {"running": False, "cancelled": False, "items": [],
+                  "conditions": None, "repetitions": None},
         "sessions": {},       # sid -> RunSession
         "buffers": {},        # sid -> SessionEventBuffer
         "ws_queues": {},      # sid -> list[asyncio.Queue]
@@ -595,20 +609,27 @@ def create_app(
 
     # ── Session management (POST /runs + GET/DELETE /sessions) ───────────────
 
-    @api.post("/runs")
-    def _start_run(body: _RunStartBody, token: str = Depends(_session_token)):
+    def _launch(experiment_name: str, conditions: "list[str] | None",
+                repetitions: "int | None", token: str) -> str:
+        """Start ONE experiment and return its session id.
+
+        Factored out of the POST /runs handler so the queue can start sessions the
+        same way a click does — same subset handling, same event buffer, same
+        RunSession — rather than reimplementing a parallel launch path that would
+        drift from it.
+        """
         try:
             exp_payload = exp_mod.read_experiment(
-                state["experiments_dir"], body.experiment_name
+                state["experiments_dir"], experiment_name
             )
         except exp_mod.ExperimentNotFound:
             raise HTTPException(
-                404, f"experiment '{body.experiment_name}' not found"
+                404, f"experiment '{experiment_name}' not found"
             )
         exp = Experiment(**exp_payload)
         try:
             from abench.runner import apply_run_subset
-            apply_run_subset(exp, body.conditions, body.repetitions)
+            apply_run_subset(exp, conditions, repetitions)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         sid = uuid.uuid4().hex
@@ -644,7 +665,12 @@ def create_app(
         )
         state["sessions"][sid] = session
         session.start()
-        return {"session_id": sid}
+        return sid
+
+    @api.post("/runs")
+    def _start_run(body: _RunStartBody, token: str = Depends(_session_token)):
+        return {"session_id": _launch(body.experiment_name, body.conditions,
+                                      body.repetitions, token)}
 
     def _summarize_session(s) -> dict:
         """Status + enough experiment context (name, batch, conditions) that the
@@ -690,6 +716,74 @@ def create_app(
             raise HTTPException(404, "session not found")
         session.cancel()
         return {"ok": True}
+
+
+    # ── Queue (run several experiments back to back) ─────────────────────────
+
+    def _queue_snapshot() -> dict:
+        q = state["queue"]
+        items = []
+        for it in q["items"]:
+            sess = state["sessions"].get(it["session_id"]) if it["session_id"] else None
+            items.append({**it,
+                          "state": (sess.state.value if sess else it["state"]),
+                          "current_idx": getattr(sess, "current_idx", None),
+                          "total_runs": getattr(sess, "total_runs", None)})
+        return {"running": q["running"], "cancelled": q["cancelled"], "items": items}
+
+    def _queue_worker(token: str) -> None:
+        q = state["queue"]
+        try:
+            for it in q["items"]:
+                if q["cancelled"]:
+                    it["state"] = "cancelled"
+                    continue
+                try:
+                    it["session_id"] = _launch(
+                        it["name"], q["conditions"], q["repetitions"], token)
+                    it["state"] = "running"
+                except Exception as exc:            # a bad experiment must not
+                    it["state"] = "failed"          # take the rest of the night
+                    it["error"] = str(exc)[:300]
+                    continue
+                sess = state["sessions"][it["session_id"]]
+                while sess.state.value in ("pending", "running"):
+                    if q["cancelled"]:
+                        sess.cancel()
+                        break
+                    time.sleep(2.0)
+                it["state"] = sess.state.value
+        finally:
+            q["running"] = False
+
+    @api.post("/queue")
+    def _start_queue(body: _QueueStartBody, token: str = Depends(_session_token)):
+        q = state["queue"]
+        if q["running"]:
+            raise HTTPException(409, "a queue is already running")
+        known = {e["name"] for e in exp_mod.list_experiments(state["experiments_dir"])}
+        missing = [n for n in body.experiment_names if n not in known]
+        if missing:
+            raise HTTPException(404, f"unknown experiment(s): {', '.join(missing)}")
+        if not body.experiment_names:
+            raise HTTPException(400, "no experiments given")
+        q.update(running=True, cancelled=False,
+                 conditions=body.conditions, repetitions=body.repetitions,
+                 items=[{"name": n, "state": "pending", "session_id": None,
+                         "error": None} for n in body.experiment_names])
+        threading.Thread(target=_queue_worker, args=(token,), daemon=True).start()
+        return _queue_snapshot()
+
+    @api.get("/queue")
+    def _get_queue():
+        return _queue_snapshot()
+
+    @api.delete("/queue")
+    def _cancel_queue():
+        """Stop after the current experiment's session is cancelled; queued ones are
+        marked cancelled. Finished work is untouched — the runs are already on disk."""
+        state["queue"]["cancelled"] = True
+        return _queue_snapshot()
 
     # ── Re-verify jobs ────────────────────────────────────────────────────────
 

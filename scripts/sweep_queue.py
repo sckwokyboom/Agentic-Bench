@@ -29,7 +29,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-DONE = ("done", "finished", "completed", "failed", "error", "cancelled", "canceled")
+#: abench_ui.run_session.SessionState — anything not pending/running is terminal.
+DONE = ("completed", "failed", "cancelled")
 
 
 def _api(base: str, path: str, payload: dict | None = None, method: str | None = None):
