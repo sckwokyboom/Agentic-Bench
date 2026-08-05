@@ -109,7 +109,19 @@ RUN if [ -n "${HTTPS_PROXY}${https_proxy}" ]; then \
 # System Gradle for projects that ship NO wrapper. picocli uses its own
 # ./gradlew, whose distribution is already in the baked cache copied below.
 ARG GRADLE_VERSION=8.7
-RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip \
+# ~130MB in one stream. An intercepting corporate proxy routinely drops a transfer
+# that large mid-flight — `curl: (56) unexpected eof while reading` — and a single
+# -fsSL turns that into a failed build after everything before it succeeded. Retry
+# with RESUME (-C -), so each attempt continues from the bytes already on disk
+# instead of starting the 130MB over, and verify the archive before unpacking so a
+# truncated download reports itself rather than surfacing as a confusing unzip error.
+RUN for i in 1 2 3 4 5; do \
+        curl -fSL -C - --retry 3 --retry-delay 5 \
+            "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
+            -o /tmp/gradle.zip && break; \
+        echo "[gradle] download attempt $i failed — resuming in 5s"; sleep 5; \
+    done \
+    && unzip -tq /tmp/gradle.zip \
     && unzip -q /tmp/gradle.zip -d /opt \
     && ln -s "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle \
     && rm /tmp/gradle.zip
