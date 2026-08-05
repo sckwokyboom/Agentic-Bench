@@ -168,6 +168,26 @@ RUN set -eu; \
     opencode --version
 ENV PATH="/root/.opencode/bin:${PATH}"
 
+# opencode keeps its own plugin dependency in ~/.config/opencode (package.json pinning
+# @opencode-ai/plugin to the CLI's version, ~57MB of node_modules) and installs it in
+# the background on first use. A container starts with that directory EMPTY, so every
+# single run re-installs it from the npm registry — which behind an authenticating
+# proxy logs "background dependency install failed … 407" on each run. Nothing about a
+# benchmark run should be installing packages; bake it once, here.
+# Non-fatal: opencode logs this at WARN and keeps working, so a build that cannot reach
+# the registry should still produce a usable image rather than fail outright.
+RUN set -eu; \
+    mkdir -p /root/.config/opencode; \
+    ver="$(opencode --version 2>/dev/null | tr -d '\r\n' | tail -n1)"; \
+    printf '{\n  "dependencies": {\n    "@opencode-ai/plugin": "%s"\n  }\n}\n' "$ver" \
+        > /root/.config/opencode/package.json; \
+    if (cd /root/.config/opencode && npm install --no-audit --no-fund) \
+       && [ -d /root/.config/opencode/node_modules/@opencode-ai/plugin ]; then \
+        echo "[opencode] plugin dependency baked in for $ver"; \
+    else \
+        echo "[opencode] WARN could not pre-install the plugin — runs will retry it"; \
+    fi
+
 # opencode resolves model metadata from the models.dev catalog and caches it at
 # ~/.cache/opencode/models.json. A container starts with an EMPTY cache, so every
 # single run re-fetches it — and behind an authenticating proxy that request answers
