@@ -49,13 +49,34 @@ _COUNTS = re.compile(r"(\d+)\s+tests?\s+completed(?:,\s*(\d+)\s+failed)?")
 
 
 def candidates(cov: dict, meths: dict, want: list[str] | None) -> list[tuple[str, str]]:
-    by_short = {k.rsplit(".", 1)[-1]: k for k in cov}
-    names = want or sorted(by_short)
-    out = []
+    """Resolve names to FQNs across the WHOLE file, not just the covered region.
+
+    Restricting candidates to coverage.json confined every scan to TextTable, and
+    measuring that region showed why it is the wrong place to look: stripping any
+    method there breaks the same ~40 classes, because help rendering is on nearly
+    every test's path. The interesting targets — the parser, arity, ANSI text — are
+    elsewhere in the same file and have no coverage entry, so resolution now falls
+    back to the project-wide method index. Accepts `method` or `Class.method`; a
+    bare name that matches several classes is reported rather than guessed.
+    """
+    in_file = {fqn: loc for fqn, loc in meths.items()
+               if SRC_REL in str(loc.get("file", ""))}
+    by_short: dict[str, list[str]] = {}
+    for fqn in in_file:
+        by_short.setdefault(fqn.rsplit(".", 1)[-1], []).append(fqn)
+        cls = fqn.rsplit(".", 1)[0].split("$")[-1]
+        by_short.setdefault(f"{cls}.{fqn.rsplit('.', 1)[-1]}", []).append(fqn)
+    names = want or sorted(k.rsplit(".", 1)[-1] for k in cov)
+    out: list[tuple[str, str]] = []
     for n in names:
-        fqn = by_short.get(n)
-        if fqn and SRC_REL in (meths.get(fqn) or {}).get("file", ""):
-            out.append((n, fqn))
+        hits = by_short.get(n) or []
+        if not hits:
+            print(f"  ? {n}: no such method in {SRC_REL}")
+        elif len(hits) > 1 and "." not in n:
+            classes = sorted({h.rsplit(".", 1)[0].split("$")[-1] for h in hits})
+            print(f"  ? {n}: ambiguous across {classes} — qualify it as Class.{n}")
+        else:
+            out.append((n, hits[0]))
     return out
 
 
@@ -145,7 +166,7 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             print(f"      timed out after {a.timeout}s")
             continue
-        r["tests_covering"] = len(cov[fqn])
+        r["tests_covering"] = len(cov.get(fqn, []))
         rows.append(r)
         print(f"      {r['failures']} failing test(s) across {r['classes']} class(es), "
               f"{r['body']} body lines, {r['secs']}s"
@@ -158,7 +179,7 @@ def main() -> int:
          "| method | failing tests | failing classes | body lines | covering tests | compiles |",
          "|---|---|---|---|---|---|"]
     o += [f"| {r['method']} | {r['failures']} | {r['classes']} | {r['body']} | "
-          f"{r['tests_covering']} | {'yes' if r['compiles'] else 'NO'} |" for r in rows]
+          f"{r['tests_covering'] or '—'} | {'yes' if r['compiles'] else 'NO'} |" for r in rows]
     o += ["",
           "Ranked by failing CLASSES first: that is the distance between symptom and "
           "cause, which is what the causal loop exists to close. A method breaking one "
