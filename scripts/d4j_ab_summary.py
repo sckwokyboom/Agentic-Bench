@@ -60,6 +60,10 @@ def collect(root: Path, runs_dir: str = "runs-ab") -> list[dict]:
                 # "fixed the defect". Carried so the report cannot present it as a
                 # solve rate.
                 "hidden_tests": (bugdir / "HIDDEN_TESTS").is_file(),
+                # Offline cost of this target's ground-truth graph. Part of what rcc
+                # costs — in production nothing pre-builds it — so the comparison is
+                # reported both without and with it, and neither number hides.
+                "graph_s": (_load(bugdir / "graph_cost.json") or {}).get("seconds"),
                 "arm": rd.parent.name,
                 "rep": rd.name,
                 "solved": m.get("verify_status") == "passed",
@@ -173,7 +177,9 @@ def render(rows: list[dict], title: str = "") -> str:
                  "bk_runs": _agg(rs, "bk_runs"),
                  "degraded": any(r["degraded"] for r in rs),
                  "svc": sum(r.get("svc_errors", 0) + r.get("rate_limits", 0) for r in rs),
-                 "loop": sum(1 for r in rs if r["rcc_loop"])}
+                 "loop": sum(1 for r in rs if r["rcc_loop"]),
+                 # Same for every rep of a target — the graph is built once, offline.
+                 "graph_s": next((r["graph_s"] for r in rs if r.get("graph_s")), None)}
             per[(bug, arm)] = a
             loop = ("—" if arm != "rcc"
                     else ("DEGRADED" if a["degraded"] else f"{a['loop']}/{a['n']}"))
@@ -186,10 +192,11 @@ def render(rows: list[dict], title: str = "") -> str:
     # ── rcc vs baseline ──────────────────────────────────────────────────────
     if "rcc" in arms and "baseline" in arms:
         o += ["## rcc vs baseline (ratio <1 = rcc cheaper)", "",
-              "| target | both solved? | dur ratio | NET dur ratio | steps ratio | tokens ratio | note |",
-              "|---|---|---|---|---|---|---|"]
+              "| target | both solved? | dur ratio | +graph | NET dur ratio | "
+              "steps ratio | tokens ratio | note |",
+              "|---|---|---|---|---|---|---|---|"]
         ratios: dict[str, list[float]] = {"duration": [], "net_wall": [], "steps": [],
-                                          "tokens": []}
+                                          "tokens": [], "duration_graph": []}
         solve_b = solve_r = 0
         for bug in bugs:
             b, r = per.get((bug, "baseline")), per.get((bug, "rcc"))
@@ -208,7 +215,20 @@ def render(rows: list[dict], title: str = "") -> str:
                 note.append(f"solve differs (base {b['solved']}/{b['n']}, "
                             f"rcc {r['solved']}/{r['n']}) — cost not comparable")
             cells = []
-            for k in ("duration", "net_wall", "steps", "tokens"):
+            for k in ("duration", "duration_graph", "net_wall", "steps", "tokens"):
+                if k == "duration_graph":
+                    # rcc did not conjure its graph: something spent minutes building
+                    # it. Charging it is what makes the comparison honest — in
+                    # production the tool builds its own and pays for it there.
+                    g = r.get("graph_s")
+                    if b["duration"] and r["duration"] and g:
+                        ratio = (r["duration"] + g) / b["duration"]
+                        cells.append(f"{ratio:.2f}×")
+                        if both and not r["degraded"] and not (b.get("svc") or r.get("svc")):
+                            ratios[k].append(ratio)
+                    else:
+                        cells.append("—")
+                    continue
                 if b[k] and r[k]:
                     ratio = r[k] / b[k]
                     cells.append(f"{ratio:.2f}×")
@@ -224,7 +244,9 @@ def render(rows: list[dict], title: str = "") -> str:
         o += [f"### Headline (over the {n} bug(s) where BOTH arms solved and rcc ran "
               "its loop)", ""]
         if n:
-            for k, label in (("duration", "wall-clock"),
+            for k, label in (("duration", "wall-clock (agent session only)"),
+                             ("duration_graph",
+                              "wall-clock INCLUDING the ground-truth graph build"),
                              ("net_wall", "wall-clock NET of harness bookkeeping"),
                              ("steps", "steps"),
                              ("tokens", "tokens")):

@@ -327,8 +327,17 @@ def check_no_leak(overlay: Path, reference_body: str) -> str | None:
 
 
 def produce_graph(gt: Path, method: str, fqn: str, decl: str, checkout: Path,
-                  out: Path, tests: str, timeout: int) -> str | None:
-    """Build the ground-truth mutation graph for one target. None on success."""
+                  out: Path, tests: str, timeout: int,
+                  cost: "dict | None" = None) -> str | None:
+    """Build the ground-truth mutation graph for one target. None on success.
+
+    Writes its wall-clock into `cost`, because that time is REAL and belongs to the
+    rcc arm. Pre-building the graph offline and handing it to rcc hides a cost the
+    baseline never stops paying for its own work — and at 3-10 minutes per target
+    against 10-20 minute sessions, the hidden cost is the same order as the whole
+    measurement. In production nothing pre-builds these; the tool would do it itself
+    and be charged for it.
+    """
     cls = fqn.rsplit(".", 1)[0].split("$")[-1]
     params = ",".join(split_params(decl))
     slice_target = (f"src/main/java/picocli/CommandLine.java#{cls}.{method}({params})")
@@ -366,6 +375,8 @@ def produce_graph(gt: Path, method: str, fqn: str, decl: str, checkout: Path,
                  if ln.strip() and not ln.startswith((" ", "\t"))][-1:] or ["(no stderr)"]
         return f"produce_artifacts failed in {dt:.0f}s: {cause[0][:160]} — see {log}"
     print(f"      graph built in {dt / 60:.1f} min")
+    if cost is not None:
+        cost["seconds"] = round(dt, 1)
     return None
 
 
@@ -527,8 +538,9 @@ def main() -> int:
 
         if not a.no_graph:
             print(f"  … {slug}: building the ground-truth graph (can take many minutes)")
+            cost: dict = {}
             err = produce_graph(gt, m, fqn, original_src[first], checkout,
-                                d / "gt-out", a.tests, a.graph_timeout)
+                                d / "gt-out", a.tests, a.graph_timeout, cost)
             if err:
                 # Deliberately NOT removed: the failure log lives under gt-out/ and
                 # deleting it was why the first WSL failure could not be diagnosed.
@@ -542,6 +554,15 @@ def main() -> int:
                 skipped.append(f"{m}: {err}")
                 shutil.rmtree(d, ignore_errors=True)
                 continue
+            # Ship the cost WITH the fixture so no later step can silently drop it.
+            (d / "graph_cost.json").write_text(json.dumps({
+                "target": fqn,
+                "seconds": cost.get("seconds"),
+                "note": "Wall-clock to build this target's ground-truth mutation "
+                        "graph offline. It is part of what the rcc arm costs: in "
+                        "production the tool builds its own graph. Add it to rcc's "
+                        "duration before comparing against baseline.",
+            }, indent=2), encoding="utf-8")
             leak = check_no_leak(overlay, reference_body)
             if leak:
                 skipped.append(f"{m}: LEAK GUARD — {leak}")
