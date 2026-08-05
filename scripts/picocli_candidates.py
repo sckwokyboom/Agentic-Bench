@@ -80,11 +80,12 @@ def candidates(cov: dict, meths: dict, want: list[str] | None) -> list[tuple[str
     return out
 
 
-def failing_classes(tree: Path) -> tuple[int, int]:
-    """(failures, distinct failing test classes) from the JUnit XML results."""
+def failing_classes(tree: Path) -> tuple[int, int, int]:
+    """(failures, failing test classes, TOTAL test classes) from the JUnit XML."""
     results = tree / "build" / "test-results" / "test"
-    failures, classes = 0, set()
+    failures, classes, total = 0, set(), 0
     for xml in results.glob("*.xml"):
+        total += 1
         try:
             text = xml.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -94,7 +95,7 @@ def failing_classes(tree: Path) -> tuple[int, int]:
             failures += n
             m = re.search(r'<testsuite[^>]*\bname="([^"]+)"', text)
             classes.add(m.group(1) if m else xml.stem)
-    return failures, len(classes)
+    return failures, len(classes), total
 
 
 def measure(tree: Path, name: str, decl_line: int, timeout: int) -> dict:
@@ -110,12 +111,14 @@ def measure(tree: Path, name: str, decl_line: int, timeout: int) -> dict:
         dt = time.monotonic() - t0
         blob = (p.stdout or "") + (p.stderr or "")
         compiles = "COMPILATION ERROR" not in blob and "error: " not in blob
-        failures, classes = failing_classes(tree)
+        failures, classes, total = failing_classes(tree)
         if not failures:                       # fall back to gradle's own tally
             m = _COUNTS.search(blob)
             failures = int(m.group(2) or 0) if m else 0
         return {"method": name, "body": removed, "failures": failures,
-                "classes": classes, "compiles": compiles, "secs": round(dt)}
+                "classes": classes, "total_classes": total,
+                "share": (classes / total) if total else 0.0,
+                "compiles": compiles, "secs": round(dt)}
     finally:
         src.write_text(pristine, encoding="utf-8")   # never leave a stubbed tree
 
@@ -172,22 +175,42 @@ def main() -> int:
               f"{r['body']} body lines, {r['secs']}s"
               + ("" if r["compiles"] else "  [DOES NOT COMPILE]"))
 
-    # Sort by the causal-loop axis first: a symptom spread across many classes is what
-    # makes ranking candidate causes a real problem rather than a lookup.
-    rows.sort(key=lambda r: (r["classes"], r["failures"], r["body"]), reverse=True)
+    # SATURATION is the thing to avoid, and the first scan proved it: in TextTable every
+    # method — 4 lines or 46 — broke the same ~40 classes, and CaseAwareLinkedMap.get
+    # breaks 89 of 73 source classes. When nearly the whole suite fails, the failures
+    # cannot discriminate between candidate causes, so the causal loop has no signal to
+    # rank on. Maximising breadth was exactly the wrong objective.
+    #
+    # A good target has a SUBSTANTIAL body (cannot be guessed in one shot) and a
+    # LOCALISED failure (the failing set actually points somewhere).
+    SATURATED = 0.60
+    rows.sort(key=lambda r: (not r["compiles"], r["share"] >= SATURATED, -r["body"]))
     o = ["# picocli A/B candidates — measured", "",
-         "| method | failing tests | failing classes | body lines | covering tests | compiles |",
-         "|---|---|---|---|---|---|"]
-    o += [f"| {r['method']} | {r['failures']} | {r['classes']} | {r['body']} | "
-          f"{r['tests_covering'] or '—'} | {'yes' if r['compiles'] else 'NO'} |" for r in rows]
+         "| method | body lines | failing tests | classes | % of suite | compiles | verdict |",
+         "|---|---|---|---|---|---|---|"]
+    for r in rows:
+        if not r["compiles"]:
+            v = "broken fixture"
+        elif not r["failures"]:
+            v = "stub passes — nothing to fix"
+        elif r["share"] >= SATURATED:
+            v = "saturated — failures cannot discriminate"
+        else:
+            v = "**usable**"
+        o.append(f"| {r['method']} | {r['body']} | {r['failures']} | {r['classes']} | "
+                 f"{r['share']:.0%} | {'yes' if r['compiles'] else 'NO'} | {v} |")
     o += ["",
-          "Ranked by failing CLASSES first: that is the distance between symptom and "
-          "cause, which is what the causal loop exists to close. A method breaking one "
-          "class is already named by its own failing test — useful as an easy control, "
-          "not as a test of ranking.",
+          f"**Saturation is the disqualifier.** Above ~{SATURATED:.0%} of the suite the "
+          "failures stop discriminating: every candidate cause looks equally guilty, so "
+          "there is nothing for a causal loop to rank. Measured proof — in TextTable a "
+          "4-line reindent and a 46-line putValue both break the same ~40 classes, and "
+          "CaseAwareLinkedMap.get breaks more classes than the project has test files.",
           "",
-          "A row with compiles=NO is a broken fixture, not a task: exclude it.", ""]
-    usable = [r for r in rows if r["compiles"] and r["failures"]]
+          "Among the rest, ranking is by BODY SIZE: the more lines the agent must "
+          "re-derive, the less a single lucky guess can pass, and the more room there is "
+          "for a repair loop to matter at all.", ""]
+    usable = [r for r in rows if r["compiles"] and r["failures"]
+              and r["share"] < SATURATED]
     if usable:
         o += ["**Suggested set:** "
               + ", ".join(r["method"] for r in usable[:6])
