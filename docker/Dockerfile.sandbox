@@ -156,7 +156,16 @@ RUN set -eu; \
     node --version; \
     rm -rf /var/lib/apt/lists/*; \
     npm config set fetch-retries 5 fetch-retry-maxtimeout 120000; \
-    npm install -g opencode-ai || curl -fsSL --retry 3 https://opencode.ai/install | bash
+    npm install -g opencode-ai || curl -fsSL --retry 3 https://opencode.ai/install | bash; \
+    export PATH="/root/.opencode/bin:$PATH"; \
+    command -v opencode >/dev/null 2>&1 || { \
+        echo "[opencode] NOT INSTALLED — npm and the install script both failed."; \
+        echo "[opencode] Refusing to ship an image whose agent binary is missing:"; \
+        echo "[opencode] the container would start and exit 127 with"; \
+        echo "[opencode]   'No model response -- opencode exited with code 127'."; \
+        exit 1; \
+    }; \
+    opencode --version
 ENV PATH="/root/.opencode/bin:${PATH}"
 
 # opencode resolves model metadata from the models.dev catalog and caches it at
