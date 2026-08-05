@@ -59,8 +59,8 @@ DEFAULT_METHODS = ["reindent", "addEmptyRow", "unindent", "forDefaultColumns",
                    "addRowValues", "toString", "putValue"]
 
 EXPERIMENT = """\
-# AUTO-GENERATED method-restoration A/B for picocli TextTable.{method}
-# {tests} covering tests | {lines}-line body replaced by a stub
+# AUTO-GENERATED method-restoration A/B for picocli {cls}.{method}
+# {tests} | {lines}-line body replaced by a stub
 #
 # baseline = raw agent. rcc = causal loop over the ground-truth mutation graph.
 # Read target_similarity FIRST: picocli is public, so a verbatim restoration means
@@ -68,7 +68,7 @@ EXPERIMENT = """\
 # The name MUST equal the directory name: abench writes runs to
 # output_dir/<name>/<batch>, while abench-ui reads <exp-dir>/runs/<exp-dir-name>.
 # When they differ the UI polls a path that will never exist and spams 404.
-name: {method}
+name: {slug}
 fixture_path: ./stripped           # the stub tree the agent sees
 reference_path: ./original         # the real picocli tree (target_similarity)
 task_prompt: ./task.md
@@ -88,7 +88,7 @@ opencode:
   sandbox:
 {sandbox}
 orchestration:
-  target_label: the TextTable.{method} method
+  target_label: the {cls}.{method} method
   max_diagnose_iters: 8
   no_progress_limit: 2
   cluster_cap: 5
@@ -114,6 +114,12 @@ replaced with a stub that throws UnsupportedOperationException.
 Implement it so the project's test suite passes. Keep the existing signature and do
 not change the tests.
 """
+
+
+def cov_note(cov: dict, fqn: str) -> str:
+    """Covering-test count, or a note — coverage.json only spans the TextTable region."""
+    n = len(cov.get(fqn, []))
+    return f"{n} covering tests" if n else "coverage not measured for this method"
 
 
 def load_index() -> tuple[dict, dict]:
@@ -422,39 +428,62 @@ def main() -> int:
             return 2
 
     cov, meths = load_index()
-    by_short = {k.rsplit(".", 1)[-1]: k for k in cov}
+    # Resolve across the WHOLE file, not just coverage.json. Coverage only exists for
+    # the TextTable region, and measuring that region showed it is the wrong place to
+    # look: every method there breaks the same ~40 classes, so the failures cannot
+    # discriminate between causes. The targets worth measuring — the parser, quoting,
+    # arity — live elsewhere in the same file and have no coverage entry.
+    # `Class.method` disambiguates; picocli has five different `validate`.
+    src_file = "src/main/java/picocli/CommandLine.java"
+    by_short: dict[str, list[str]] = {}
+    for fqn, loc in meths.items():
+        if src_file not in str(loc.get("file", "")):
+            continue
+        short = fqn.rsplit(".", 1)[-1]
+        by_short.setdefault(short, []).append(fqn)
+        by_short.setdefault(f"{fqn.rsplit('.', 1)[0].split('$')[-1]}.{short}", []).append(fqn)
     want = [m.strip() for m in a.methods.split(",")] if a.methods else DEFAULT_METHODS
 
     a.root.mkdir(parents=True, exist_ok=True)
-    src_file = "src/main/java/picocli/CommandLine.java"
     made, skipped = [], []
     lines_out = ["#!/usr/bin/env bash", "set -uo pipefail",
                  "# picocli method-restoration A/B: baseline vs rcc. Resumable.",
                  'ROOT="$(cd "$(dirname "$0")" && pwd)"', ""]
 
-    for m in want:
-        fqn = by_short.get(m)
-        if not fqn:
-            skipped.append(f"{m}: not in coverage.json (known: "
-                           f"{', '.join(sorted(by_short)[:6])}…)")
+    for spec in want:
+        hits = by_short.get(spec) or []
+        if not hits:
+            skipped.append(f"{spec}: no such method in {src_file}")
             continue
+        if len(hits) > 1 and "." not in spec:
+            classes = sorted({h.rsplit(".", 1)[0].split("$")[-1] for h in hits})
+            skipped.append(f"{spec}: ambiguous across {classes} — qualify as Class.{spec}")
+            continue
+        fqn = hits[0]
         entry = meths.get(fqn)
-        if not entry or src_file not in entry.get("file", ""):
-            skipped.append(f"{m}: no declaration span in methods.json")
+        if not entry:
+            skipped.append(f"{spec}: no declaration span in methods.json")
             continue
+        # `m` is the BARE method name — it seeds rcc's graph and names target_methods.
+        # `slug` is the directory/experiment name, which must be filesystem- and
+        # URL-safe AND identical to the experiment name (abench-ui resolves runs as
+        # <exp-dir>/runs/<exp-dir-name>).
+        m = fqn.rsplit(".", 1)[-1]
+        cls = fqn.rsplit(".", 1)[0].split("$")[-1]
+        slug = f"{cls}-{m}" if "." in spec else m
 
-        d = a.root / m
+        d = a.root / slug
         if (d / "experiment.yaml").is_file() and not a.force:
-            made.append((m, len(cov[fqn]), "reused"))
-            lines_out += [f'echo "=== {m} ==="', f'D="$ROOT/{m}"',
+            made.append((slug, cov_note(cov, fqn), "reused"))
+            lines_out += [f'echo "=== {slug} ==="', f'D="$ROOT/{slug}"',
                           'if ls "$D"/runs/*/*/*/rep_*/metrics.json >/dev/null 2>&1; then',
-                          f'  echo "  SKIP {m}: already has runs (rm -rf $D/runs to redo)"',
+                          f'  echo "  SKIP {slug}: already has runs (rm -rf $D/runs to redo)"',
                           "else",
-                          f'  ( cd "$D" && abench run experiment.yaml ) || echo "  !! failed: {m}"',
+                          f'  ( cd "$D" && abench run experiment.yaml ) || echo "  !! failed: {slug}"',
                           "fi", ""]
             continue
 
-        print(f"  … {m}: copying the tree")
+        print(f"  … {slug}: copying the tree")
         checkout = d / "stripped"
         if checkout.exists():
             shutil.rmtree(checkout)
@@ -484,7 +513,7 @@ def main() -> int:
             continue
 
         if not a.no_graph:
-            print(f"  … {m}: building the ground-truth graph (can take many minutes)")
+            print(f"  … {slug}: building the ground-truth graph (can take many minutes)")
             err = produce_graph(gt, m, fqn, original_src[first], checkout,
                                 d / "gt-out", a.tests, a.graph_timeout)
             if err:
@@ -506,8 +535,7 @@ def main() -> int:
                 shutil.rmtree(d, ignore_errors=True)
                 continue
 
-        (d / "task.md").write_text(TASK.format(
-            cls=fqn.rsplit(".", 1)[0].split("$")[-1], method=m), encoding="utf-8")
+        (d / "task.md").write_text(TASK.format(cls=cls, method=m), encoding="utf-8")
         sys_prompt = EXP / "prompts" / "system.md"
         # Without a graph the rcc arm has no overlay and the experiment will not even
         # load, so --no-graph emits the baseline arm alone: still a runnable smoke test
@@ -526,23 +554,24 @@ def main() -> int:
                    if a.container else "    mode: none")
         (d / "experiment.yaml").write_text(EXPERIMENT.format(
             sandbox=sandbox,
-            method=m, tests=len(cov[fqn]), lines=removed, model=a.model, reps=a.reps,
+            method=m, slug=slug, cls=cls, tests=cov_note(cov, fqn),
+            lines=removed, model=a.model, reps=a.reps,
             conditions="\n".join(conditions),
             system=os.path.relpath(sys_prompt, d)), encoding="utf-8")
-        made.append((m, len(cov[fqn]), f"{removed} lines stripped"))
-        lines_out += [f'echo "=== {m} ==="', f'D="$ROOT/{m}"',
+        made.append((slug, cov_note(cov, fqn), f"{removed} lines stripped"))
+        lines_out += [f'echo "=== {slug} ==="', f'D="$ROOT/{slug}"',
                       'if ls "$D"/runs/*/*/*/rep_*/metrics.json >/dev/null 2>&1; then',
-                      f'  echo "  SKIP {m}: already has runs (rm -rf $D/runs to redo)"',
+                      f'  echo "  SKIP {slug}: already has runs (rm -rf $D/runs to redo)"',
                       "else",
-                      f'  ( cd "$D" && abench run experiment.yaml ) || echo "  !! failed: {m}"',
+                      f'  ( cd "$D" && abench run experiment.yaml ) || echo "  !! failed: {slug}"',
                       "fi", ""]
 
     script = a.root / "run_sweep.sh"
     script.write_text("\n".join(lines_out))
     script.chmod(0o755)
     print(f"\nbuilt {len(made)} fixture(s) under {a.root}/ + {script}")
-    for m, t, note in made:
-        print(f"  {m:20} {t:>4} covering tests  ({note})")
+    for slug, cov_text, note in made:
+        print(f"  {slug:36} {note} | {cov_text}")
     if skipped:
         print("\nSKIPPED:")
         for s in skipped:
