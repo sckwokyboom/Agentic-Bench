@@ -122,6 +122,18 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && (npm install -g opencode-ai || curl -fsSL https://opencode.ai/install | bash)
 ENV PATH="/root/.opencode/bin:${PATH}"
 
+# opencode resolves model metadata from the models.dev catalog and caches it at
+# ~/.cache/opencode/models.json. A container starts with an EMPTY cache, so every
+# single run re-fetches it — and behind an authenticating proxy that request answers
+# 407, which surfaces as a stream of "APIError Proxy Authentication Required" that
+# looks like the model endpoint failing even though api.deepseek.com is fine.
+# Seed it here, where the build-time proxy args apply. Non-fatal: a direct build with
+# no catalog still produces a working image, it just fetches at runtime as before.
+RUN mkdir -p /root/.cache/opencode \
+    && (curl -fsSL https://models.dev/api.json -o /root/.cache/opencode/models.json \
+        && echo "[models.dev] catalog seeded ($(wc -c < /root/.cache/opencode/models.json) bytes)" \
+        || echo "[models.dev] WARN could not seed the catalog — runs will fetch it")
+
 # Pre-warmed, WRITABLE Gradle cache (wrapper distribution + plugins + all
 # compile/test dependency jars; NO sources, NO build cache). This is what lets
 # `./gradlew test` run fully offline with no mount and no env — so the agent has
