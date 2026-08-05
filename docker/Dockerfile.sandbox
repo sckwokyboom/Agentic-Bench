@@ -134,10 +134,29 @@ RUN for i in 1 2 3 4 5; do \
 
 # Node + opencode CLI. Adjust this to however you install opencode if the
 # package/install method differs in your environment.
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && (npm install -g opencode-ai || curl -fsSL https://opencode.ai/install | bash)
+#
+# nodesource ships Node as one 32MB .deb, and an intercepting proxy that cannot carry
+# a transfer that size times out mid-download — apt retries and then fails the build.
+# So: generous apt retries/timeouts first, and if nodesource still will not come
+# through, fall back to Ubuntu's own nodejs+npm. The distro mirrors are reachable in
+# exactly the environments where nodesource is not (they were answering "Hit:" in the
+# same build that timed out here), and opencode only needs a Node 20+ runtime — not
+# nodesource specifically.
+RUN set -eu; \
+    APT_OPTS="-o Acquire::Retries=10 -o Acquire::http::Timeout=180 -o Acquire::https::Timeout=180"; \
+    if curl -fsSL --retry 3 --retry-delay 5 https://deb.nodesource.com/setup_20.x | bash - \
+       && apt-get $APT_OPTS install -y --no-install-recommends nodejs; then \
+        echo "[node] installed from nodesource"; \
+    else \
+        echo "[node] nodesource unreachable — falling back to the distro packages"; \
+        rm -f /etc/apt/sources.list.d/nodesource.list; \
+        apt-get $APT_OPTS update; \
+        apt-get $APT_OPTS install -y --no-install-recommends nodejs npm; \
+    fi; \
+    node --version; \
+    rm -rf /var/lib/apt/lists/*; \
+    npm config set fetch-retries 5 fetch-retry-maxtimeout 120000; \
+    npm install -g opencode-ai || curl -fsSL --retry 3 https://opencode.ai/install | bash
 ENV PATH="/root/.opencode/bin:${PATH}"
 
 # opencode resolves model metadata from the models.dev catalog and caches it at
