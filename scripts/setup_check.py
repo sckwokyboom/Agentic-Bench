@@ -123,7 +123,16 @@ def main() -> int:
                 helptext = subprocess.run([docker, "build", "--help"],
                                           capture_output=True, text=True).stdout
                 progress = ["--progress=plain"] if "--progress" in helptext else []
-                subprocess.run([docker, "build", *progress, *proxy,
+                # Optional build knobs, forwarded when set. GRADLE_DIST_BASE points the
+                # ~130MB distribution download at a local mirror — the public host is
+                # the step most likely to be slow or cut off behind a proxy.
+                knobs: list[str] = []
+                for name in ("GRADLE_DIST_BASE", "GRADLE_VERSION"):
+                    v = os.environ.get(name)
+                    if v:
+                        knobs += ["--build-arg", f"{name}={v}"]
+                        print(f"  [setup] using {name} from the environment")
+                subprocess.run([docker, "build", *progress, *knobs, *proxy,
                                 "-t", "abench-sandbox:latest",
                                 "-f", "docker/Dockerfile.sandbox", "."], check=True)
                 have = True

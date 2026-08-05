@@ -109,6 +109,12 @@ RUN if [ -n "${HTTPS_PROXY}${https_proxy}" ]; then \
 # System Gradle for projects that ship NO wrapper. picocli uses its own
 # ./gradlew, whose distribution is already in the baked cache copied below.
 ARG GRADLE_VERSION=8.7
+# Where to fetch the distribution from. Point it at a local/company mirror when the
+# public host is slow or gets cut off — `GRADLE_DIST_BASE=https://mirror.example/gradle
+# python scripts/setup_check.py --container --build-image` is enough; nothing else
+# changes. Declared in THIS stage only: adding an ARG to the gradle-warm stage would
+# invalidate its layer and re-run the ten-minute dependency warm-up for nothing.
+ARG GRADLE_DIST_BASE=https://services.gradle.org/distributions
 # ~130MB in one stream. An intercepting corporate proxy routinely drops a transfer
 # that large mid-flight — `curl: (56) unexpected eof while reading` — and a single
 # -fsSL turns that into a failed build after everything before it succeeded. Retry
@@ -117,7 +123,7 @@ ARG GRADLE_VERSION=8.7
 # truncated download reports itself rather than surfacing as a confusing unzip error.
 RUN for i in 1 2 3 4 5; do \
         curl -fSL -C - --retry 3 --retry-delay 5 \
-            "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
+            "${GRADLE_DIST_BASE}/gradle-${GRADLE_VERSION}-bin.zip" \
             -o /tmp/gradle.zip && break; \
         echo "[gradle] download attempt $i failed — resuming in 5s"; sleep 5; \
     done \
