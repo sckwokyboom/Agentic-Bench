@@ -404,3 +404,50 @@ export async function fetchModelContext(
     model, base_url: baseUrl, api_key_env: apiKeyEnv ?? null,
   });
 }
+
+// ── Queue: several experiments back to back ────────────────────────────────
+// Sequential on the server (concurrent agent sessions would contend for CPU during
+// their verifies, and duration is a measured quantity), so the UI only needs to show
+// the order and where it is.
+export type QueueItem = {
+  name: string;
+  state: "pending" | "running" | "completed" | "failed" | "cancelled";
+  session_id: string | null;
+  error: string | null;
+  current_idx: number | null;
+  total_runs: number | null;
+};
+export type QueueState = {
+  running: boolean;
+  cancelled: boolean;
+  items: QueueItem[];
+};
+
+export function useQueue() {
+  return useQuery({
+    queryKey: ["queue"],
+    queryFn: () => apiGet<QueueState>("/api/queue"),
+    // Poll while a batch is in flight; idle otherwise so a parked tab is quiet.
+    refetchInterval: (q) => (q.state.data?.running ? 3000 : false),
+  });
+}
+
+export function useStartQueue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: {
+      experiment_names: string[];
+      conditions?: string[];
+      repetitions?: number;
+    }) => apiPostJson<QueueState>("/api/queue", args),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["queue"] }); },
+  });
+}
+
+export function useCancelQueue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiDelete<QueueState>("/api/queue"),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["queue"] }); },
+  });
+}

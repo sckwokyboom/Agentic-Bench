@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Stack, Box, Typography, Button, Table, TableHead, TableBody, TableRow,
-  TableCell, IconButton, CircularProgress, Alert, Link,
+  TableCell, IconButton, CircularProgress, Alert, Link, Checkbox, Chip,
+  LinearProgress,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import EditIcon from "@mui/icons-material/EditOutlined";
@@ -15,7 +16,7 @@ import NewExperimentDialog from "../components/NewExperimentDialog";
 import DeleteExperimentDialog from "../components/DeleteExperimentDialog";
 import {
   useExperiments, useDeleteExperiment, useStartRun, useSaveExperiment,
-  useCostSummary,
+  useCostSummary, useQueue, useStartQueue, useCancelQueue,
 } from "../api/queries";
 import type { ExperimentSummary } from "../api/types";
 
@@ -33,6 +34,24 @@ export default function ExperimentList() {
   const save = useSaveExperiment();
   const [toDelete, setToDelete] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const queue = useQueue();
+  const startQueue = useStartQueue();
+  const cancelQueue = useCancelQueue();
+  const queueRunning = queue.data?.running ?? false;
+
+  function toggle(name: string) {
+    setSelected((s) => (s.includes(name) ? s.filter((n) => n !== name) : [...s, name]));
+  }
+
+  async function handleRunSelected() {
+    // Order follows the table, so the batch is reproducible from what was on screen.
+    const names = (list.data ?? [])
+      .map((e) => e.name)
+      .filter((n) => selected.includes(n));
+    await startQueue.mutateAsync({ experiment_names: names });
+    setSelected([]);
+  }
 
   async function handleRun(name: string) {
     // From the list, run the full experiment; subset selection lives in the
@@ -58,6 +77,17 @@ export default function ExperimentList() {
     <Stack spacing={2}>
       <Stack direction="row" spacing={2} alignItems="center">
         <Typography variant="h5" sx={{ flexGrow: 1 }}>Experiments</Typography>
+        {selected.length > 0 && (
+          <Button
+            variant="contained"
+            size="small"
+            color="secondary"
+            disabled={queueRunning || startQueue.isPending}
+            onClick={handleRunSelected}
+          >
+            Run {selected.length} selected
+          </Button>
+        )}
         <Button variant="contained" size="small" onClick={() => setNewOpen(true)}>
           + New
         </Button>
@@ -75,6 +105,57 @@ export default function ExperimentList() {
         </Typography>
       )}
 
+      {queue.data && queue.data.items.length > 0 && (
+        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+            <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
+              Queue — {queue.data.items.filter((i) => i.state === "completed").length}
+              /{queue.data.items.length} done
+              {queue.data.cancelled ? " (cancelling)" : ""}
+            </Typography>
+            {queueRunning && (
+              <Button size="small" color="warning" onClick={() => cancelQueue.mutate()}>
+                Cancel queue
+              </Button>
+            )}
+          </Stack>
+          {queueRunning && <LinearProgress sx={{ mb: 1 }} />}
+          <Stack spacing={0.5}>
+            {queue.data.items.map((it) => (
+              <Stack key={it.name} direction="row" spacing={1} alignItems="center">
+                <Chip
+                  size="small"
+                  label={it.state}
+                  color={
+                    it.state === "completed" ? "success"
+                      : it.state === "running" ? "info"
+                      : it.state === "failed" ? "error"
+                      : "default"
+                  }
+                />
+                {/* A queued run is an ordinary session, so it opens in the normal
+                    live view — the queue is not a separate kind of run. */}
+                {it.session_id ? (
+                  <Link component={RouterLink} to={`/runs/sessions/${it.session_id}`}>
+                    {it.name}
+                  </Link>
+                ) : (
+                  <Typography variant="body2">{it.name}</Typography>
+                )}
+                {it.state === "running" && it.total_runs ? (
+                  <Typography variant="caption" color="text.secondary">
+                    run {(it.current_idx ?? 0) + 1}/{it.total_runs}
+                  </Typography>
+                ) : null}
+                {it.error && (
+                  <Typography variant="caption" color="error">{it.error}</Typography>
+                )}
+              </Stack>
+            ))}
+          </Stack>
+        </Box>
+      )}
+
       {list.isLoading && <CircularProgress />}
       {list.error && <Alert severity="error">Failed to load experiments.</Alert>}
 
@@ -83,6 +164,7 @@ export default function ExperimentList() {
           <Table size="small">
             <TableHead>
               <TableRow>
+                <TableCell padding="checkbox" />
                 <TableCell>Name</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Has runs</TableCell>
@@ -92,7 +174,16 @@ export default function ExperimentList() {
             </TableHead>
             <TableBody>
               {list.data.map((e) => (
-                <TableRow key={e.name} hover>
+                <TableRow key={e.name} hover selected={selected.includes(e.name)}>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={selected.includes(e.name)}
+                      disabled={!e.has_fixture || queueRunning}
+                      onChange={() => toggle(e.name)}
+                      inputProps={{ "aria-label": `select ${e.name}` }}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Link component={RouterLink} to={`/runs/${e.name}`}>{e.name}</Link>
                   </TableCell>
