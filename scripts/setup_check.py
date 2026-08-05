@@ -63,6 +63,37 @@ def _proxy_build_args() -> list[str]:
     return args
 
 
+def _bypass_proxy_for(args: list[str], url: str | None) -> list[str]:
+    """Ensure `url`'s host is in the NO_PROXY build-args.
+
+    An internal mirror routed through the corporate proxy fails with 504 Gateway
+    Timeout — the proxy cannot reach an address that only exists inside the network.
+    The symptom points at the mirror, the cause is the proxy, so add the host to the
+    bypass list rather than making the operator discover this.
+    """
+    if not url or not args:
+        return args
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname
+    if not host:
+        return args
+    out, seen = [], False
+    for a in args:
+        if a.startswith(("NO_PROXY=", "no_proxy=")):
+            name, _, val = a.partition("=")
+            parts = [p for p in val.split(",") if p]
+            if host not in parts:
+                parts.append(host)
+            out.append(f"{name}={','.join(parts)}")
+            seen = True
+        else:
+            out.append(a)
+    if not seen:
+        out += ["--build-arg", f"NO_PROXY={host}", "--build-arg", f"no_proxy={host}"]
+    print(f"  [setup] bypassing the proxy for the mirror host ({host})")
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--container", action="store_true")
@@ -132,6 +163,11 @@ def main() -> int:
                     if v:
                         knobs += ["--build-arg", f"{name}={v}"]
                         print(f"  [setup] using {name} from the environment")
+                # An internal mirror must NOT be fetched through the corporate proxy:
+                # the proxy cannot route to it and answers 504 Gateway Timeout, which
+                # reads as "the mirror is broken" when the mirror is fine. Add its host
+                # to NO_PROXY so curl talks to it directly.
+                proxy = _bypass_proxy_for(proxy, os.environ.get("GRADLE_DIST_BASE"))
                 subprocess.run([docker, "build", *progress, *knobs, *proxy,
                                 "-t", "abench-sandbox:latest",
                                 "-f", "docker/Dockerfile.sandbox", "."], check=True)
