@@ -155,3 +155,69 @@ def test_cancel_aborts_retry(tmp_path):
     # The (single, rate-limited) run is still recorded.
     metrics = json.loads((rundir / "metrics.json").read_text())
     assert metrics["interrupted_reason"] == "rate_limit"
+
+
+def _stillborn_result() -> RunResult:
+    """A 407 before the first turn: no steps, untouched workdir."""
+    return RunResult(
+        trace=Trace(started_at=0.0, ended_at=1.0, finished=True,
+                    interrupted_reason=None, n_service_errors=1, steps=[]),
+        raw_session=None,
+    )
+
+
+def _cut_short_result() -> RunResult:
+    """The agent was WORKING when the provider failed — steps recorded, then a 407.
+
+    This is the shape observed in a real container run: a gradle suite ran for
+    minutes, the connection idled, and the gateway demanded re-auth on the next
+    model call. The recorded cost describes where the infrastructure interrupted the
+    agent, so the sample is invalid rather than informative.
+    """
+    from abench.trace_model import Step
+    return RunResult(
+        trace=Trace(started_at=0.0, ended_at=1.0, finished=False,
+                    interrupted_reason="error", n_service_errors=1,
+                    steps=[Step(kind="tool_call", tool_name="bash")]),
+        raw_session=None,
+    )
+
+
+def test_retries_a_session_the_provider_cut_short(tmp_path):
+    """A provider error mid-session must re-SAMPLE, not be scored.
+
+    Scoring it charges the arm for where the proxy happened to strike — which is how
+    a picocli A/B came back with baseline 0/2 after both its reps were killed. Every
+    attempt gets a fresh workdir, so this is a new sample rather than a second
+    attempt at the task for the agent, and it applies to both arms alike.
+    """
+    exp = _experiment(tmp_path, retries=2)
+    client = _SequenceClient([_cut_short_result(), _success_result()])
+    run_experiment(exp, client_factory=lambda e: client)
+    assert client.calls == 2, "a cut-short session was scored instead of re-sampled"
+
+
+def test_retries_a_session_that_never_started(tmp_path):
+    exp = _experiment(tmp_path, retries=2)
+    client = _SequenceClient([_stillborn_result(), _success_result()])
+    run_experiment(exp, client_factory=lambda e: client)
+    assert client.calls == 2
+
+
+def test_a_clean_failure_is_not_retried(tmp_path):
+    """No provider error means the agent genuinely finished that way — keep it.
+
+    Retrying here WOULD be handing the agent extra attempts, which is exactly the
+    unfairness this policy must not introduce.
+    """
+    from abench.trace_model import Step
+    clean_giveup = RunResult(
+        trace=Trace(started_at=0.0, ended_at=1.0, finished=True,
+                    interrupted_reason=None, n_service_errors=0,
+                    steps=[Step(kind="tool_call", tool_name="bash")]),
+        raw_session=None,
+    )
+    exp = _experiment(tmp_path, retries=3)
+    client = _SequenceClient([clean_giveup, _success_result()])
+    run_experiment(exp, client_factory=lambda e: client)
+    assert client.calls == 1, "a clean run was retried — that is an extra attempt"

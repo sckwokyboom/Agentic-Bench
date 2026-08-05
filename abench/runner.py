@@ -788,14 +788,30 @@ def _run_one(exp: Experiment, cond: Condition, rep: int, root: Path,
                 # is how both baseline reps of a picocli A/B came back at 0 steps.
                 stillborn = (getattr(result.trace, "n_service_errors", 0)
                              and not result.trace.steps)
+                # A session CUT SHORT by a provider error is an invalid sample, not a
+                # result: the agent was working (a tool call had just succeeded) when
+                # the next model call returned 407, so the recorded cost and verdict
+                # describe where the infrastructure interrupted it. Observed pattern —
+                # a long tool call (a full gradle suite runs for minutes) leaves the
+                # connection idle, and the gateway demands re-auth on the next request.
+                #
+                # Re-running is a fresh SAMPLE, not an extra attempt for the agent:
+                # every attempt in this loop gets a brand-new workdir, so no partial
+                # work carries over, and the rule applies identically to both arms.
+                # The alternative — scoring it — actively biases whichever arm was
+                # unlucky, which is exactly how a picocli A/B came back with baseline
+                # 0/2 after the proxy killed both of its reps.
+                cut_short = (getattr(result.trace, "n_service_errors", 0)
+                             and result.trace.interrupted_reason == "error")
 
-                if ((rate_limited or stillborn) and attempt <= exp.rate_limit_retries
-                        and not cancelled):
+                if ((rate_limited or stillborn or cut_short)
+                        and attempt <= exp.rate_limit_retries and not cancelled):
                     backoff = min(
                         exp.rate_limit_backoff_s * (2 ** (attempt - 1)), 120.0
                     )
-                    reason = "rate-limited (429)" if rate_limited else (
-                        "provider error before the first step")
+                    reason = ("rate-limited (429)" if rate_limited
+                              else "provider error before the first step" if stillborn
+                              else "provider error cut the session short")
                     msg = (
                         f"[abench] {reason} — retry "
                         f"{attempt}/{exp.rate_limit_retries} after {backoff:.0f}s"
